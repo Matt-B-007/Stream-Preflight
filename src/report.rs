@@ -448,7 +448,7 @@ mod name_tests {
     #[test]
     fn report_file_name_says_build_date_and_id() {
         let n = super::file_name("PF-AB12-CD34");
-        assert!(n.starts_with("StreamPreflight-report_v0.1.0_"), "{n}");
+        assert!(n.starts_with(&format!("StreamPreflight-report_v{}_", crate::util::VERSION)), "{n}");
         assert!(n.ends_with("_PF-AB12-CD34.txt"), "{n}");
     }
 }

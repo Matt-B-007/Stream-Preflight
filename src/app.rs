@@ -220,6 +220,9 @@ pub struct App {
     install_result: Option<Result<std::path::PathBuf, String>>,
     install_remove_old: bool,
     open_uninstall: bool,
+    /// "Later" on the update banner (this session only).
+    update_later: bool,
+    update_notified: bool,
     conn_rx: Option<Receiver<(Option<ObsSnapshot>, Option<String>)>>,
     toast: Option<(String, f64)>,
     show_recording_popup: bool,
@@ -349,6 +352,8 @@ impl App {
             install_result: None,
             install_remove_old: true,
             open_uninstall,
+            update_later: false,
+            update_notified: false,
             conn_rx: None,
             toast: None,
             show_recording_popup: show_popup,
@@ -803,8 +808,16 @@ impl App {
         }
         if let Some(rx) = &self.update_install {
             if let Ok(r) = rx.try_recv() {
-                self.update_done = Some(r);
                 self.update_install = None;
+                if let Ok(p) = &r {
+                    // Start the new version, then close this one.
+                    if crate::install::launch(p) {
+                        log::info!("Restarting into the new version");
+                        self.quitting = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+                self.update_done = Some(r);
             }
         }
         if self.open_uninstall {
@@ -823,6 +836,15 @@ impl App {
                 let _ = tx.send(crate::update::check(beta));
             });
             self.update_rx = Some(rx);
+        }
+        if !self.update_notified {
+            if let Some(Ok(u)) = &self.update_result {
+                if u.newer {
+                    self.update_notified = true;
+                    let (t, b) = (format!("Stream Preflight v{} is available", u.latest), "Open Preflight and click Update now.".to_string());
+                    self.notify_away(ctx, &t, &b);
+                }
+            }
         }
         if let Some(rx) = &self.update_rx {
             if let Ok(r) = rx.try_recv() {
@@ -2611,7 +2633,8 @@ impl App {
             }
         }
 
-        let rest = ui.available_height() - 112.0;
+        let update_line = matches!(&self.update_result, Some(Ok(u)) if u.newer);
+        let rest = ui.available_height() - if update_line { 136.0 } else { 112.0 };
         if rest > 0.0 {
             ui.add_space(rest);
         }
@@ -5631,13 +5654,8 @@ impl App {
                                 }
                                 (None, None) => {
                                     ui.horizontal(|ui| {
-                                        if outlined(ui, &format!("Install v{}", u.latest)).clicked() {
-                                            let (tx, rx) = channel();
-                                            let uu = u.clone();
-                                            std::thread::spawn(move || {
-                                                let _ = tx.send(crate::update::install(&uu));
-                                            });
-                                            self.update_install = Some(rx);
+                                        if outlined(ui, &format!("Update to v{}", u.latest)).clicked() {
+                                            self.start_update();
                                         }
                                         ui.hyperlink_to("Release page", &u.url);
                                     });
@@ -6126,14 +6144,90 @@ impl App {
             4
         } else if self.live.is_some() && self.screen != Screen::PostFlight && !(self.screen == Screen::Preflight && self.step == 4) {
             5
+        } else if self.update_banner() {
+            6
         } else {
             0
+        }
+    }
+
+    /// A newer version exists and the user hasn't put it off this session.
+    fn update_banner(&self) -> bool {
+        !self.update_later && matches!(&self.update_result, Some(Ok(u)) if u.newer) && self.live.is_none() && !self.test_handle.as_ref().map(|h| h.phase() == Phase::Measuring).unwrap_or(false)
+    }
+
+    /// Starts downloading and installing the update in the background.
+    fn start_update(&mut self) {
+        if let Some(Ok(u)) = &self.update_result {
+            let (tx, rx) = channel();
+            let uu = u.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::update::install(&uu));
+            });
+            self.update_install = Some(rx);
+            self.update_done = None;
+        }
+    }
+
+    fn ui_update_banner(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        let Some(Ok(u)) = self.update_result.clone() else { return };
+        let mut act: Option<&str> = None;
+        egui::Frame::NONE
+            .fill(Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 18))
+            .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 120)))
+            .corner_radius(egui::CornerRadius::same(12))
+            .inner_margin(egui::Margin::same(14))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(format!("Stream Preflight v{} is available{}", u.latest, if u.prerelease { " (beta)" } else { "" })).size(17.0).strong().color(ACCENT));
+                        match (&self.update_install, &self.update_done) {
+                            (Some(_), _) => {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(RichText::new("Downloading and checking it… Preflight restarts by itself when it's ready.").color(TEXT_SOFT));
+                                });
+                            }
+                            (None, Some(Err(e))) => {
+                                ui.label(RichText::new(format!("The update didn't install: {e}")).color(BAD));
+                            }
+                            _ => {
+                                ui.label(RichText::new(format!("You have v{}. Updating takes a few seconds and keeps all your settings.", u.current)).color(TEXT_SOFT));
+                            }
+                        }
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.update_install.is_none() {
+                            if outlined(ui, "Later").clicked() {
+                                act = Some("later");
+                            }
+                            if !u.url.is_empty() && outlined(ui, "What's new").clicked() {
+                                act = Some("notes");
+                            }
+                            if outlined(ui, if matches!(self.update_done, Some(Err(_))) { "Try again" } else { "Update now" }).clicked() {
+                                act = Some("update");
+                            }
+                        }
+                    });
+                });
+            });
+        ui.add_space(10.0);
+        match act {
+            Some("update") => self.start_update(),
+            Some("later") => self.update_later = true,
+            Some("notes") => ctx.open_url(egui::OpenUrl::new_tab(&u.url)),
+            _ => {}
         }
     }
 
     fn ui_live_banners(&mut self, ui: &mut Ui) {
         let mut go = false;
         let pick = self.banner_pick();
+        if pick == 6 {
+            let ctx = ui.ctx().clone();
+            self.ui_update_banner(ui, &ctx);
+        }
         if pick == 1 {
             let mut answer: Option<bool> = None;
             egui::Frame::NONE

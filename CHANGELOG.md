@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.1
+
+- **One-line install**: `install.sh` for Linux and `install.ps1` for Windows download the newest release, check it against SHA256SUMS.txt, install it for you and add the menu or Start menu entry.
+- **Update now**: when a new version is out, a banner on the main screen updates and restarts Preflight in one click. A notification appears if Preflight is in the tray.
+- `--install` and `--version` options for scripts.
+
 ## v0.1.0 (first release)
 
 The first public version, after 13 test builds.

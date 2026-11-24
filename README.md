@@ -6,33 +6,40 @@ Stream Preflight watches a short test while you play, then tells you the one thi
 
 Windows and Linux. Free, no account, no ads, no analytics.
 
-## Download
+## Install
 
-Get the latest version from the [Releases page](https://github.com/Matt-B-007/Stream-Preflight/releases).
+One command. It downloads the newest version, checks it against its checksum, installs it for you (no admin or sudo), and adds it to your app menu or Start menu. After that, Stream Preflight updates itself: when a new version is out, click **Update now** and it restarts on the new version.
+
+**Linux** (terminal):
+
+```sh
+curl -fsSL https://github.com/Matt-B-007/Stream-Preflight/releases/latest/download/install.sh | sh
+```
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://github.com/Matt-B-007/Stream-Preflight/releases/latest/download/install.ps1 | iex
+```
+
+Run the same command again any time to reinstall.
+
+<details>
+<summary>Install by hand instead</summary>
+
+Download from the [Releases page](https://github.com/Matt-B-007/Stream-Preflight/releases):
 
 | System | File |
 |---|---|
 | Windows 10/11 (64-bit) | `stream-preflight-windows-x86_64.exe` |
 | Linux (64-bit, glibc 2.31 or newer) | `stream-preflight-linux-x86_64` |
 
-`SHA256SUMS.txt` lists the checksum of each file.
+Then run it once with `--install` (or use **Settings › Advanced › Install**). `SHA256SUMS.txt` lists each file's checksum.
+</details>
 
-### Install on Windows
+## Updates
 
-1. Download `stream-preflight-windows-x86_64.exe` and run it.
-2. Windows SmartScreen may warn you because the file isn't signed yet: click **More info › Run anyway**.
-3. In Preflight, open **Settings › Advanced › Install** and click **Install for this user**. It copies itself to your user folder, adds a Start menu shortcut, and appears in **Settings › Apps** so you can uninstall it there. No admin rights needed.
-
-### Install on Linux
-
-```sh
-mkdir -p ~/.local/bin
-mv ~/Downloads/stream-preflight-linux-x86_64 ~/.local/bin/stream-preflight
-chmod +x ~/.local/bin/stream-preflight
-~/.local/bin/stream-preflight
-```
-
-Or run the downloaded file once and use **Settings › Advanced › Install**, which does the same and adds Preflight to your app menu.
+Stream Preflight checks this repository's releases once a day (you can turn that off in Settings). When there's a newer version, a banner offers **Update now**: it downloads the right file, checks it against `SHA256SUMS.txt`, swaps it in and restarts. Your settings stay. Tick **Include beta versions** in Settings to get pre-releases too.
 
 ### OBS setup
 

@@ -36,7 +36,8 @@ pub fn check(beta: bool) -> Result<UpdateInfo, String> {
         .user_agent(format!("StreamPreflight/{}", crate::util::VERSION))
         .build()
         .into();
-    let url = format!("https://api.github.com/repos/{repo}/releases");
+    // STREAM_PREFLIGHT_RELEASES points at a test release list (for testing updates only).
+    let url = std::env::var("STREAM_PREFLIGHT_RELEASES").unwrap_or_else(|_| format!("https://api.github.com/repos/{repo}/releases"));
     let body = agent
         .get(&url)
         .header("Accept", "application/vnd.github+json")

@@ -36,6 +36,24 @@ fn main() {
     logger::install_crash_handler();
     log::info!("{} {} ({}) starting on {}", util::APP_NAME, util::VERSION, util::BUILD_LABEL, std::env::consts::OS);
 
+    // Used by the one-line install commands: put Preflight in place, add the
+    // menu entry (and on Windows the Start menu and Installed apps entries), no window.
+    if std::env::args().any(|a| a == "--install") {
+        match install::install(true) {
+            Ok(p) => {
+                println!("Stream Preflight {} installed: {}", util::VERSION, util::scrub(&p.to_string_lossy()));
+                return;
+            }
+            Err(e) => {
+                eprintln!("Install failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+    if std::env::args().any(|a| a == "--version") {
+        println!("{}", util::VERSION);
+        return;
+    }
     if std::env::args().any(|a| a == "--self-check") {
         // Headless check used for testing builds: scan without a window.
         let hw = hardware::scan();
