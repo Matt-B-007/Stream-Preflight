@@ -1,0 +1,44 @@
+{
+  "id": "halo_mcc",
+  "name": "Halo: The Master Chief Collection",
+  "load": "mixed",
+  "motion": "high",
+  "profile_version": 1,
+  "verified": "Not yet checked against real files (test build)",
+  "steam_appid": 976730,
+  "linux_supported": true,
+  "processes": [
+    "mcc-win64-shipping.exe",
+    "mcclauncher.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%USERPROFILE%/AppData/LocalLow/MCC/Saved/Config/WindowsNoEditor/GameUserSettings.ini",
+      "proton": "AppData/LocalLow/MCC/Saved/Config/WindowsNoEditor/GameUserSettings.ini",
+      "format": "ini"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fps_uncapped",
+      "keys": [
+        "frameratelimit"
+      ],
+      "when": "lte:0",
+      "effect": "uncapped_fps",
+      "label": "Frame rate limit is off",
+      "menu": "Halo MCC › Settings › Video › Max FPS"
+    },
+    {
+      "id": "vsync",
+      "keys": [
+        "busevsync"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "Halo MCC › Settings › Video › V-Sync"
+    }
+  ],
+  "api": "dx11"
+}

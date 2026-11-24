@@ -1,0 +1,48 @@
+{
+  "id": "warzone",
+  "name": "Call of Duty: Warzone",
+  "load": "gpu",
+  "motion": "high",
+  "profile_version": 1,
+  "verified": "Unverified: setting names are a best guess until someone runs this game with Pre-Flight",
+  "steam_appid": 1938090,
+  "linux_supported": false,
+  "processes": [
+    "cod.exe",
+    "cod24-cod.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%USERPROFILE%/Documents/Call of Duty/players/options*.cst",
+      "format": "lines"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fps_uncapped",
+      "keys": [
+        "customframeratelimit$"
+      ],
+      "when": "lte:0",
+      "effect": "uncapped_fps",
+      "label": "Custom frame rate limit is off",
+      "menu": "Call of Duty › Settings › Graphics › Display › Custom Frame Rate Limit",
+      "setting": "FPS limit"
+    },
+    {
+      "id": "vsync",
+      "keys": [
+        "vsyncgameplay$",
+        "vsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "Call of Duty › Settings › Graphics › Display › V-Sync (Gameplay)",
+      "setting": "V-Sync"
+    }
+  ],
+  "detect_windows": [
+    "%USERPROFILE%/Documents/Call of Duty/players"
+  ]
+}

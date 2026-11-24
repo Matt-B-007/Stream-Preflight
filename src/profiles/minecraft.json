@@ -1,0 +1,75 @@
+{
+  "id": "minecraft",
+  "name": "Minecraft (Java)",
+  "load": "gpu",
+  "motion": "medium",
+  "profile_version": 1,
+  "verified": "Unverified: setting names are a best guess until someone runs this game with Pre-Flight",
+  "steam_appid": null,
+  "linux_supported": true,
+  "processes": [
+    "javaw.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%APPDATA%/.minecraft/options.txt",
+      "linux": "~/.minecraft/options.txt",
+      "format": "lines"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fps_uncapped",
+      "keys": [
+        "maxfps$"
+      ],
+      "when": "gte:260",
+      "effect": "uncapped_fps",
+      "label": "Max Framerate is Unlimited",
+      "menu": "Minecraft › Options › Video Settings › Max Framerate",
+      "setting": "FPS limit"
+    },
+    {
+      "id": "vsync",
+      "keys": [
+        "enablevsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "VSync is on",
+      "menu": "Minecraft › Options › Video Settings › VSync",
+      "setting": "V-Sync"
+    },
+    {
+      "id": "render_distance",
+      "keys": [
+        "renderdistance$"
+      ],
+      "when": "gte:20",
+      "effect": "heavy",
+      "label": "Render Distance",
+      "menu": "Minecraft › Options › Video Settings › Render Distance",
+      "setting": "Render distance",
+      "change_to": "12 to 16 chunks",
+      "gain": "Large GPU and CPU saving",
+      "cost": "You see less far"
+    },
+    {
+      "id": "fabulous",
+      "keys": [
+        "graphicsmode$"
+      ],
+      "when": "eq:2",
+      "effect": "heavy",
+      "label": "Graphics",
+      "menu": "Minecraft › Options › Video Settings › Graphics",
+      "setting": "Graphics",
+      "change_to": "Fancy",
+      "gain": "Good GPU saving",
+      "cost": "Slightly simpler transparency"
+    }
+  ],
+  "detect_windows": [
+    "%APPDATA%/.minecraft/options.txt"
+  ]
+}

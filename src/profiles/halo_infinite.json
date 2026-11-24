@@ -1,0 +1,44 @@
+{
+  "id": "halo_infinite",
+  "name": "Halo Infinite",
+  "load": "gpu",
+  "motion": "high",
+  "profile_version": 2,
+  "verified": "File location confirmed on one Linux PC (test build 2)",
+  "steam_appid": 1240440,
+  "linux_supported": true,
+  "processes": [
+    "haloinfinite.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%LOCALAPPDATA%/HaloInfinite/Settings/SpecControlSettings.json",
+      "proton": "AppData/Local/HaloInfinite/Settings/SpecControlSettings.json",
+      "format": "json"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fps_uncapped",
+      "keys": [
+        "spec_control_target_framerate$"
+      ],
+      "when": "lte:0",
+      "effect": "uncapped_fps",
+      "label": "Maximum frame rate is unlimited",
+      "menu": "Halo Infinite › Settings › Video › Maximum Frame Rate",
+      "setting": "FPS limit"
+    },
+    {
+      "id": "vsync",
+      "keys": [
+        "spec_control_vsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "Halo Infinite › Settings › Video › V-Sync"
+    }
+  ],
+  "api": "dx12"
+}

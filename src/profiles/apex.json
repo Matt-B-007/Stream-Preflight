@@ -1,0 +1,51 @@
+{
+  "id": "apex",
+  "name": "Apex Legends",
+  "load": "gpu",
+  "motion": "high",
+  "profile_version": 1,
+  "verified": "Unverified: setting names are a best guess until someone runs this game with Pre-Flight",
+  "steam_appid": 1172470,
+  "linux_supported": false,
+  "processes": [
+    "r5apex.exe",
+    "r5apex_dx12.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%USERPROFILE%/Saved Games/Respawn/Apex/local/videoconfig.txt",
+      "format": "kv"
+    }
+  ],
+  "findings": [
+    {
+      "id": "vsync",
+      "keys": [
+        "setting.mat_vsync_mode$",
+        "setting.mat_vsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "Apex Legends › Settings › Video › V-Sync",
+      "setting": "V-Sync"
+    },
+    {
+      "id": "volumetric",
+      "keys": [
+        "setting.volumetric_lighting$"
+      ],
+      "when": "truthy",
+      "effect": "heavy",
+      "label": "Volumetric Lighting",
+      "menu": "Apex Legends › Settings › Video › Volumetric Lighting",
+      "setting": "Volumetric lighting",
+      "change_to": "Disabled",
+      "gain": "Good GPU saving",
+      "cost": "Less hazy light shafts"
+    }
+  ],
+  "detect_windows": [
+    "%USERPROFILE%/Saved Games/Respawn/Apex/local/videoconfig.txt"
+  ]
+}

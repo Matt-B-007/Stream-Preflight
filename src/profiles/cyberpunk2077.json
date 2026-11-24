@@ -1,0 +1,205 @@
+{
+  "id": "cyberpunk2077",
+  "name": "Cyberpunk 2077",
+  "load": "gpu",
+  "motion": "high",
+  "profile_version": 4,
+  "verified": "File location and setting names confirmed on one Linux PC (test builds 2-8)",
+  "steam_appid": 1091500,
+  "linux_supported": true,
+  "processes": [
+    "cyberpunk2077.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%LOCALAPPDATA%/CD Projekt Red/Cyberpunk 2077/UserSettings.json",
+      "proton": "AppData/Local/CD Projekt Red/Cyberpunk 2077/UserSettings.json",
+      "format": "json"
+    }
+  ],
+  "findings": [
+    {
+      "id": "pathtracing",
+      "keys": [
+        "raytracing/raytracedpathtracing$"
+      ],
+      "when": "truthy",
+      "effect": "rt_on",
+      "label": "Path tracing is on",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Ray Tracing › Path Tracing",
+      "change_to": "Off (or regular ray tracing)",
+      "gain": "Very large GPU headroom",
+      "cost": "Big drop in lighting realism",
+      "setting": "Path tracing"
+    },
+    {
+      "id": "raytracing",
+      "keys": [
+        "raytracing/raytracing$"
+      ],
+      "when": "truthy",
+      "effect": "rt_on",
+      "label": "Ray tracing is on",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Ray Tracing",
+      "change_to": "Off, or Reflections only",
+      "gain": "Large GPU headroom",
+      "cost": "Less realistic lighting and reflections",
+      "setting": "Ray tracing"
+    },
+    {
+      "id": "upscaler_off",
+      "keys": [
+        "presets/dlss$",
+        "presets/fsr2$",
+        "presets/fsr3$",
+        "presets/fsr4$",
+        "presets/xess$"
+      ],
+      "when": "off",
+      "effect": "upscaler_off",
+      "label": "No upscaler (DLSS/FSR/XeSS) in use",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Resolution Scaling",
+      "setting": "Upscaler (DLSS/FSR/XeSS)"
+    },
+    {
+      "id": "framegen",
+      "keys": [
+        "presets/dlssframegen$",
+        "presets/dlss_multiframegeneration$",
+        "presets/fsr4_framegeneration$",
+        "presets/fsr3_framegeneration$",
+        "presets/framegeneration$"
+      ],
+      "when": "truthy",
+      "effect": "info",
+      "label": "Frame generation is on",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Resolution Scaling › Frame Generation",
+      "setting": "Frame generation"
+    },
+    {
+      "id": "fps_uncapped",
+      "keys": [
+        "maximumfps_onoff$",
+        "maxfps&enable",
+        "fpslimit",
+        "framelimit"
+      ],
+      "when": "falsy",
+      "effect": "uncapped_fps",
+      "label": "Maximum FPS limit is off",
+      "menu": "Cyberpunk 2077 › Settings › Video › Maximum FPS",
+      "value_keys": [
+        "maximumfps_value$"
+      ],
+      "setting": "FPS limit"
+    },
+    {
+      "id": "vsync",
+      "keys": [
+        "display/vsync$",
+        "vsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "Cyberpunk 2077 › Settings › Video › VSync",
+      "setting": "V-Sync"
+    }
+  ],
+  "preset": {
+    "key": "presets/quickpresets$",
+    "setting": "Quick preset",
+    "menu": "Cyberpunk 2077 › Settings › Graphics › Quick Preset",
+    "levels": [
+      "Low",
+      "Medium",
+      "High",
+      "Ultra"
+    ],
+    "custom": [
+      "Custom"
+    ]
+  },
+  "tunables": [
+    {
+      "id": "ssr",
+      "key": "advanced/screenspacereflectionsquality$",
+      "setting": "Screen Space Reflections Quality",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Advanced",
+      "levels": [
+        "Off",
+        "Low",
+        "Medium",
+        "High",
+        "Ultra",
+        "Psycho"
+      ],
+      "target": "High",
+      "gain": "Often the single biggest GPU saving",
+      "cost": "Reflections a little grainier"
+    },
+    {
+      "id": "fog",
+      "key": "advanced/volumetricfogresolution$",
+      "setting": "Volumetric Fog Resolution",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Advanced",
+      "levels": [
+        "Low",
+        "Medium",
+        "High",
+        "Ultra"
+      ],
+      "target": "High",
+      "gain": "Large GPU saving",
+      "cost": "Slightly softer fog"
+    },
+    {
+      "id": "clouds",
+      "key": "advanced/volumetriccloudsquality$",
+      "setting": "Volumetric Cloud Quality",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Advanced",
+      "levels": [
+        "Off",
+        "Medium",
+        "High",
+        "Ultra"
+      ],
+      "target": "High",
+      "gain": "Good GPU saving",
+      "cost": "Clouds a little less detailed"
+    },
+    {
+      "id": "cascaded",
+      "key": "advanced/cascadedshadowsresolution$",
+      "setting": "Cascaded Shadows Resolution",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Advanced",
+      "levels": [
+        "Low",
+        "Medium",
+        "High"
+      ],
+      "target": "Medium",
+      "gain": "Some GPU saving",
+      "cost": "Distant shadow edges a little softer"
+    },
+    {
+      "id": "ao",
+      "key": "advanced/ambientocclusion$",
+      "setting": "Ambient Occlusion",
+      "menu": "Cyberpunk 2077 › Settings › Graphics › Advanced",
+      "levels": [
+        "Off",
+        "Low",
+        "Medium",
+        "High"
+      ],
+      "target": "Medium",
+      "gain": "Small GPU saving",
+      "cost": "Barely visible"
+    }
+  ],
+  "api": "dx12",
+  "display": {
+    "resolution": "video/display/resolution$"
+  }
+}

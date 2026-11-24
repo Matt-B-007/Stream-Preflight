@@ -1,0 +1,157 @@
+{
+  "id": "cs2",
+  "name": "Counter-Strike 2",
+  "load": "fps",
+  "motion": "high",
+  "profile_version": 4,
+  "verified": "Checked against one Linux PC's real settings files (test build 11)",
+  "steam_appid": 730,
+  "linux_supported": true,
+  "processes": ["cs2.exe", "cs2"],
+  "settings_files": [
+    {
+      "windows": "{steam}/userdata/*/730/local/cfg/cs2_video.txt",
+      "linux": "{steam}/userdata/*/730/local/cfg/cs2_video.txt",
+      "format": "kv"
+    },
+    {
+      "windows": "{steam}/userdata/*/730/local/cfg/cs2_user_convars_0_slot0.vcfg",
+      "linux": "{steam}/userdata/*/730/local/cfg/cs2_user_convars_0_slot0.vcfg",
+      "format": "kv"
+    },
+    {
+      "windows": "{steam}/userdata/*/730/local/cfg/cs2_machine_convars.vcfg",
+      "linux": "{steam}/userdata/*/730/local/cfg/cs2_machine_convars.vcfg",
+      "format": "kv"
+    },
+    {
+      "windows": "{steamlib}/steamapps/common/Counter-Strike Global Offensive/game/csgo/cfg/cs2_machine_convars.vcfg",
+      "linux": "{steamlib}/steamapps/common/Counter-Strike Global Offensive/game/csgo/cfg/cs2_machine_convars.vcfg",
+      "format": "kv",
+      "legacy": true
+    }
+  ],
+  "findings": [
+    {
+      "id": "fps_uncapped",
+      "keys": ["fps_max$"],
+      "when": "lte:0",
+      "effect": "uncapped_fps",
+      "label": "fps_max is 0 (unlimited)",
+      "menu": "CS2 › Settings › Video › Advanced Video › Max frames per second (or the fps_max console command)",
+      "setting": "FPS limit",
+      "value_keys": ["fps_max$"]
+    },
+    {
+      "id": "msaa",
+      "keys": ["msaa_samples$"],
+      "when": "gte:8",
+      "effect": "heavy",
+      "label": "8x MSAA anti-aliasing",
+      "menu": "CS2 › Settings › Video › Advanced Video › Multisampling Anti-Aliasing Mode",
+      "change_to": "4x MSAA",
+      "gain": "Some GPU headroom at high FPS",
+      "cost": "Slightly more jagged edges",
+      "setting": "Anti-aliasing (MSAA)"
+    },
+    {
+      "id": "cmaa",
+      "keys": ["r_csgo_cmaa_enable$"],
+      "when": "truthy",
+      "effect": "info",
+      "label": "CMAA2 anti-aliasing is on",
+      "menu": "CS2 › Settings › Video › Advanced Video › Multisampling Anti-Aliasing Mode (CMAA2)",
+      "setting": "CMAA2 anti-aliasing"
+    },
+    {
+      "id": "vsync",
+      "keys": ["mat_vsync$"],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "CS2 › Settings › Video › Advanced Video › Wait for Vertical Sync",
+      "setting": "V-Sync"
+    },
+    {
+      "id": "reflex",
+      "keys": ["setting.r_low_latency$"],
+      "when": "falsy",
+      "effect": "info",
+      "label": "NVIDIA Reflex is off",
+      "menu": "CS2 › Settings › Video › Advanced Video › NVIDIA Reflex Low Latency",
+      "setting": "NVIDIA Reflex"
+    },
+    {
+      "id": "fsr",
+      "keys": ["videocfg_fsr_detail$"],
+      "when": "gte:1",
+      "effect": "info",
+      "label": "FSR upscaling is on",
+      "menu": "CS2 › Settings › Video › Advanced Video › FidelityFX Super Resolution",
+      "setting": "FidelityFX Super Resolution"
+    }
+  ],
+  "tunables": [
+    {
+      "id": "ao",
+      "key": "videocfg_ao_detail$",
+      "setting": "Ambient Occlusion",
+      "menu": "CS2 › Settings › Video › Advanced Video › Ambient Occlusion",
+      "levels": ["0", "1", "2"],
+      "level_labels": ["Disabled", "Medium", "High"],
+      "target": "0",
+      "gain": "Good GPU saving",
+      "cost": "Slightly flatter corners and contact shadows"
+    },
+    {
+      "id": "particles",
+      "key": "videocfg_particle_detail$",
+      "setting": "Particle Detail",
+      "menu": "CS2 › Settings › Video › Advanced Video › Particle Detail",
+      "levels": ["0", "1", "2", "3"],
+      "level_labels": ["Low", "Medium", "High", "Very High"],
+      "target": "1",
+      "gain": "Steadier FPS in smokes, molotovs and explosions",
+      "cost": "Simpler-looking effects"
+    },
+    {
+      "id": "shader",
+      "key": "setting.shaderquality$",
+      "setting": "Shader Detail",
+      "menu": "CS2 › Settings › Video › Advanced Video › Shader Detail",
+      "levels": ["0", "1"],
+      "level_labels": ["Low", "High"],
+      "target": "0",
+      "gain": "Some GPU saving",
+      "cost": "Slightly flatter materials"
+    },
+    {
+      "id": "shadows",
+      "key": "videocfg_shadow_quality$",
+      "setting": "Global Shadow Quality",
+      "menu": "CS2 › Settings › Video › Advanced Video › Global Shadow Quality",
+      "levels": ["0", "1", "2", "3"],
+      "level_labels": ["Low", "Medium", "High", "Very High"],
+      "target": "2",
+      "gain": "Some GPU saving",
+      "cost": "Softer shadows (many players keep High to spot enemies)"
+    },
+    {
+      "id": "textures",
+      "key": "videocfg_texture_detail$",
+      "setting": "Texture Detail",
+      "menu": "CS2 › Settings › Video › Advanced Video › Model / Texture Detail",
+      "levels": ["0", "1", "2"],
+      "level_labels": ["Low", "Medium", "High"],
+      "target": "2",
+      "gain": "Uses less video memory (little FPS change)",
+      "cost": "Blurrier textures"
+    }
+  ],
+  "display": {
+    "width": "setting.defaultres$",
+    "height": "setting.defaultresheight$",
+    "refresh": "refreshrate_numerator$"
+  },
+  "api": "vulkan"
+}

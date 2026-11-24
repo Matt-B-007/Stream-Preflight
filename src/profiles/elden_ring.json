@@ -1,0 +1,36 @@
+{
+  "id": "elden_ring",
+  "name": "ELDEN RING",
+  "load": "gpu",
+  "motion": "medium",
+  "profile_version": 1,
+  "verified": "Unverified: setting names are a best guess until someone runs this game with Pre-Flight",
+  "steam_appid": 1245620,
+  "linux_supported": true,
+  "processes": [
+    "eldenring.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%APPDATA%/EldenRing/GraphicsConfig.xml",
+      "proton": "AppData/Roaming/EldenRing/GraphicsConfig.xml",
+      "format": "xml"
+    }
+  ],
+  "findings": [
+    {
+      "id": "raytracing",
+      "keys": [
+        "raytracingquality$"
+      ],
+      "when": "gte:1",
+      "effect": "rt_on",
+      "label": "Ray Tracing Quality is on",
+      "menu": "ELDEN RING › System › Graphics › Ray Tracing Quality",
+      "setting": "Ray tracing",
+      "change_to": "Off",
+      "gain": "Large GPU saving",
+      "cost": "Slightly less realistic shadows and reflections"
+    }
+  ]
+}

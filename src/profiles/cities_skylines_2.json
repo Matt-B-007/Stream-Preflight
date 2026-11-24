@@ -1,0 +1,136 @@
+{
+  "id": "cities_skylines_2",
+  "name": "Cities: Skylines II",
+  "load": "cpu_gpu",
+  "motion": "low",
+  "profile_version": 2,
+  "verified": "File format and setting names confirmed on one Linux PC (test build 9)",
+  "steam_appid": 949230,
+  "linux_supported": true,
+  "processes": [
+    "cities2.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%USERPROFILE%/AppData/LocalLow/Colossal Order/Cities Skylines II/Settings.coc",
+      "proton": "AppData/LocalLow/Colossal Order/Cities Skylines II/Settings.coc",
+      "format": "coc"
+    }
+  ],
+  "fps_limit": false,
+  "api": "dx11",
+  "sparse_file": true,
+  "display": {
+    "refresh": "resolution/refreshrate/numerator$",
+    "refresh_scale": 1000.0
+  },
+  "findings": [
+    {
+      "id": "gi",
+      "keys": [
+        "graphicssettings/ssgiqualitysettings/enabled$"
+      ],
+      "when": "truthy",
+      "effect": "heavy",
+      "label": "Global illumination",
+      "menu": "Cities: Skylines II › Options › Graphics › Advanced › Global Illumination",
+      "setting": "Global illumination",
+      "change_to": "Off",
+      "gain": "The single biggest GPU saving in this game",
+      "cost": "Flatter indirect light"
+    }
+  ],
+  "tunables": [
+    {
+      "id": "dof",
+      "key": "graphicssettings/depthoffieldqualitysettings/enabled$",
+      "setting": "Depth of field",
+      "menu": "Cities: Skylines II › Options › Graphics › Advanced",
+      "levels": [
+        "false",
+        "true"
+      ],
+      "target": "false",
+      "gain": "Saves GPU, and viewers see a sharp city instead of tilt-shift blur",
+      "cost": "No cinematic blur"
+    },
+    {
+      "id": "motionblur",
+      "key": "graphicssettings/motionblurqualitysettings/enabled$",
+      "setting": "Motion blur",
+      "menu": "Cities: Skylines II › Options › Graphics › Advanced",
+      "levels": [
+        "false",
+        "true"
+      ],
+      "target": "false",
+      "gain": "Saves GPU, and the stream looks less smeary",
+      "cost": "Camera moves look less smooth-blurred"
+    },
+    {
+      "id": "clouds",
+      "key": "graphicssettings/cloudsqualitysettings/volumetriccloudsenabled$",
+      "setting": "Volumetric clouds",
+      "menu": "Cities: Skylines II › Options › Graphics › Advanced › Clouds",
+      "levels": [
+        "false",
+        "true"
+      ],
+      "target": "false",
+      "gain": "Good GPU saving; distance clouds stay",
+      "cost": "Flatter nearby clouds"
+    },
+    {
+      "id": "volumetrics",
+      "key": "graphicssettings/volumetricsqualitysettings/enabled$",
+      "setting": "Volumetrics",
+      "menu": "Cities: Skylines II › Options › Graphics › Advanced",
+      "levels": [
+        "false",
+        "true"
+      ],
+      "target": "false",
+      "gain": "Good GPU saving",
+      "cost": "Less atmospheric haze and light shafts"
+    },
+    {
+      "id": "shadows",
+      "key": "graphicssettings/shadowsqualitysettings/directionalshadowresolution$",
+      "setting": "Shadow resolution",
+      "menu": "Cities: Skylines II › Options › Graphics › Advanced › Shadows",
+      "levels": [
+        "512",
+        "1024",
+        "2048",
+        "4096",
+        "8192"
+      ],
+      "target": "2048",
+      "gain": "10-20% less GPU time in a typical city view",
+      "cost": "Slightly softer shadow edges up close"
+    },
+    {
+      "id": "outlines",
+      "key": "graphicssettings/antialiasingqualitysettings/outlinesmsaa$",
+      "setting": "Outlines anti-aliasing (MSAA)",
+      "menu": "Cities: Skylines II › Options › Graphics › Advanced › Anti-aliasing",
+      "levels": [
+        "Disabled",
+        "MSAA2x",
+        "MSAA4x",
+        "MSAA8x"
+      ],
+      "target": "MSAA4x",
+      "gain": "Some GPU saving",
+      "cost": "Selection outlines a little less smooth"
+    }
+  ],
+  "labels": {
+    "true": "On",
+    "false": "Off",
+    "MSAA8x": "8x",
+    "MSAA4x": "4x",
+    "MSAA2x": "2x",
+    "Disabled": "Off"
+  }
+}

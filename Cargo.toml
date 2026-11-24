@@ -1,0 +1,45 @@
+[package]
+name = "stream-preflight"
+version = "0.1.0"
+edition = "2024"
+description = "Stream Preflight: check your game, OBS and stream before you go live"
+repository = "https://github.com/Matt-B-007/Stream-Preflight"
+publish = false
+
+[[bin]]
+name = "stream-preflight"
+path = "src/main.rs"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.23.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+directories = "6.0.0"
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit", "clipboard"] }
+fastrand = "2.5.0"
+log = "0.4.35"
+nvml-wrapper = "0.13.0"
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+sysinfo = "0.40.3"
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+ureq = { version = "3.5.2", default-features = false, features = ["rustls"] }
+raw-window-handle = "0.6"
+getrandom = "0.3"
+
+[target."cfg(target_os = \"linux\")".dependencies]
+ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62.2", features = ["Win32_Graphics_Dxgi", "Win32_Foundation", "Win32_System_Performance", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_Graphics_Gdi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader"] }
+winreg = "0.56.0"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "unwind"
+strip = true

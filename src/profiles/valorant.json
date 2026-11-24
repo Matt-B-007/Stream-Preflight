@@ -1,0 +1,50 @@
+{
+  "id": "valorant",
+  "name": "VALORANT",
+  "load": "cpu",
+  "motion": "high",
+  "profile_version": 1,
+  "verified": "Unverified: setting names are a best guess until someone runs this game with Pre-Flight",
+  "steam_appid": null,
+  "linux_supported": false,
+  "processes": [
+    "valorant-win64-shipping.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%LOCALAPPDATA%/VALORANT/Saved/Config/Windows/GameUserSettings.ini",
+      "format": "ini"
+    },
+    {
+      "windows": "%LOCALAPPDATA%/VALORANT/Saved/Config/*/Windows/GameUserSettings.ini",
+      "format": "ini"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fps_uncapped",
+      "keys": [
+        "frameratelimit$"
+      ],
+      "when": "lte:0",
+      "effect": "uncapped_fps",
+      "label": "FPS limit is off",
+      "menu": "VALORANT › Settings › Video › General › Limit FPS Always",
+      "setting": "FPS limit"
+    },
+    {
+      "id": "vsync",
+      "keys": [
+        "busevsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "VALORANT › Settings › Video › Graphics Quality › VSync",
+      "setting": "V-Sync"
+    }
+  ],
+  "detect_windows": [
+    "%LOCALAPPDATA%/VALORANT/Saved/Config"
+  ]
+}

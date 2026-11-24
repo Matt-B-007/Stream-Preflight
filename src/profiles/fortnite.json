@@ -1,0 +1,85 @@
+{
+  "id": "fortnite",
+  "name": "Fortnite",
+  "load": "gpu",
+  "motion": "high",
+  "profile_version": 1,
+  "verified": "Not yet checked against real files (test build)",
+  "steam_appid": null,
+  "linux_supported": false,
+  "processes": [
+    "fortniteclient-win64-shipping.exe"
+  ],
+  "detect_windows": [
+    "%LOCALAPPDATA%/FortniteGame/Saved/Config/WindowsClient/GameUserSettings.ini"
+  ],
+  "settings_files": [
+    {
+      "windows": "%LOCALAPPDATA%/FortniteGame/Saved/Config/WindowsClient/GameUserSettings.ini",
+      "format": "ini"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fps_uncapped",
+      "keys": [
+        "framerate limit",
+        "frameratelimit"
+      ],
+      "when": "lte:0",
+      "effect": "uncapped_fps",
+      "label": "Frame Rate Limit is Unlimited",
+      "menu": "Fortnite › Settings › Video › Frame Rate Limit"
+    },
+    {
+      "id": "shadows",
+      "keys": [
+        "sg.shadowquality"
+      ],
+      "when": "gte:3",
+      "effect": "heavy",
+      "label": "Shadows on Epic or higher",
+      "menu": "Fortnite › Settings › Video › Graphics Quality › Shadows",
+      "change_to": "Medium",
+      "gain": "About 10–20% more GPU headroom",
+      "cost": "Softer, less detailed shadows"
+    },
+    {
+      "id": "gi",
+      "keys": [
+        "sg.globalilluminationquality"
+      ],
+      "when": "gte:3",
+      "effect": "heavy",
+      "label": "Global Illumination on Epic or higher",
+      "menu": "Fortnite › Settings › Video › Graphics Quality › Global Illumination",
+      "change_to": "High or Medium",
+      "gain": "Noticeable GPU headroom",
+      "cost": "Flatter indirect lighting"
+    },
+    {
+      "id": "reflections",
+      "keys": [
+        "sg.reflectionquality"
+      ],
+      "when": "gte:3",
+      "effect": "heavy",
+      "label": "Reflections on Epic or higher",
+      "menu": "Fortnite › Settings › Video › Graphics Quality › Reflections",
+      "change_to": "High or Medium",
+      "gain": "Some GPU headroom",
+      "cost": "Less detailed reflections"
+    },
+    {
+      "id": "vsync",
+      "keys": [
+        "busevsync"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "Fortnite › Settings › Video › Vsync"
+    }
+  ],
+  "api": "dx12"
+}

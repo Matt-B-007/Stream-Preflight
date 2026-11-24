@@ -1,0 +1,174 @@
+General Settings
+{
+    "autoSave": true,
+    "autoSaveInterval": "FiveMinutes",
+    "autoSaveCount": "Two"
+}
+Audio Settings
+{
+    "radioVolume": 0.1
+}
+Graphics Settings
+{
+    "displayIndex": 0,
+    "resolution": {
+        "refreshRate": {
+            "numerator": 60000
+        }
+    },
+    "qualitySettings": [
+        {
+            "enabled": false,
+            "isAdaptive": false,
+            "upscaleFilter": "CatmullRom",
+            "minScale": 0,
+            "@type": "Game.Settings.DynamicResolutionScaleSettings"
+        },
+        {
+            "antiAliasingMethod": "SMAA",
+            "smaaQuality": "High",
+            "outlinesMSAA": "MSAA8x",
+            "@type": "Game.Settings.AntiAliasingQualitySettings"
+        },
+        {
+            "volumetricCloudsEnabled": true,
+            "distanceCloudsEnabled": true,
+            "volumetricCloudsShadows": true,
+            "distanceCloudsShadows": true,
+            "@type": "Game.Settings.CloudsQualitySettings"
+        },
+        {
+            "enabled": true,
+            "@type": "Game.Settings.FogQualitySettings"
+        },
+        {
+            "enabled": true,
+            "budget": 0.666,
+            "resolutionDepthRatio": 0.5,
+            "denoisingMode": "Reprojection",
+            "@type": "Game.Settings.VolumetricsQualitySettings"
+        },
+        {
+            "enabled": true,
+            "maxPixelRadius": 80,
+            "fullscreen": true,
+            "stepCount": 16,
+            "@type": "Game.Settings.SSAOQualitySettings"
+        },
+        {
+            "enabled": false,
+            "fullscreen": false,
+            "raySteps": 0,
+            "denoiserRadius": 0,
+            "halfResolutionPass": false,
+            "secondDenoiserPass": false,
+            "depthBufferThickness": 0,
+            "@type": "Game.Settings.SSGIQualitySettings"
+        },
+        {
+            "enabled": true,
+            "enabledTransparent": true,
+            "maxRaySteps": 64,
+            "@type": "Game.Settings.SSRQualitySettings"
+        },
+        {
+            "enabled": true,
+            "nearSampleCount": 8,
+            "nearMaxRadius": 7,
+            "farSampleCount": 14,
+            "farMaxRadius": 13,
+            "resolution": "Half",
+            "highQualityFiltering": true,
+            "@type": "Game.Settings.DepthOfFieldQualitySettings"
+        },
+        {
+            "enabled": true,
+            "sampleCount": 12,
+            "@type": "Game.Settings.MotionBlurQualitySettings"
+        },
+        {
+            "enabled": true,
+            "directionalShadowResolution": 4096,
+            "terrainCastShadows": true,
+            "shadowCullingThresholdHeight": 1,
+            "shadowCullingThresholdVolume": 1,
+            "@type": "Game.Settings.ShadowsQualitySettings"
+        },
+        {
+            "finalTessellation": 4,
+            "targetPatchSize": 12,
+            "@type": "Game.Settings.TerrainQualitySettings"
+        },
+        {
+            "waterflow": true,
+            "maxTessellationFactor": 10,
+            "tessellationFactorFadeStart": 150,
+            "tessellationFactorFadeRange": 1850,
+            "@type": "Game.Settings.WaterQualitySettings"
+        },
+        {
+            "levelOfDetail": 0.7,
+            "lodCrossFade": true,
+            "maxLightCount": 8192,
+            "meshMemoryBudget": 2048,
+            "strictMeshMemory": false,
+            "@type": "Game.Settings.LevelOfDetailQualitySettings"
+        },
+        {
+            "mipbias": 0,
+            "terrainMipBias": 0,
+            "terrainMipScale": 1,
+            "filterMode": "Trilinear",
+            "@type": "Game.Settings.TextureQualitySettings"
+        }
+    ]
+}
+Interface Settings
+{
+    "chirperPopupsEnabled": false,
+    "showWhatsNewPanel": false,
+    "timeFormat": "TwelveHours",
+    "temperatureUnit": "Fahrenheit",
+    "unitSystem": "Freedom"
+}
+Gameplay Settings
+{
+    "edgeScrolling": false,
+    "dayNightVisual": false,
+    "snowVisual": false,
+    "pausedAfterLoading": true,
+    "showTutorials": false,
+    "showEditorTutorials": false
+}
+Keybinding Settings
+{
+    "bindings": [
+        {
+            "m_MapName": "Shortcuts",
+            "m_ActionName": "Map Tile Purchase Panel",
+            "m_Component": "Press",
+            "m_Name": "binding",
+            "m_Device": "Keyboard",
+            "m_Path": "",
+            "m_Modifiers": []
+        },
+        {
+            "m_MapName": "Shortcuts",
+            "m_ActionName": "Hide UI",
+            "m_Component": "Press",
+            "m_Name": "binding",
+            "m_Device": "Keyboard",
+            "m_Path": "<Keyboard>/4",
+            "m_Modifiers": []
+        },
+        {
+            "m_MapName": "Shortcuts",
+            "m_ActionName": "Toggle Selected Object Active",
+            "m_Component": "Press",
+            "m_Name": "binding",
+            "m_Device": "Keyboard",
+            "m_Path": "",
+            "m_Modifiers": []
+        }
+    ]
+}

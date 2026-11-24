@@ -1,0 +1,118 @@
+{
+  "id": "marvel_rivals",
+  "name": "Marvel Rivals",
+  "load": "gpu",
+  "motion": "high",
+  "profile_version": 1,
+  "verified": "Unverified: setting names are a best guess until someone runs this game with Pre-Flight",
+  "steam_appid": 2767030,
+  "linux_supported": true,
+  "processes": [
+    "marvel-win64-shipping.exe",
+    "marvel.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%LOCALAPPDATA%/Marvel/Saved/Config/Windows/GameUserSettings.ini",
+      "proton": "AppData/Local/Marvel/Saved/Config/Windows/GameUserSettings.ini",
+      "format": "ini"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fps_uncapped",
+      "keys": [
+        "frameratelimit$"
+      ],
+      "when": "lte:0",
+      "effect": "uncapped_fps",
+      "label": "Frame rate limit is off",
+      "menu": "Marvel Rivals › Settings › Graphics › Display › Frame Rate Limit",
+      "setting": "FPS limit"
+    },
+    {
+      "id": "vsync",
+      "keys": [
+        "busevsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "V-Sync is on",
+      "menu": "Marvel Rivals › Settings › Graphics › Display › V-Sync",
+      "setting": "V-Sync"
+    }
+  ],
+  "tunables": [
+    {
+      "id": "gi",
+      "key": "sg.globalilluminationquality$",
+      "setting": "Global Illumination",
+      "menu": "Marvel Rivals › Settings › Graphics",
+      "levels": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "target": "2",
+      "gain": "Often the biggest GPU saving in this game",
+      "cost": "Flatter lighting"
+    },
+    {
+      "id": "shadows",
+      "key": "sg.shadowquality$",
+      "setting": "Shadow Quality",
+      "menu": "Marvel Rivals › Settings › Graphics",
+      "levels": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "target": "2",
+      "gain": "Large GPU saving",
+      "cost": "Softer shadows"
+    },
+    {
+      "id": "reflections",
+      "key": "sg.reflectionquality$",
+      "setting": "Reflection Quality",
+      "menu": "Marvel Rivals › Settings › Graphics",
+      "levels": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "target": "2",
+      "gain": "Good GPU saving",
+      "cost": "Simpler reflections"
+    },
+    {
+      "id": "effects",
+      "key": "sg.effectsquality$",
+      "setting": "Effects Quality",
+      "menu": "Marvel Rivals › Settings › Graphics",
+      "levels": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "target": "2",
+      "gain": "Some GPU saving in team fights",
+      "cost": "Fewer particles"
+    }
+  ],
+  "labels": {
+    "0": "Low",
+    "1": "Medium",
+    "2": "High",
+    "3": "Epic",
+    "4": "Cinematic"
+  }
+}

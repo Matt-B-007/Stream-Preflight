@@ -1,0 +1,23 @@
+{
+  "id": "cities_skylines",
+  "name": "Cities: Skylines",
+  "load": "cpu",
+  "motion": "low",
+  "profile_version": 1,
+  "verified": "Not yet checked against real files (test build)",
+  "steam_appid": 255710,
+  "linux_supported": true,
+  "processes": [
+    "cities.exe",
+    "cities.x64"
+  ],
+  "settings_files": [
+    {
+      "windows": "%LOCALAPPDATA%/Colossal Order/Cities_Skylines/gameSettings.cgs",
+      "linux": "~/.local/share/Colossal Order/Cities_Skylines/gameSettings.cgs",
+      "format": "binary"
+    }
+  ],
+  "findings": [],
+  "api": "dx11"
+}

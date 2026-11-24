@@ -1,0 +1,35 @@
+{
+  "id": "league",
+  "name": "League of Legends",
+  "load": "cpu",
+  "motion": "medium",
+  "profile_version": 1,
+  "verified": "Unverified: setting names are a best guess until someone runs this game with Pre-Flight",
+  "steam_appid": null,
+  "linux_supported": false,
+  "processes": [
+    "league of legends.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "C:/Riot Games/League of Legends/Config/game.cfg",
+      "format": "ini"
+    }
+  ],
+  "findings": [
+    {
+      "id": "vsync",
+      "keys": [
+        "general/waitforverticalsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "Wait for Vertical Sync is on",
+      "menu": "League of Legends › Settings › Video › Wait for Vertical Sync",
+      "setting": "V-Sync"
+    }
+  ],
+  "detect_windows": [
+    "C:/Riot Games/League of Legends/Config/game.cfg"
+  ]
+}

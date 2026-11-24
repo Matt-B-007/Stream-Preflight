@@ -1,0 +1,93 @@
+{
+  "id": "gta5",
+  "name": "Grand Theft Auto V",
+  "load": "gpu",
+  "motion": "high",
+  "profile_version": 1,
+  "verified": "Unverified: setting names are a best guess until someone runs this game with Pre-Flight",
+  "steam_appid": 271590,
+  "linux_supported": false,
+  "processes": [
+    "gta5.exe",
+    "gta5_enhanced.exe"
+  ],
+  "settings_files": [
+    {
+      "windows": "%USERPROFILE%/Documents/Rockstar Games/GTA V/settings.xml",
+      "format": "xml"
+    },
+    {
+      "windows": "%USERPROFILE%/Documents/Rockstar Games/GTA V Enhanced/settings.xml",
+      "format": "xml"
+    }
+  ],
+  "findings": [
+    {
+      "id": "vsync",
+      "keys": [
+        "graphics/vsync$"
+      ],
+      "when": "truthy",
+      "effect": "vsync_on",
+      "label": "VSync is on",
+      "menu": "GTA V › Settings › Graphics › VSync",
+      "setting": "V-Sync"
+    }
+  ],
+  "detect_windows": [
+    "%USERPROFILE%/Documents/Rockstar Games/GTA V/settings.xml"
+  ],
+  "tunables": [
+    {
+      "id": "grass",
+      "key": "graphics/grass_quality$",
+      "setting": "Grass Quality",
+      "menu": "GTA V › Settings › Graphics",
+      "levels": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "target": "2",
+      "gain": "Huge GPU saving in the countryside",
+      "cost": "Grass a little less dense"
+    },
+    {
+      "id": "shadows",
+      "key": "graphics/shadow_quality$",
+      "setting": "Shadow Quality",
+      "menu": "GTA V › Settings › Graphics",
+      "levels": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "target": "2",
+      "gain": "Good GPU saving",
+      "cost": "Softer shadows"
+    },
+    {
+      "id": "reflections",
+      "key": "graphics/reflection_quality$",
+      "setting": "Reflection Quality",
+      "menu": "GTA V › Settings › Graphics",
+      "levels": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "target": "2",
+      "gain": "Good GPU saving",
+      "cost": "Simpler reflections"
+    }
+  ],
+  "labels": {
+    "0": "Normal",
+    "1": "High",
+    "2": "Very High",
+    "3": "Ultra"
+  }
+}
