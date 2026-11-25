@@ -52,6 +52,8 @@ enum Screen {
     Preflight,
     Results,
     PostFlight,
+    /// While you're live.
+    InFlight,
     History,
     Settings,
     Help,
@@ -151,6 +153,9 @@ pub struct App {
     prev_test: Option<(TestResult, u8)>,
     compare: Option<Compare>,
     tree_pf_open: bool,
+    show_all_fixes: bool,
+    test_choice_open: bool,
+    settings_tab: u8,
     pairing: Option<crate::pairing::Pairing>,
     /// "host" (streaming PC) or "client" (gaming PC) for the running pairing.
     pairing_kind: &'static str,
@@ -220,6 +225,7 @@ pub struct App {
     install_result: Option<Result<std::path::PathBuf, String>>,
     install_remove_old: bool,
     open_uninstall: bool,
+    stable_confirm: bool,
     /// "Later" on the update banner (this session only).
     update_later: bool,
     update_notified: bool,
@@ -247,7 +253,11 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, menu_added: bool, open_uninstall: bool) -> Self {
         theme::apply(&cc.egui_ctx);
-        let st = Settings::load();
+        let mut st = Settings::load();
+        // A beta build looks for betas until the user decides otherwise.
+        if crate::update::is_beta_version(crate::util::VERSION) && !st.updates_beta_set {
+            st.updates_beta = true;
+        }
         cc.egui_ctx.set_zoom_factor(st.text_scale);
         let password = if st.obs_remember_password { crate::config::load_secret().unwrap_or_default() } else { String::new() };
         let now = crate::util::unix_now();
@@ -298,6 +308,9 @@ impl App {
             prev_test: None,
             compare: None,
             tree_pf_open: true,
+            show_all_fixes: false,
+            test_choice_open: false,
+            settings_tab: 0,
             pairing: None,
             pairing_kind: "",
             pair_code_input: String::new(),
@@ -352,6 +365,7 @@ impl App {
             install_result: None,
             install_remove_old: true,
             open_uninstall,
+            stable_confirm: false,
             update_later: false,
             update_notified: false,
             conn_rx: None,
@@ -871,7 +885,12 @@ impl App {
             let started = self.live.is_none() && live.is_some();
             self.live = live;
             if started {
-                let testing = self.test_handle.is_some();
+                // A stream started for a stream + record test is a test, not a real stream.
+                let testing = self.test_handle.as_ref().map(|h| h.phase() == Phase::Measuring).unwrap_or(false) || (self.test_handle.is_some() && self.show_bw_help);
+                if !testing && self.st.inflight_auto && self.screen != Screen::Setup {
+                    // Inside Preflight's own window only; it never pops over the game.
+                    self.go(Screen::InFlight);
+                }
                 if self.st.bandwidth_test_pending && !testing {
                     // The test flag is still on, but no test is running: this may be a real stream nobody can see.
                     self.flag_question = true;
@@ -1251,6 +1270,13 @@ impl App {
                 let (imp, opt) = self.open_counts();
                 if imp + opt == 0 { "Nothing to change right now.".into() } else { format!("{}. Go through them one at a time in your pre-flight.", count_words(imp, opt)) }
             }
+            Screen::InFlight => {
+                if self.live.is_some() {
+                    "Nothing to do. Preflight writes your post-flight summary when you end the stream.".into()
+                } else {
+                    "Not live. This page opens by itself when you start streaming in OBS.".into()
+                }
+            }
             Screen::PostFlight => {
                 if self.live.is_some() {
                     "You're live. Preflight watches quietly from the tray.".into()
@@ -1368,18 +1394,28 @@ impl eframe::App for App {
         if self.screen == Screen::Setup {
             egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(32, 24))).show(ui, |ui| {
                 ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    let w = ui.available_width().min(860.0);
-                    ui.set_max_width(w);
-                    self.ui_setup(ui, &ctx);
+                    // Centred, like a welcome screen.
+                    let w = ui.available_width().min(880.0);
+                    let pad = ((ui.available_width() - w) / 2.0).max(0.0);
+                    let top = ((ui.available_height() - 560.0) / 2.0).clamp(0.0, 120.0);
+                    ui.add_space(top);
+                    ui.horizontal(|ui| {
+                        ui.add_space(pad);
+                        ui.vertical(|ui| {
+                            ui.set_max_width(w);
+                            self.ui_setup(ui, &ctx);
+                        });
+                    });
                 });
             });
             self.ui_toast(&ctx);
             return;
         }
+        let folded = self.sidebar_folded(ctx.content_rect().width());
         egui::Panel::left("menu")
-            .exact_size(236.0)
+            .exact_size(if folded { 76.0 } else { 236.0 })
             .resizable(false)
-            .frame(egui::Frame::NONE.fill(PANEL).inner_margin(egui::Margin::same(16)).stroke(egui::Stroke::new(1.0, BORDER)))
+            .frame(egui::Frame::NONE.fill(PANEL).inner_margin(if folded { egui::Margin::symmetric(14, 14) } else { egui::Margin::same(16) }).stroke(egui::Stroke::new(1.0, BORDER)))
             .show(ui, |ui| self.ui_sidebar(ui));
         let strip = self.readings();
         egui::Panel::bottom("next-bar")
@@ -1393,7 +1429,23 @@ impl eframe::App for App {
                     .stroke(egui::Stroke::new(1.0, BORDER)),
             )
             .show(ui, |ui| self.ui_next_bar(ui));
-        if let Some(tiles) = strip.filter(|_| matches!(self.screen, Screen::Preflight | Screen::Results | Screen::PostFlight)) {
+        if strip.is_none() && self.screen == Screen::Preflight && self.step == 2 {
+            egui::Panel::top("readings").resizable(false).frame(egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 24, top: 14, bottom: 0 })).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let gap = ui.spacing().item_spacing.x;
+                    let w = ((ui.available_width() - gap * 3.0) / 4.0).max(120.0);
+                    for l in ["GPU", "Encoder", "Stream", "Skipped"] {
+                        egui::Frame::NONE.stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18))).corner_radius(egui::CornerRadius::same(12)).inner_margin(egui::Margin::symmetric(14, 8)).show(ui, |ui| {
+                            ui.set_width(w - 30.0);
+                            ui.label(theme::caps(l, 10.5, Color32::from_rgb(0x4A, 0x55, 0x66)));
+                            ui.label(RichText::new("–").monospace().color(Color32::from_rgb(0x4A, 0x55, 0x66)));
+                        });
+                    }
+                });
+                ui.label(RichText::new("Live readings fill in during the test.").size(12.5).color(MUTED));
+            });
+        }
+        if let Some(tiles) = strip.filter(|_| matches!(self.screen, Screen::Preflight | Screen::Results)) {
             egui::Panel::top("readings").resizable(false).frame(egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 24, top: 14, bottom: 0 })).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let gap = ui.spacing().item_spacing.x;
@@ -1414,6 +1466,7 @@ impl eframe::App for App {
                     Screen::Preflight => self.ui_preflight(ui, &ctx),
                     Screen::Results => self.ui_results(ui),
                     Screen::PostFlight => self.ui_postflight(ui),
+                    Screen::InFlight => self.ui_inflight(ui),
                     Screen::History => self.ui_history(ui),
                     Screen::Settings => self.ui_settings(ui, &ctx),
                     Screen::Help => self.ui_help(ui),
@@ -2059,7 +2112,7 @@ impl App {
         let measuring = self.test_handle.as_ref().map(|h| h.phase() == Phase::Measuring).unwrap_or(false);
         if (measuring || self.live.is_some()) && !self.reading_hist.is_empty() {
             let h = &self.reading_hist;
-            let col = |f: fn(&ReadingPoint) -> Option<f32>| h.iter().filter_map(f).collect::<Vec<f32>>();
+            let col = |f: fn(&ReadingPoint) -> Option<f32>| { let v: Vec<f32> = h.iter().filter_map(f).collect(); v[v.len().saturating_sub(60)..].to_vec() };
             let last = h.back().cloned().unwrap_or_default();
             let gpu = col(|p| p.gpu);
             return Some(vec![
@@ -2102,7 +2155,7 @@ impl App {
             skipped: self.live.as_ref().map(|l| l.dropped_pct),
         };
         self.reading_hist.push_back(point);
-        while self.reading_hist.len() > 60 {
+        while self.reading_hist.len() > 600 {
             self.reading_hist.pop_front();
         }
     }
@@ -2507,182 +2560,276 @@ impl App {
         v
     }
 
+    /// The game menu (switch which game this is about), shared by both sidebars.
+    fn game_menu(&mut self, resp: &egui::Response) {
+        let game = self.current_game().or_else(|| self.analysis.setup.game_name.clone());
+        let options = self.switch_options();
+        let mut pick_game: Option<String> = None;
+        egui::Popup::menu(resp).align(egui::RectAlign::RIGHT_START).width(280.0).show(|ui| {
+            if options.is_empty() {
+                ui.label(RichText::new("No games yet. Start one and Preflight spots it.").color(MUTED));
+            }
+            for g in &options {
+                let is_run = self.games.iter().any(|x| &x.name == g && x.running);
+                let when = if is_run { " · running".to_string() } else { self.st.game_memory.get(g).map(|m| format!(" · tested {}", crate::util::fmt_local(m.time))).unwrap_or_default() };
+                if ui.selectable_label(Some(g) == game.as_ref(), format!("{g}{when}")).clicked() {
+                    pick_game = Some(g.clone());
+                }
+            }
+        });
+        if let Some(g) = pick_game {
+            if Some(&g) != game.as_ref() {
+                let running_name = self.games.iter().find(|x| x.running).map(|x| x.name.clone());
+                self.show_game(&g);
+                self.switch_dismissed = running_name;
+            }
+        }
+    }
+
+    /// The style menu, shared by both sidebars.
+    fn style_menu(&mut self, resp: &egui::Response, ctx: &egui::Context) {
+        let mut pick_style: Option<Style> = None;
+        egui::Popup::menu(resp).align(egui::RectAlign::RIGHT_START).width(300.0).show(|ui| {
+            for (st, what) in [
+                (Style::Competitive, "Highest frame rate first. Graphics fixes come first."),
+                (Style::Balanced, "Smooth game and a clean stream. Upscaling fixes first."),
+                (Style::Cinematic, "Best-looking game. A frame rate cap comes first."),
+            ] {
+                let on = self.st.style == st;
+                let r = ui.add(egui::RadioButton::new(on, RichText::new(style_label(st)).strong()));
+                ui.label(RichText::new(what).size(12.5).color(MUTED));
+                ui.add_space(4.0);
+                if r.clicked() {
+                    pick_style = Some(st);
+                }
+            }
+            ui.separator();
+            ui.label(RichText::new("Re-sorts your fixes straight away. No new test needed.").size(12.5).color(MUTED));
+        });
+        if let Some(st) = pick_style {
+            if st != self.st.style {
+                self.st.apply_style(st);
+                self.on_style_changed(ctx);
+            }
+        }
+    }
+
+    /// The sidebar is folded to icons: chosen by the user, or a narrow window.
+    fn sidebar_folded(&self, width: f32) -> bool {
+        self.st.sidebar_collapsed || width < 1100.0
+    }
+
     fn ui_sidebar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        draw_logo(ui, 36.0);
-        ui.add_space(14.0);
-        ui.spacing_mut().item_spacing.y = 2.0;
+        let folded = self.sidebar_folded(ctx.content_rect().width());
         let mut go_to: Option<Screen> = None;
         let mut step_to: Option<u8> = None;
-
-        // ---- Pre-flight branch
-        let pf_here = matches!(self.screen, Screen::Preflight | Screen::Results);
-        let r = tree_row(ui, TreeRow { text: "Pre-flight", branch: Some(self.tree_pf_open), strong: true, ..Default::default() });
-        if r.clicked() {
-            if !pf_here {
-                self.tree_pf_open = true;
-                go_to = Some(Screen::Preflight);
-            } else {
-                self.tree_pf_open = !self.tree_pf_open;
-            }
-        }
-        if self.tree_pf_open {
-            // Game row: which game this is about; click to switch.
-            let game = self.current_game().or_else(|| self.analysis.setup.game_name.clone());
-            let running = game.as_ref().map(|g| self.games.iter().any(|x| &x.name == g && x.running)).unwrap_or(false);
-            let gtext = game.clone().unwrap_or_else(|| "No game yet".into());
-            let gr = tree_row(ui, TreeRow { text: &gtext, indent: 14.0, dot: Some(if running { GOOD } else { Color32::from_rgb(0x5A, 0x65, 0x77) }), chevron: true, strong: true, ..Default::default() })
-                .on_hover_text(if running { "Running now. Click to switch games." } else if game.is_some() { "Not running. Click to switch games." } else { "Start a game and Preflight spots it." });
-            let options = self.switch_options();
-            let mut pick_game: Option<String> = None;
-            egui::Popup::menu(&gr).align(egui::RectAlign::RIGHT_START).width(260.0).show(|ui| {
-                if options.is_empty() {
-                    ui.label(RichText::new("No games yet. Start one and Preflight spots it.").color(MUTED));
-                }
-                for g in &options {
-                    let is_run = self.games.iter().any(|x| &x.name == g && x.running);
-                    let when = if is_run { " · running".to_string() } else { self.st.game_memory.get(g).map(|m| format!(" · tested {}", crate::util::fmt_local(m.time))).unwrap_or_default() };
-                    if ui.selectable_label(Some(g) == game.as_ref(), format!("{g}{when}")).clicked() {
-                        pick_game = Some(g.clone());
-                    }
-                }
-            });
-            if let Some(g) = pick_game {
-                if Some(&g) != game.as_ref() {
-                    let running_name = self.games.iter().find(|x| x.running).map(|x| x.name.clone());
-                    self.show_game(&g);
-                    self.switch_dismissed = running_name;
-                }
-            }
-            // Style row, smaller, under the game.
-            let sname = style_label(self.st.style);
-            let stext = format!("{sname} style");
-            let sr = tree_row(ui, TreeRow { text: &stext, indent: 40.0, chevron: true, small: true, ..Default::default() }).on_hover_text("How Preflight orders your fixes for this game");
-            let mut pick_style: Option<Style> = None;
-            egui::Popup::menu(&sr).align(egui::RectAlign::RIGHT_START).width(300.0).show(|ui| {
-                for (st, what) in [
-                    (Style::Competitive, "Highest frame rate first. Graphics fixes come first."),
-                    (Style::Balanced, "Smooth game and a clean stream. Upscaling fixes first."),
-                    (Style::Cinematic, "Best-looking game. A frame rate cap comes first."),
-                ] {
-                    let on = self.st.style == st;
-                    let resp = ui.add(egui::RadioButton::new(on, RichText::new(style_label(st)).strong()));
-                    ui.label(RichText::new(what).size(12.5).color(MUTED));
-                    ui.add_space(4.0);
-                    if resp.clicked() {
-                        pick_style = Some(st);
-                    }
-                }
-                ui.separator();
-                ui.label(RichText::new("Re-sorts your fixes straight away. No new test needed.").size(12.5).color(MUTED));
-            });
-            if let Some(st) = pick_style {
-                if st != self.st.style {
-                    self.st.apply_style(st);
-                    self.on_style_changed(&ctx);
-                }
-            }
-            // Steps
-            let on_pf = self.screen == Screen::Preflight;
-            let (left, total) = self.fix_progress();
-            let test_done = self.test.is_some() || self.returning;
-            let fix_text = if left > 0 { format!("{left} of {total} left") } else if !test_done { "after the test".to_string() } else { String::new() };
-            let rows: [(&str, bool, bool, String, u8); 3] = [
-                ("Test", on_pf && self.step == 2, test_done, String::new(), 2),
-                ("Fix", on_pf && self.step == 3, test_done && left == 0, fix_text, 3),
-                ("Ready to go live", on_pf && self.step == 4, self.preflight_done || self.live.is_some(), String::new(), 4),
-            ];
-            for (i, (name, sel, done, note, n)) in rows.iter().enumerate() {
-                if i == 2 {
-                    let r = tree_row(ui, TreeRow { text: "Your setup", indent: 14.0, dash: true, selected: self.screen == Screen::Results, ..Default::default() });
-                    if r.clicked() {
-                        go_to = Some(Screen::Results);
-                    }
-                }
-                let r = tree_row(ui, TreeRow { text: name, indent: 14.0, dash: true, selected: *sel, done: *done, note, ..Default::default() });
-                if r.clicked() {
-                    step_to = Some(*n);
-                }
-            }
-        }
-
-        // ---- Post-flight branch
-        ui.add_space(6.0);
-        let post_here = matches!(self.screen, Screen::PostFlight | Screen::History);
-        let live_note = if self.live.is_some() { "live" } else { "" };
-        let r = tree_row(ui, TreeRow { text: "Post-flight", branch: Some(self.tree_post_open), strong: true, note: live_note, ..Default::default() });
-        if r.clicked() {
-            if !post_here {
-                self.tree_post_open = true;
-                self.stream_sel = 0;
-                go_to = Some(Screen::PostFlight);
-            } else {
-                self.tree_post_open = !self.tree_post_open;
-            }
-        }
-        if self.tree_post_open {
-            let last_note = if self.live.is_some() { "" } else { self.streams.first().map(|s| if s.bandwidth_test { "test" } else { "" }).unwrap_or("none yet") };
-            let r = tree_row(ui, TreeRow { text: if self.live.is_some() { "Live now" } else { "Last stream" }, indent: 14.0, dash: true, selected: self.screen == Screen::PostFlight, note: last_note, ..Default::default() });
-            if r.clicked() {
-                self.stream_sel = 0;
-                go_to = Some(Screen::PostFlight);
-            }
-            let r = tree_row(ui, TreeRow { text: "History", indent: 14.0, dash: true, selected: self.screen == Screen::History, ..Default::default() });
-            if r.clicked() {
-                go_to = Some(Screen::History);
-            }
-        }
-
-        let update_line = matches!(&self.update_result, Some(Ok(u)) if u.newer);
-        let rest = ui.available_height() - if update_line { 136.0 } else { 112.0 };
-        if rest > 0.0 {
-            ui.add_space(rest);
-        }
-        if tree_row(ui, TreeRow { text: "Settings", selected: self.screen == Screen::Settings, ..Default::default() }).clicked() {
-            go_to = Some(Screen::Settings);
-        }
-        if tree_row(ui, TreeRow { text: "Help & report a problem", selected: self.screen == Screen::Help, ..Default::default() }).clicked() {
-            go_to = Some(Screen::Help);
-        }
-        ui.add_space(6.0);
+        let mut toggle = false;
+        let on_pf = self.screen == Screen::Preflight;
+        let (left, total) = self.fix_progress();
+        let test_done = self.test.is_some() || self.returning;
+        let game = self.current_game().or_else(|| self.analysis.setup.game_name.clone());
+        let running = game.as_ref().map(|g| self.games.iter().any(|x| &x.name == g && x.running)).unwrap_or(false);
+        let gtext = game.clone().unwrap_or_else(|| "No game running yet".into());
+        let live = self.live.is_some();
         let pw_needed = self.obs_error.as_deref().map(|e| e.contains("password")).unwrap_or(false);
-        let (txt, col) = match &self.obs {
+        let (obs_txt, obs_col) = match &self.obs {
             Some(o) if o.connected => ("OBS connected", GOOD),
             _ if pw_needed => ("OBS needs its password", WARN),
             Some(_) => ("OBS closed", WARN),
             None => ("OBS not found", MUTED),
         };
-        if let Some(Ok(u)) = &self.update_result {
-            if u.newer && self.update_done.is_none() {
-                let l = format!("v{} available", u.latest);
-                if ui.add(egui::Button::new(RichText::new(l).size(12.0).color(ACCENT)).frame(false)).on_hover_text("See it in Settings").clicked() {
+        let update_line = matches!(&self.update_result, Some(Ok(u)) if u.newer && self.update_done.is_none());
+
+        if folded {
+            // ---- Icon rail
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                draw_logo(ui, 34.0);
+                ui.add_space(10.0);
+                let gtip = format!("{gtext}{}", if running { " (running) · switch game" } else { " · switch game" });
+                let gr = rail_icon(ui, Icon::Game, &gtip, false, Badge::Dot(if running { GOOD } else { Color32::from_rgb(0x5A, 0x65, 0x77) }));
+                self.game_menu(&gr);
+                let sr = rail_icon(ui, Icon::Style, &format!("{} style · change", style_label(self.st.style)), false, Badge::None);
+                self.style_menu(&sr, &ctx);
+                rail_sep(ui, "PRE", MUTED);
+                if rail_icon(ui, Icon::Test, if test_done { "Test · done" } else { "Test" }, on_pf && self.step == 2, if test_done { Badge::Tick } else { Badge::None }).clicked() {
+                    step_to = Some(2);
+                }
+                let fix_tip = if left > 0 { format!("Fix · {left} of {total} left") } else { "Fix".to_string() };
+                if rail_icon(ui, Icon::Fix, &fix_tip, on_pf && self.step == 3, if left > 0 { Badge::Count(left) } else if test_done { Badge::Tick } else { Badge::None }).clicked() {
+                    step_to = Some(3);
+                }
+                if rail_icon(ui, Icon::Setup, "Your setup", self.screen == Screen::Results, Badge::None).clicked() {
+                    go_to = Some(Screen::Results);
+                }
+                let ready_done = self.preflight_done || live;
+                if rail_icon(ui, Icon::Flag, "Ready to go live", on_pf && self.step == 4, if ready_done { Badge::Tick } else { Badge::None }).clicked() {
+                    step_to = Some(4);
+                }
+                rail_sep(ui, "IN", if live { BAD } else { MUTED });
+                let itip = match &self.live {
+                    Some(l) => format!("In-flight · live {}", crate::streamwatch::fmt_t(l.elapsed)),
+                    None => "In-flight · not live".to_string(),
+                };
+                if rail_icon(ui, Icon::Live, &itip, self.screen == Screen::InFlight, if live { Badge::Dot(Color32::from_rgb(0xFF, 0x5C, 0x6C)) } else { Badge::None }).clicked() {
+                    go_to = Some(Screen::InFlight);
+                }
+                rail_sep(ui, "POST", MUTED);
+                if rail_icon(ui, Icon::Summary, "Last stream", self.screen == Screen::PostFlight, Badge::None).clicked() {
+                    self.stream_sel = 0;
+                    go_to = Some(Screen::PostFlight);
+                }
+                if rail_icon(ui, Icon::History, "History", self.screen == Screen::History, Badge::None).clicked() {
+                    go_to = Some(Screen::History);
+                }
+                let rest = ui.available_height() - 150.0;
+                if rest > 0.0 {
+                    ui.add_space(rest);
+                }
+                if rail_icon(ui, Icon::Settings, if update_line { "Settings · an update is available" } else { "Settings" }, self.screen == Screen::Settings, if update_line { Badge::Count(1) } else { Badge::None }).clicked() {
                     go_to = Some(Screen::Settings);
                 }
+                if rail_icon(ui, Icon::Help, "Help & report a problem", self.screen == Screen::Help, Badge::None).clicked() {
+                    go_to = Some(Screen::Help);
+                }
+                let (r, resp) = ui.allocate_exact_size(Vec2::new(48.0, 14.0), egui::Sense::hover());
+                ui.painter().circle_filled(r.center(), 4.0, obs_col);
+                resp.on_hover_text(obs_txt);
+                let narrow = ctx.content_rect().width() < 1100.0;
+                let t = rail_icon(ui, Icon::Expand, if narrow { "The window is narrow, so the sidebar shows icons" } else { "Show names (Ctrl+B)" }, false, Badge::None);
+                if t.clicked() && !narrow {
+                    toggle = true;
+                }
+            });
+        } else {
+            // ---- Full sidebar
+            draw_logo(ui, 36.0);
+            ui.add_space(14.0);
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let pf_here = matches!(self.screen, Screen::Preflight | Screen::Results);
+            let r = tree_row(ui, TreeRow { text: "Pre-flight", branch: Some(self.tree_pf_open), strong: true, ..Default::default() });
+            if r.clicked() {
+                if !pf_here {
+                    self.tree_pf_open = true;
+                    go_to = Some(Screen::Preflight);
+                } else {
+                    self.tree_pf_open = !self.tree_pf_open;
+                }
             }
+            sub_line(ui, "Before you stream");
+            if self.tree_pf_open {
+                let gr = tree_row(ui, TreeRow { text: &gtext, indent: 14.0, dot: Some(if running { GOOD } else { Color32::from_rgb(0x5A, 0x65, 0x77) }), chevron: true, strong: game.is_some(), ..Default::default() })
+                    .on_hover_text(if running { format!("{gtext} · running. Click to switch games.") } else if game.is_some() { format!("{gtext} · not running. Click to switch games.") } else { "Start a game and Preflight spots it.".into() });
+                self.game_menu(&gr);
+                let stext = format!("{} style", style_label(self.st.style));
+                let sr = tree_row(ui, TreeRow { text: &stext, indent: 40.0, chevron: true, small: true, ..Default::default() }).on_hover_text("How Preflight orders your fixes for this game");
+                self.style_menu(&sr, &ctx);
+                let fix_text = if left > 0 { format!("{left} of {total} left") } else if !test_done { "after the test".to_string() } else { String::new() };
+                if tree_row(ui, TreeRow { text: "Test", indent: 14.0, dash: true, selected: on_pf && self.step == 2, done: test_done, ..Default::default() }).clicked() {
+                    step_to = Some(2);
+                }
+                if tree_row(ui, TreeRow { text: "Fix", indent: 14.0, dash: true, selected: on_pf && self.step == 3, done: test_done && left == 0, note: &fix_text, ..Default::default() }).clicked() {
+                    step_to = Some(3);
+                }
+                if tree_row(ui, TreeRow { text: "Your setup", indent: 14.0, dash: true, selected: self.screen == Screen::Results, ..Default::default() }).clicked() {
+                    go_to = Some(Screen::Results);
+                }
+                if tree_row(ui, TreeRow { text: "Ready to go live", indent: 14.0, dash: true, selected: on_pf && self.step == 4, done: self.preflight_done || live, ..Default::default() }).clicked() {
+                    step_to = Some(4);
+                }
+            }
+            ui.add_space(6.0);
+            let in_note = match &self.live {
+                Some(l) => format!("live {}", crate::streamwatch::fmt_t(l.elapsed)),
+                None => String::new(),
+            };
+            let r = tree_row(ui, TreeRow { text: "In-flight", section: true, selected: self.screen == Screen::InFlight, note: &in_note, dot: if live { Some(Color32::from_rgb(0xFF, 0x5C, 0x6C)) } else { None }, ..Default::default() });
+            if r.clicked() {
+                go_to = Some(Screen::InFlight);
+            }
+            sub_line(ui, "While you're live");
+            ui.add_space(6.0);
+            let post_here = matches!(self.screen, Screen::PostFlight | Screen::History);
+            let r = tree_row(ui, TreeRow { text: "Post-flight", branch: Some(self.tree_post_open), strong: true, ..Default::default() });
+            if r.clicked() {
+                if !post_here {
+                    self.tree_post_open = true;
+                    self.stream_sel = 0;
+                    go_to = Some(Screen::PostFlight);
+                } else {
+                    self.tree_post_open = !self.tree_post_open;
+                }
+            }
+            sub_line(ui, "After you stream");
+            if self.tree_post_open {
+                let last_note = self.streams.first().map(|s| if s.bandwidth_test { "test" } else { "" }).unwrap_or("none yet");
+                if tree_row(ui, TreeRow { text: "Last stream", indent: 14.0, dash: true, selected: self.screen == Screen::PostFlight, note: last_note, ..Default::default() }).clicked() {
+                    self.stream_sel = 0;
+                    go_to = Some(Screen::PostFlight);
+                }
+                if tree_row(ui, TreeRow { text: "History", indent: 14.0, dash: true, selected: self.screen == Screen::History, ..Default::default() }).clicked() {
+                    go_to = Some(Screen::History);
+                }
+            }
+            let rest = ui.available_height() - if update_line { 150.0 } else { 126.0 };
+            if rest > 0.0 {
+                ui.add_space(rest);
+            }
+            if tree_row(ui, TreeRow { text: "Settings", selected: self.screen == Screen::Settings, ..Default::default() }).clicked() {
+                go_to = Some(Screen::Settings);
+            }
+            if tree_row(ui, TreeRow { text: "Help & report a problem", selected: self.screen == Screen::Help, ..Default::default() }).clicked() {
+                go_to = Some(Screen::Help);
+            }
+            ui.add_space(6.0);
+            if let Some(Ok(u)) = &self.update_result {
+                if update_line {
+                    let l = format!("v{} available", u.latest);
+                    if ui.add(egui::Button::new(RichText::new(l).size(12.0).color(ACCENT)).frame(false)).on_hover_text("Update from the banner, or in Settings › Updates").clicked() {
+                        go_to = Some(Screen::Settings);
+                        self.settings_tab = 4;
+                    }
+                }
+            }
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(obs_txt).size(12.0).color(obs_col));
+                ui.label(RichText::new(format!("· v{}", crate::util::VERSION)).size(12.0).color(MUTED));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(egui::Button::new(RichText::new("«").size(14.0).color(MUTED)).frame(false)).on_hover_text("Show icons only (Ctrl+B)").clicked() {
+                        toggle = true;
+                    }
+                });
+            });
         }
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(txt).size(12.0).color(col));
-            ui.label(RichText::new(format!("· v{}", crate::util::VERSION)).size(12.0).color(MUTED));
-        });
 
-        // Keyboard: Alt+1..4 = Test, Fix, Your setup, Post-flight.
-        let keys = ctx.input_mut(|i| {
+        // Keyboard: Alt+1..4 = Test, Fix, Your setup, In-flight; Ctrl+B folds the sidebar.
+        let (keys, ctrl_b) = ctx.input_mut(|i| {
             let mut k = None;
             for (n, key) in [(1u8, egui::Key::Num1), (2, egui::Key::Num2), (3, egui::Key::Num3), (4, egui::Key::Num4)] {
                 if i.consume_key(egui::Modifiers::ALT, key) {
                     k = Some(n);
                 }
             }
-            k
+            (k, i.consume_key(egui::Modifiers::COMMAND, egui::Key::B))
         });
+        if ctrl_b {
+            toggle = true;
+        }
+        if toggle {
+            self.st.sidebar_collapsed = !self.st.sidebar_collapsed;
+            self.st.save();
+            if self.st.sidebar_collapsed && !self.st.hints_seen.iter().any(|h| h == "rail") {
+                self.st.hints_seen.push("rail".into());
+                self.st.save();
+                self.toast(&ctx, "Icons only. Hover an icon to see its name; Ctrl+B brings the names back.".to_string());
+            }
+        }
         match keys {
             Some(1) => step_to = Some(2),
             Some(2) => step_to = Some(3),
             Some(3) => go_to = Some(Screen::Results),
-            Some(4) => {
-                self.stream_sel = 0;
-                go_to = Some(Screen::PostFlight)
-            }
+            Some(4) => go_to = Some(Screen::InFlight),
             _ => {}
         }
         if let Some(n) = step_to {
@@ -2700,6 +2847,13 @@ impl App {
     /// The main next action for the current screen, if there's one button to press.
     fn next_button(&self) -> Option<(String, NextAct)> {
         match self.screen {
+            Screen::InFlight => {
+                if self.live.is_some() {
+                    Some(("Minimize to tray".into(), NextAct::ToTray))
+                } else {
+                    Some(("Go to Pre-flight".into(), NextAct::Screen(Screen::Preflight)))
+                }
+            }
             Screen::Preflight => match self.step {
                 2 => {
                     let measuring = self.test_handle.as_ref().map(|h| h.phase() == Phase::Measuring).unwrap_or(false);
@@ -2717,6 +2871,8 @@ impl App {
                         Some(("How to connect OBS".into(), NextAct::ObsHelp))
                     } else if self.test_handle.is_none() {
                         Some(("Start the test".into(), NextAct::ArmTest))
+                    } else if !measuring {
+                        Some(("Help with OBS".into(), NextAct::ObsHelp))
                     } else {
                         None
                     }
@@ -3282,35 +3438,6 @@ impl App {
     // -----------------------------------------------------------------------
     // First-run setup: 3 short screens
 
-    fn style_cards(&mut self, ui: &mut Ui) -> bool {
-        let mut changed = false;
-        ui.columns(3, |cols| {
-            for (i, (style, name, desc)) in [
-                (Style::Competitive, "Competitive", "Highest, steadiest FPS. Stream quality comes second. (e.g. CS2 ranked)\nFirst fix: lower heavy graphics and keep your FPS high."),
-                (Style::Balanced, "Balanced", "Smooth game and a clean stream, with small trade-offs. (e.g. Fortnite, Halo)\nFirst fix: DLSS/FSR, or an FPS cap."),
-                (Style::Cinematic, "Cinematic", "The game and stream look their best. Lower FPS is fine. (e.g. Cyberpunk 2077)\nFirst fix: an FPS cap, so the graphics stay high."),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                if choice_tile(&mut cols[i], self.st.style == style, name, desc) {
-                    self.st.apply_style(style);
-                    changed = true;
-                }
-            }
-        });
-        if let Some(g) = self.current_game() {
-            theme::small(ui, format!("Saved for {g}. Each game remembers its own style."));
-        }
-        if changed {
-            let ctx = ui.ctx().clone();
-            self.on_style_changed(&ctx);
-        }
-        changed
-    }
-
-    /// A new style changes which fix comes first: redo the advice, keep the
-    /// progress, and say what changed.
     fn on_style_changed(&mut self, ctx: &egui::Context) {
         let before: Option<String> = self.analysis.issues.iter().find(|i| i.id.starts_with("gpu_")).and_then(|i| i.options.iter().find(|o| o.suggested)).map(|o| o.name.clone());
         if let Some(g) = self.current_game() {
@@ -3403,131 +3530,170 @@ impl App {
         changed
     }
 
+    /// First time: three short steps, then straight into the first test.
     fn ui_setup(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        let n = self.setup_screen.clamp(1, 3);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(crate::util::SHORT_NAME).size(20.0).strong().color(ACCENT));
+            draw_logo(ui, 34.0);
+            ui.label(theme::caps("Stream Preflight", 16.0, TEXT));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                for (i, l) in [(3u8, "3 · Connect OBS"), (2, "2 · Your monitor"), (1, "1 · Your style")] {
-                    let (fg, bg) = if self.setup_screen == i {
-                        (Color32::from_rgb(0xD9, 0xF9, 0x9D), ACCENT_BG)
-                    } else if self.setup_screen > i {
-                        (GOOD, GOOD_BG)
-                    } else {
-                        (MUTED, CARD)
-                    };
-                    theme::pill(ui, fg, bg, l);
+                for (i, l) in [(3u8, "How you stream"), (2, "Connect OBS"), (1, "Welcome")] {
+                    let col = if n == i { ACCENT } else if n > i { theme::TEAL } else { MUTED };
+                    ui.label(RichText::new(l).size(13.0).color(if n == i { TEXT } else { MUTED }));
+                    ui.label(RichText::new(if n > i { "done".to_string() } else { i.to_string() }).monospace().color(col));
+                    if i > 1 {
+                        ui.label(RichText::new("—").color(MUTED));
+                    }
                 }
             });
         });
-        ui.add_space(14.0);
-        let line = self.next_line();
-        theme::inset(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Next").color(ACCENT).strong());
-                ui.label(line);
-            });
-        });
-        ui.add_space(12.0);
-        match self.setup_screen {
-            1 => {
-                theme::title(ui, "What matters most when you stream?");
-                theme::subtitle(ui, "This decides which fix Preflight suggests first. You'll always see every option.");
-                ui.add_space(14.0);
-                self.style_cards(ui);
-                ui.add_space(12.0);
-                egui::CollapsingHeader::new(RichText::new("Fine-tune (optional)").strong()).id_salt("finetune").show(ui, |ui| {
-                    self.questions(ui);
-                });
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    ui.label("Streaming to");
-                    for p in [Platform::Twitch, Platform::YouTube, Platform::Kick] {
-                        ui.selectable_value(&mut self.st.platform, p, p.name());
-                    }
-                });
-                ui.add_space(16.0);
-                if theme::primary(ui, "  Continue  ").clicked() {
-                    self.setup_screen = 2;
-                }
-            }
-            2 => {
-                theme::title(ui, "Which monitor do you play on?");
-                theme::subtitle(ui, "Found automatically. FPS suggestions are based on its refresh rate.");
-                ui.add_space(14.0);
-                self.monitor_picker(ui);
-                ui.add_space(16.0);
-                ui.horizontal(|ui| {
-                    if theme::primary(ui, "  Continue  ").clicked() {
-                        self.setup_screen = 3;
-                    }
-                    if theme::secondary(ui, "Back").clicked() {
-                        self.setup_screen = 1;
-                    }
-                });
-            }
-            _ => {
-                theme::title(ui, "Connect OBS");
-                theme::subtitle(ui, "A one-time step so Preflight can read your stream settings. It never changes anything in OBS.");
-                ui.add_space(10.0);
-                ui.label("1. In OBS, open Tools › WebSocket Server Settings.");
-                ui.label("2. Tick Enable WebSocket server.");
-                ui.label("3. Click Show Connect Info, copy the password, and paste it below.");
-                ui.add_space(10.0);
-                theme::card(ui, |ui| {
-                    ui.label(RichText::new("OBS password").strong());
-                    ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut self.password).password(true).desired_width(280.0));
-                        let busy = self.conn_rx.is_some();
-                        if ui.add_enabled(!busy, egui::Button::new(if busy { "Connecting…" } else { "Test connection" })).clicked() {
-                            self.connect_obs(ctx);
+        ui.add_space(28.0);
+        let mut go: Option<u8> = None;
+        let mut finish = false;
+        theme::hero_card(ui, |ui| {
+            ui.label(theme::caps(&format!("Step {n} of 3"), 12.0, ACCENT));
+            match n {
+                1 => {
+                    ui.label(RichText::new("See how your stream will run, before you go live").size(30.0).strong());
+                    ui.label(RichText::new("Play for two minutes while OBS records. Preflight measures your game, OBS and PC, then shows the one thing to change next.").size(16.0).color(TEXT_SOFT));
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        for (t, d) in [
+                            ("A 2-minute test", "While you play, like a normal stream."),
+                            ("One fix at a time", "Exactly where the setting is, and why."),
+                            ("Only reads", "Never changes your settings or controls OBS. Safe with anti-cheat."),
+                        ] {
+                            egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(12)).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
+                                ui.set_width(220.0);
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new(t).strong());
+                                    ui.label(RichText::new(d).size(13.5).color(TEXT_SOFT));
+                                });
+                            });
                         }
                     });
-                    ui.checkbox(&mut self.st.obs_remember_password, "Remember it on this PC");
-                    match (&self.obs, &self.obs_error) {
-                        (Some(o), _) if o.connected => {
-                            ui.label(
-                                RichText::new(format!(
-                                    "Connected to OBS {} · {} at {}{}, {}",
-                                    o.obs_version,
-                                    o.encoder_kind,
-                                    o.output_res.map(|r| format!("{}p", r.1)).unwrap_or_default(),
-                                    o.fps.map(|f| (f.round() as u32).to_string()).unwrap_or_default(),
-                                    o.bitrate_kbps.map(|b| format!("{b} kbps")).unwrap_or_default()
-                                ))
-                                .color(GOOD)
-                                .strong(),
-                            );
+                    theme::small(ui, "Nothing is sent anywhere. Your settings and results stay on this PC.");
+                }
+                2 => {
+                    ui.label(RichText::new("Connect OBS").size(30.0).strong());
+                    ui.label(RichText::new("Preflight reads OBS through its WebSocket server. It's built into OBS; it just needs turning on.").color(TEXT_SOFT));
+                    ui.label("1. In OBS, open Tools › WebSocket Server Settings");
+                    ui.label("2. Tick Enable WebSocket server");
+                    ui.label("3. Click Show Connect Info, copy the password, and paste it here");
+                    ui.horizontal(|ui| {
+                        let r = ui.add(egui::TextEdit::singleline(&mut self.password).password(true).desired_width(300.0).hint_text("OBS WebSocket password"));
+                        let busy = self.conn_rx.is_some();
+                        if (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) || outlined(ui, if busy { "Connecting…" } else { "Connect" }).clicked() {
+                            if !busy {
+                                self.connect_obs(ctx);
+                            }
                         }
-                        (_, Some(e)) => {
-                            ui.label(RichText::new(e).color(WARN));
+                        match (&self.obs, &self.obs_error) {
+                            (Some(o), _) if o.connected => {
+                                ui.label(RichText::new(format!("Connected · OBS {}", o.obs_version)).color(theme::TEAL));
+                            }
+                            (_, Some(e)) => {
+                                ui.label(RichText::new(e).color(WARN));
+                            }
+                            _ => {}
                         }
-                        _ => {}
+                    });
+                    ui.checkbox(&mut self.st.obs_remember_password, "Remember the password on this PC (stored encrypted)");
+                    egui::CollapsingHeader::new("OBS runs on another PC (two-PC setup)").id_salt("setup-remote").show(ui, |ui| {
+                        theme::small(ui, "Type that PC's address, and Preflight reads OBS there. You can pair the two PCs later in Settings.");
+                        ui.horizontal(|ui| {
+                            ui.label("Address");
+                            if ui.add(egui::TextEdit::singleline(&mut self.st.obs_host).desired_width(200.0)).changed() {
+                                if !crate::twopc::is_local_host(&self.st.obs_host) {
+                                    self.st.pc_role = "gaming".into();
+                                    self.st.two_pc_asked = true;
+                                }
+                            }
+                        });
+                    });
+                }
+                _ => {
+                    ui.label(RichText::new("How do you stream?").size(30.0).strong());
+                    ui.label(RichText::new("What matters most?").strong());
+                    let mut picked: Option<Style> = None;
+                    let cur = self.st.style;
+                    ui.columns(3, |cols| {
+                        for (i, (st, line)) in [
+                            (Style::Competitive, "Highest frame rate. Lowers graphics first."),
+                            (Style::Balanced, "Smooth game and a clean stream. Upscaling first."),
+                            (Style::Cinematic, "Best-looking game. Caps the frame rate first."),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            let title = if st == Style::Balanced { format!("{} · most people", style_label(st)) } else { style_label(st).to_string() };
+                            if choice_tile(&mut cols[i], cur == st, &title, line) && cur != st {
+                                picked = Some(st);
+                            }
+                        }
+                    });
+                    if let Some(st) = picked {
+                        self.st.apply_style(st);
+                        self.st.default_style = st;
                     }
-                });
-                ui.add_space(16.0);
-                let mut finish = false;
-                ui.horizontal(|ui| {
-                    if theme::primary(ui, "  Finish and start my first pre-flight  ").clicked() {
-                        finish = true;
-                    }
-                    if theme::secondary(ui, "Back").clicked() {
-                        self.setup_screen = 2;
-                    }
-                    if ui.link("I don't use OBS / skip").clicked() {
-                        finish = true;
-                    }
-                });
-                if finish {
-                    self.st.setup_done = true;
-                    if self.st.obs_remember_password && !self.password.is_empty() {
-                        crate::config::save_secret(&self.password);
-                    }
-                    self.st.save();
-                    self.screen = Screen::Preflight;
-                    self.step = 2;
-                    self.start_scan(ctx.clone(), true);
+                    ui.label(RichText::new("Where do you stream?").strong());
+                    ui.horizontal(|ui| {
+                        for name in ["Twitch", "YouTube", "Kick"] {
+                            let mut on = self.st.platforms.iter().any(|p| p == name) || (self.st.platforms.is_empty() && self.st.platform.name() == name);
+                            if ui.checkbox(&mut on, name).changed() {
+                                if self.st.platforms.is_empty() {
+                                    self.st.platforms.push(self.st.platform.name().to_string());
+                                }
+                                self.st.platforms.retain(|p| p != name);
+                                if on {
+                                    self.st.platforms.push(name.to_string());
+                                }
+                                if let Some(first) = self.st.platforms.first() {
+                                    self.st.platform = match first.as_str() {
+                                        "YouTube" => Platform::YouTube,
+                                        "Kick" => Platform::Kick,
+                                        _ => Platform::Twitch,
+                                    };
+                                }
+                            }
+                        }
+                    });
+                    theme::small(ui, "Each game can have its own style later: click the style under the game's name in the sidebar.");
                 }
             }
+        });
+        ui.add_space(20.0);
+        egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 10)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                if n > 1 && outlined(ui, "Back").clicked() {
+                    go = Some(n - 1);
+                }
+                ui.label(RichText::new(if n == 2 { "No OBS yet? You can connect it later in Settings." } else { "You can change all of this later in Settings." }).size(13.0).color(MUTED));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let label = match n {
+                        1 => "Get started",
+                        2 => "Continue",
+                        _ => "Start my first pre-flight",
+                    };
+                    if theme::glow_button(ui, label).clicked() {
+                        if n < 3 { go = Some(n + 1) } else { finish = true }
+                    }
+                });
+            });
+        });
+        if let Some(g) = go {
+            self.setup_screen = g;
+        }
+        if finish {
+            self.st.setup_done = true;
+            if self.st.obs_remember_password && !self.password.is_empty() {
+                crate::config::save_secret(&self.password);
+            }
+            self.st.save();
+            self.screen = Screen::Preflight;
+            self.step = 2;
+            self.start_scan(ctx.clone(), true);
         }
     }
 
@@ -3588,26 +3754,53 @@ impl App {
 
     /// Page title on the left; the two scores and "Why?" on the right.
     fn page_header(&mut self, ui: &mut Ui, title: &str) {
+        let (left, total) = self.fix_progress();
+        let first_time = self.test.is_none() && self.st.game_memory.is_empty();
+        let important = self.analysis.issues.iter().filter(|i| !analysis::is_optional(i) && !self.st.kept_issues.contains(&i.id) && !self.fixed.contains(&i.id)).count();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
-                let (left, total) = self.fix_progress();
-                let sub = if self.live.is_some() { "Pre-flight · you're live".to_string() } else if left > 0 { format!("Pre-flight · {left} of {total} fixes left") } else { "Pre-flight".to_string() };
-                ui.label(theme::caps(&sub, 12.0, ACCENT));
-                let head = match self.step {
-                    2 => "Test while you play",
-                    3 if left > 0 => "Fix what matters",
-                    3 => "All fixes done",
-                    4 if self.live.is_some() => "Live now",
-                    4 => "Ready to go live",
-                    _ => title,
+                let (kick, head) = match self.step {
+                    2 if first_time => ("Pre-flight · before you stream".to_string(), "Your first test".to_string()),
+                    2 => ("Pre-flight · step 1 of 3".to_string(), "Test while you play".to_string()),
+                    3 if left > 0 => (format!("Pre-flight · fix {} of {}", (total - left + 1).min(total), total), "Fix what matters".to_string()),
+                    3 => ("Pre-flight · step 2 of 3".to_string(), "All fixes done".to_string()),
+                    4 if self.live.is_some() => ("Pre-flight · you're live".to_string(), "Enjoy the stream".to_string()),
+                    4 => ("Pre-flight · step 3 of 3".to_string(), "Ready to go live".to_string()),
+                    _ => ("Pre-flight".to_string(), title.to_string()),
                 };
-                ui.label(RichText::new(head).size(30.0).strong().color(TEXT));
+                ui.label(theme::caps(&kick, 12.0, ACCENT));
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(head).size(30.0).strong().color(TEXT));
+                    // One verdict, in words.
+                    let (v, c) = if important > 0 {
+                        (format!("{important} to fix"), theme::AMBER)
+                    } else if self.test.is_none() && !self.returning {
+                        ("Not tested yet".to_string(), MUTED)
+                    } else if left > 0 {
+                        (format!("Ready · {left} optional"), theme::TEAL)
+                    } else {
+                        ("Ready".to_string(), theme::TEAL)
+                    };
+                    egui::Frame::NONE
+                        .fill(Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 26))
+                        .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 140)))
+                        .corner_radius(egui::CornerRadius::same(255))
+                        .inner_margin(egui::Margin::symmetric(12, 4))
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(v).size(13.0).color(c));
+                        });
+                });
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(12.0);
                 let why = ui.add(egui::Button::new(theme::caps("Why?", 12.0, ACCENT)).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand);
                 egui::Popup::from_toggle_button_response(&why).align(egui::RectAlign::BOTTOM_END).width(380.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                    ui.label(RichText::new("Smoothness").strong());
+                    theme::small(ui, "How smoothly your game and stream ran in the test. Measured, so it needs a test.");
+                    ui.label(RichText::new("Setup").strong());
+                    theme::small(ui, "How well your OBS, game and PC settings suit streaming. Read from your settings.");
+                    ui.separator();
                     self.ui_score_why(ui);
                 });
                 theme::dial(ui, Some(self.analysis.setup_score), "Setup", ACCENT);
@@ -3616,6 +3809,32 @@ impl App {
             });
         });
         ui.add_space(12.0);
+        // One-time hint on the very first test.
+        if self.step == 2 && first_time && !self.st.hints_seen.iter().any(|h| h == "first_test") {
+            let mut got = false;
+            egui::Frame::NONE
+                .fill(Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 20))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 100)))
+                .corner_radius(egui::CornerRadius::same(12))
+                .inner_margin(egui::Margin::symmetric(14, 9))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(theme::caps("First time", 11.5, theme::TEAL));
+                        ui.label("Start your game and get into real gameplay, then click Start Recording in OBS. Preflight does the rest.");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if quiet_link(ui, "Got it").clicked() {
+                                got = true;
+                            }
+                        });
+                    });
+                });
+            if got {
+                self.st.hints_seen.push("first_test".into());
+                self.st.save();
+            }
+            ui.add_space(10.0);
+        }
     }
 
     fn ui_score_why(&self, ui: &mut Ui) {
@@ -3726,7 +3945,12 @@ impl App {
         let (elapsed, last, shots) = self.test_handle.as_ref().and_then(|h| h.state.lock().ok().map(|s| (s.elapsed, s.last.clone(), s.shots))).unwrap_or((0.0, None, 0));
         let show_done = self.test.is_some() && !self.want_new_test && !matches!(phase, Some(Phase::Measuring));
         theme::hero_card(ui, |ui| {
-            ui.vertical(|ui| { do_next_label(ui); ui.label(RichText::new(match self.games.iter().find(|g| g.running) { Some(g) => format!("Run a test with {} open", g.name), None => "Pick a test, then start your game".to_string() }).size(24.0).strong()); });
+            ui.vertical(|ui| {
+                    do_next_label(ui);
+                    let running = self.games.iter().any(|g| g.running);
+                    let head = if !running { "Start a game, then record in OBS" } else if self.show_bw_help { "Start streaming and recording in OBS" } else { "Start recording in OBS" };
+                    ui.label(RichText::new(head).size(24.0).strong());
+                });
             ui.add_space(6.0);
             if matches!(phase, Some(Phase::Measuring)) {
                 let target = self.test_handle.as_ref().and_then(|h| h.state.lock().ok().map(|s| s.target)).unwrap_or(livetest::TARGET_SECONDS);
@@ -3920,8 +4144,34 @@ impl App {
             // Which test? Remembered for next time.
             let separate_gpu_rec = self.obs.as_ref().map(|o| o.recording_uses_stream_settings == Some(false) && !o.rec_encoder_kind.is_empty() && !o.rec_encoder_kind.contains("CPU")).unwrap_or(false);
             let kind = if self.quick_next { "quick" } else if self.show_bw_help { "stream_record" } else { "full" };
-            ui.label(RichText::new("Which test?").strong());
             let mut chosen: Option<&str> = None;
+            let (kname, kdesc) = match kind {
+                "quick" => ("Quick check", "about 1 minute · compares with your last test"),
+                "stream_record" => ("Stream + record", "about 2 minutes · measures both together"),
+                _ => ("Full test", "about 2 minutes · recommended"),
+            };
+            if !self.test_choice_open {
+                // The choice, folded to one line.
+                egui::Frame::NONE
+                    .fill(Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 14))
+                    .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 70)))
+                    .corner_radius(egui::CornerRadius::same(10))
+                    .inner_margin(egui::Margin::symmetric(14, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.label(theme::caps("Test", 11.0, MUTED));
+                            ui.label(RichText::new(kname).strong());
+                            ui.label(RichText::new(format!("· {kdesc}")).color(MUTED));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.add(egui::Button::new(RichText::new("Change").color(ACCENT).underline()).frame(false)).clicked() {
+                                    self.test_choice_open = true;
+                                }
+                            });
+                        });
+                    });
+            } else {
+            ui.label(RichText::new("Which test?").strong());
             ui.columns(3, |cols| {
                 let tiles = [
                     ("full", "Full test · 2 min", if separate_gpu_rec { "Measures your recording. Pick stream + record to include your stream too." } else { "Measures your stream settings while you play. Recommended." }),
@@ -3934,7 +4184,9 @@ impl App {
                     }
                 }
             });
+            }
             if let Some(id) = chosen {
+                self.test_choice_open = false;
                 self.quick_next = id == "quick";
                 self.show_bw_help = id == "stream_record";
                 self.st.last_test = id.to_string();
@@ -3956,8 +4208,7 @@ impl App {
             let waiting = matches!(phase, Some(Phase::WaitingForRecord));
             let platforms: Vec<String> = if self.st.platforms.is_empty() { vec![self.st.platform.name().to_string()] } else { self.st.platforms.clone() };
             let game_running = self.games.iter().find(|g| g.running).map(|g| g.name.clone());
-            ui.label(RichText::new("Each line ticks itself when Preflight sees it. Preflight only watches OBS; it never controls it or touches your stream key.").color(TEXT_SOFT));
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             let mut n = 0;
             let mut num = || {
                 n += 1;
@@ -4208,8 +4459,9 @@ impl App {
                 do_next_label(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if cur.is_some() && !pausing {
-                        if link_small(ui, "This looks wrong") {
-                            action = Some("report".into());
+                        let n = self.fix_queue.len();
+                        if ui.add(egui::Button::new(RichText::new(if self.show_all_fixes { "Hide the list".to_string() } else { format!("All fixes ({n})") }).size(13.0).color(ACCENT)).frame(false)).clicked() {
+                            self.show_all_fixes = !self.show_all_fixes;
                         }
                     } else if cur.is_none() {
                         ui.label(RichText::new("All done").size(13.0).color(MUTED));
@@ -4234,11 +4486,11 @@ impl App {
                 ui.add_space(6.0);
             }
             // Checklist for the place being fixed now (ticks itself as changes are spotted).
-            if let Some(i) = cur.as_ref().filter(|_| !pausing) {
+            if let Some(i) = cur.as_ref().filter(|_| !pausing && self.show_all_fixes) {
                 let place = analysis::place_of(&i.id);
                 let items: Vec<(usize, &Issue)> = self.fix_queue.iter().enumerate().filter(|(_, q)| analysis::place_of(&q.id) == place).collect();
                 let done = items.iter().filter(|(_, q)| self.fixed.contains(&q.id)).count();
-                egui::CollapsingHeader::new(RichText::new(format!("{} · {done} of {} done · see the list", place.label(), items.len())).color(TEXT_SOFT)).id_salt("fix-list").show(ui, |ui| {
+                egui::CollapsingHeader::new(RichText::new(format!("All fixes {} · {done} of {} done", place.label().to_lowercase(), items.len())).color(TEXT_SOFT)).id_salt("fix-list").default_open(true).show(ui, |ui| {
                     // Keep it short: the one being fixed now and the next few. Done and skipped ones are counted.
                     let skipped_n = items.iter().filter(|(_, q)| self.skipped.contains(&q.id) && !self.fixed.contains(&q.id)).count();
                     let pending: Vec<(usize, &Issue)> = items.iter().copied().filter(|(idx, q)| *idx == self.fix_idx || (!self.fixed.contains(&q.id) && !self.skipped.contains(&q.id))).collect();
@@ -4354,15 +4606,20 @@ impl App {
                 analysis::Place::Obs => "OBS".into(),
                 analysis::Place::Pc => "your PC".into(),
             };
-            ui.horizontal(|ui| {
-                tag_pill(ui, if analysis::is_optional(&issue) { analysis::Tag::Optional } else { analysis::Tag::Change });
-                ui.label(RichText::new(format!("{} of {total} · In {place_name}", self.fix_idx + 1)).size(13.0).color(MUTED));
-            });
-            if let Some(where_) = crate::twopc::pc_of(analysis::place_of(&issue.id), self.role()) {
-                ui.label(theme::caps(where_, 11.5, theme::TEAL));
+            let _ = total;
+            let mut where_line = format!("In {place_name}{}", if analysis::is_optional(&issue) { " · optional" } else { "" });
+            if let Some(w) = crate::twopc::pc_of(analysis::place_of(&issue.id), self.role()) {
+                where_line = format!("{w} · {where_line}");
             }
-            let heading = main.as_ref().map(|o| o.name.clone()).unwrap_or_else(|| issue.title.clone());
-            ui.label(RichText::new(heading).size(20.0).strong());
+            ui.label(theme::caps(&where_line, 11.5, theme::TEAL));
+            // The instruction as a sentence: "Set Recording Format to Hybrid MP4".
+            let heading = match &main {
+                Some(o) if o.name.split_whitespace().count() <= 3 && o.changes.len() == 1 => format!("Set {} to {}", o.changes[0].setting, o.changes[0].to),
+                Some(o) if o.name.split_whitespace().count() <= 3 => format!("Use {}", o.name),
+                Some(o) => o.name.clone(),
+                None => issue.title.clone(),
+            };
+            ui.label(RichText::new(heading).size(24.0).strong());
             if let Some(text) = detected {
                 egui::Frame::NONE
                     .fill(GOOD_BG)
@@ -4442,14 +4699,20 @@ impl App {
                 _ => "Change it, click Apply or OK in OBS, and Preflight notices by itself.",
             };
             ui.label(RichText::new(watch).size(12.5).color(MUTED));
-            ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                if theme::secondary(ui, "Keep as is").on_hover_text("Stays listed under \"You chose to keep\" and stops counting against your score.").clicked() {
+            // Quiet choices along the bottom; the main button is in the Next bar.
+            ui.add(egui::Separator::default().spacing(8.0));
+            ui.horizontal(|ui| {
+                if quiet_link(ui, "Keep as is").on_hover_text("Stays listed under \"You chose to keep\" and stops counting against your score.").clicked() {
                     action = Some("keep".into());
                 }
-                if theme::secondary(ui, "Skip for now").clicked() {
+                if quiet_link(ui, "Skip for now").clicked() {
                     action = Some("skip".into());
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if quiet_link(ui, "This looks wrong").on_hover_text("Saves a bug report you can look at first").clicked() {
+                        action = Some("report".into());
+                    }
+                });
             });
             // Everything else, one click away.
             let others: Vec<_> = issue.options.iter().filter(|o| Some(&o.id) != picked.as_ref()).cloned().collect();
@@ -5305,12 +5568,31 @@ impl App {
     // Settings: 3 tabs
 
     fn ui_settings(&mut self, ui: &mut Ui, ctx: &egui::Context) {
-        theme::title(ui, "Settings");
-        theme::subtitle(ui, "The everyday settings first. Everything else is under Advanced.");
-        ui.add_space(8.0);
+        ui.label(theme::caps("Settings", 12.0, ACCENT));
+        let tabs = ["General", "OBS & PCs", "Tray & notifications", "Privacy & data", "Updates & about"];
+        let mut tab = self.settings_tab.min(4) as usize;
+        ui.label(RichText::new(match tab { 0 => "General", 1 => "OBS and your PCs", 2 => "Tray and notifications", 3 => "Privacy and data", _ => "Updates and about" }).size(30.0).strong());
+        ui.add_space(6.0);
+        egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(12)).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for (i, t) in tabs.iter().enumerate() {
+                    let on = tab == i;
+                    let b = egui::Button::new(RichText::new(*t).color(if on { TEXT } else { TEXT_SOFT }))
+                        .fill(if on { Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 40) } else { Color32::TRANSPARENT })
+                        .stroke(if on { egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 120)) } else { egui::Stroke::NONE })
+                        .corner_radius(egui::CornerRadius::same(9));
+                    if ui.add(b).clicked() {
+                        tab = i;
+                    }
+                }
+            });
+        });
+        self.settings_tab = tab as u8;
+        ui.add_space(12.0);
         let mut save = false;
         let mut recompute = false;
         let mut act: Option<NextAct> = None;
+            if tab == 0 {
             theme::card(ui, |ui| {
                 ui.label(RichText::new("Style for new games").size(16.0).strong());
                 theme::small(ui, "Used the first time Preflight sees a game. To change a game's style, click the style under its name in the sidebar.");
@@ -5330,6 +5612,8 @@ impl App {
                 });
             });
             ui.add_space(10.0);
+            }
+            if tab == 0 {
             theme::card(ui, |ui| {
                 ui.label(RichText::new("Monitor you play on").size(16.0).strong());
                 if self.monitor_picker(ui) {
@@ -5337,6 +5621,8 @@ impl App {
                 }
             });
             ui.add_space(10.0);
+            }
+            if tab == 2 {
             theme::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("System tray").size(16.0).strong());
@@ -5363,6 +5649,8 @@ impl App {
                 theme::small(ui, "Tray colours: grey idle · green watching OBS · amber testing · red live · white dot when Preflight needs you.");
             });
             ui.add_space(10.0);
+            }
+            if tab == 1 {
             theme::card(ui, |ui| {
                 ui.label(RichText::new("Where do you stream?").size(16.0).strong());
                 theme::small(ui, "Tick every platform you stream to at the same time.");
@@ -5408,6 +5696,8 @@ impl App {
                 }
             });
             ui.add_space(10.0);
+            }
+            if tab == 1 {
             theme::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("OBS connection").size(16.0).strong());
@@ -5458,8 +5748,10 @@ impl App {
                 theme::small(ui, "Streamlabs Desktop and Meld Studio support is coming in a later build.");
             });
             ui.add_space(10.0);
+            }
         ui.add_space(10.0);
-        egui::CollapsingHeader::new(RichText::new("Advanced: your PCs and pairing, OBS address, display, games, install and updates, notifications, privacy, remove Preflight").strong()).id_salt("settings-advanced").show(ui, |ui| {
+        {
+            if tab == 0 {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("You chose to keep").size(16.0).strong());
                     theme::small(ui, "Fixes you decided not to make. They're never hidden: undo any of them here or in Your setup.");
@@ -5521,8 +5813,12 @@ impl App {
                     }
                 });
                 ui.add_space(10.0);
+            }
+            if tab == 1 {
                 self.ui_pcs_card(ui, ctx);
                 ui.add_space(10.0);
+            }
+            if tab == 1 {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("OBS address").size(16.0).strong());
                     theme::small(ui, "Only change these if OBS runs on another PC or uses a different port.");
@@ -5542,6 +5838,8 @@ impl App {
                     });
                 });
                 ui.add_space(10.0);
+            }
+            if tab == 0 {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Display").size(16.0).strong());
                     save |= ui.checkbox(&mut self.st.advanced_view, "Advanced view: show the technical reasons by default").changed();
@@ -5556,6 +5854,8 @@ impl App {
                         }
                     });
                 });
+            }
+            if tab == 0 {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Games").size(16.0).strong());
                     theme::small(ui, "Preflight only reads each game's settings file. It never changes it.");
@@ -5603,16 +5903,48 @@ impl App {
                         theme::muted(ui, "Scanning for games…");
                     }
                 });
+            }
+            if tab == 4 {
                         theme::card(ui, |ui| {
                     ui.label(RichText::new("Updates").size(16.0).strong());
                     ui.label(format!("{} v{} · {}", crate::util::APP_NAME, crate::util::VERSION, crate::util::BUILD_LABEL));
                     save |= ui.checkbox(&mut self.st.updates_auto, "Check for updates once a day").changed();
                     theme::small(ui, "Reads the public release list on GitHub (Matt-B-007/Stream-Preflight). Nothing about you or your PC is sent.");
                     if ui.checkbox(&mut self.st.updates_beta, "Include beta versions").changed() {
+                        self.st.updates_beta_set = true;
                         save = true;
                         self.update_result = None;
+                        self.st.last_update_check = 0;
                     }
-                    theme::small(ui, "Betas get new features first and may have rough edges. Turn this off to go back: you'll get the next stable version once it's newer than your beta.");
+                    theme::small(ui, "Betas get new features first and may have rough edges. They're named after the next version, like v0.1.0-beta.3 before v0.1.0.");
+                    if crate::update::is_beta_version(crate::util::VERSION) && !self.st.updates_beta {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new("You're on a beta.").color(TEXT_SOFT));
+                            if self.stable_confirm {
+                                ui.label(RichText::new("Install the latest stable version? It may be older than this beta; your settings stay.").color(WARN));
+                                if outlined(ui, "Yes, switch").clicked() {
+                                    self.stable_confirm = false;
+                                    let (tx, rx) = channel();
+                                    std::thread::spawn(move || {
+                                        let r = crate::update::check_stable().and_then(|u| crate::update::install(&u));
+                                        let _ = tx.send(r);
+                                    });
+                                    self.update_install = Some(rx);
+                                }
+                                if outlined(ui, "Cancel").clicked() {
+                                    self.stable_confirm = false;
+                                }
+                            } else if self.update_install.is_none() && outlined(ui, "Switch back to stable").clicked() {
+                                self.stable_confirm = true;
+                            }
+                        });
+                        if self.update_install.is_some() {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("Downloading and checking… Preflight restarts by itself.");
+                            });
+                        }
+                    }
                     let busy = self.update_rx.is_some();
                     if ui.add_enabled(!busy, egui::Button::new(if busy { "Checking…" } else { "Check now" })).clicked() {
                         let (tx, rx) = channel();
@@ -5670,12 +6002,16 @@ impl App {
                     }
                 });
                 ui.add_space(10.0);
+            }
+            if tab == 2 {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Notifications").size(16.0).strong());
                     save |= ui.checkbox(&mut self.st.notify_test_done, "Tell me when a test finishes").changed();
                     save |= ui.checkbox(&mut self.st.remind_delete_recording, "Remind me I can delete test recordings").changed();
                 });
                 ui.add_space(10.0);
+            }
+            if tab == 3 {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Privacy and data").size(16.0).strong());
                     theme::muted(ui, "Everything stays on this PC: your settings, history and any reports you save. Nothing is sent anywhere unless you send a report yourself.");
@@ -5772,6 +6108,8 @@ impl App {
                     });
                 });
                 ui.add_space(10.0);
+            }
+            if tab == 4 {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Install").size(16.0).strong());
                     let target = crate::install::target().map(|t| crate::util::scrub(&t.to_string_lossy())).unwrap_or_default();
@@ -5807,6 +6145,8 @@ impl App {
                     }
                 });
                 ui.add_space(10.0);
+            }
+            if tab == 3 {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Remove Preflight from this PC").size(16.0).strong());
                     theme::small(ui, "Deletes Preflight's own settings, saved password, history, logs and reports, and the program file if you want. Shows you the list first. Never touches OBS or your games.");
@@ -5816,7 +6156,8 @@ impl App {
                     }
                 });
         
-        });
+            }
+        }
         if save {
             self.st.save();
         }
@@ -5923,7 +6264,7 @@ impl App {
             egui::CollapsingHeader::new(RichText::new("Using Preflight with the keyboard").strong()).id_salt("help-keys").show(ui, |ui| {
                 theme::small(ui, "• Tab and Shift+Tab move between buttons; Enter or Space presses the one that's outlined.");
                 theme::small(ui, "• Ctrl+Enter does the Next step shown at the bottom.");
-                theme::small(ui, "• Alt+1 Test, Alt+2 Fix, Alt+3 Your setup, Alt+4 Post-flight.");
+                theme::small(ui, "• Alt+1 Test, Alt+2 Fix, Alt+3 Your setup, Alt+4 In-flight. Ctrl+B folds the sidebar.");
                 theme::small(ui, "• Every colour also has a word next to it (Change, Keep, OK, Great…), so nothing depends on colour alone.");
             });
         });
@@ -5979,7 +6320,18 @@ impl App {
             ui.label(RichText::new("About").size(17.0).strong());
             ui.label(format!("{} v{} · {}", crate::util::APP_NAME, crate::util::VERSION, crate::util::BUILD_LABEL));
             ui.add_space(4.0);
-            ui.label(RichText::new("New in v0.1.0 (first release)").strong());
+            ui.label(RichText::new("New in v0.1.0-beta.3").strong());
+            for s in [
+                "A three-step welcome the first time you open Preflight, and clearer empty screens before your first test",
+                "In-flight: its own page while you're live, opening by itself when you start streaming",
+                "The sidebar has Pre-flight, In-flight and Post-flight, and folds to icons (Ctrl+B)",
+                "Simpler Test and Fix screens, one verdict at the top, and Settings in five tabs",
+                "Betas: beta builds look for betas, and you can switch back to stable",
+            ] {
+                theme::small(ui, format!("• {s}"));
+            }
+            ui.add_space(4.0);
+            ui.label(RichText::new("From v0.1.0").strong());
             for s in [
                 "New name: Stream Preflight. Your settings, history and saved OBS password move over by themselves",
                 "Cockpit glass look: live readings strip, score dials, a glowing \"Do this next\" card and one bright button in the Next bar",
@@ -6140,10 +6492,8 @@ impl App {
             2
         } else if self.fail_banner.is_some() {
             3
-        } else if self.stream_notice.is_some() && !(self.screen == Screen::PostFlight && self.stream_sel == 0) {
+        } else if self.stream_notice.is_some() && self.live.is_none() && !(self.screen == Screen::PostFlight && self.stream_sel == 0) {
             4
-        } else if self.live.is_some() && self.screen != Screen::PostFlight && !(self.screen == Screen::Preflight && self.step == 4) {
-            5
         } else if self.update_banner() {
             6
         } else {
@@ -6266,19 +6616,7 @@ impl App {
         }
         if pick == 2 {
             let mut removed = false;
-            egui::Frame::NONE
-                .fill(Color32::from_rgb(0x3A, 0x2A, 0x10))
-                .stroke(egui::Stroke::new(1.0, WARN))
-                .corner_radius(egui::CornerRadius::same(12))
-                .inner_margin(egui::Margin::same(12))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(RichText::new("Remove ?bandwidthtest=true from your stream key before you go live.").strong().color(WARN));
-                    theme::muted(ui, "While it's there, Twitch accepts your stream but doesn't show it to anyone. OBS › Settings › Stream › Stream Key.");
-                    if theme::secondary(ui, "I removed it").clicked() {
-                        removed = true;
-                    }
-                });
+            slim_banner(ui, theme::AMBER, "Remove ?bandwidthtest=true from your stream key before you go live.", "While it's there, Twitch accepts your stream but shows it to no one. OBS › Settings › Stream › Stream Key.", "I removed it", &mut removed);
             if removed {
                 self.st.bandwidth_test_pending = false;
                 self.st.save();
@@ -6286,47 +6624,19 @@ impl App {
             }
             ui.add_space(10.0);
         }
-        if let Some(l) = self.live.clone() {
-            if pick == 5 {
-                egui::Frame::NONE
-                    .fill(GOOD_BG)
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(0x2F, 0x6B, 0x47)))
-                    .corner_radius(egui::CornerRadius::same(12))
-                    .inner_margin(egui::Margin::same(12))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new(format!("You're live · {}", crate::streamwatch::fmt_t(l.elapsed))).strong().color(GOOD));
-                            ui.label(format!("{:.2}% of frames dropped so far{}.", l.dropped_pct, l.kbps.map(|k| format!(" · {k:.0} kbps")).unwrap_or_default()));
-                            if link_small(ui, "Open post-flight") {
-                                go = true;
-                            }
-                        });
-                    });
-                ui.add_space(10.0);
-            }
-        }
         if self.screen == Screen::PostFlight && self.stream_sel == 0 {
             self.stream_notice = None;
         }
         if let Some(n) = self.stream_notice.clone().filter(|_| pick == 4) {
             let p = crate::streamwatch::summarize(&n);
             let mut dismiss = false;
-            theme::card(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(format!("Your {} ended · {} · ", if n.bandwidth_test { "test stream" } else { "stream" }, crate::streamwatch::fmt_duration(p.duration))).strong());
-                    ui.label(RichText::new(&p.grade).strong().color(grade_color(p.grade_level)));
-                });
-                ui.horizontal(|ui| {
-                    if theme::secondary(ui, "  See the post-flight summary  ").clicked() {
-                        go = true;
-                        dismiss = true;
-                    }
-                    if link_small(ui, "Dismiss") {
-                        dismiss = true;
-                    }
-                });
-            });
+            let mut see = false;
+            let text = format!("Your {} ended · {} · {}", if n.bandwidth_test { "test stream" } else { "stream" }, crate::streamwatch::fmt_duration(p.duration), p.grade);
+            slim_banner(ui, grade_color(p.grade_level), &text, "Your post-flight summary is ready", "See the summary", &mut see);
+            if see {
+                go = true;
+                dismiss = true;
+            }
             ui.add_space(10.0);
             if dismiss {
                 self.stream_notice = None;
@@ -6738,6 +7048,8 @@ struct TreeRow<'a> {
     dot: Option<Color32>,
     strong: bool,
     small: bool,
+    /// A top-level section name without a chevron (In-flight).
+    section: bool,
 }
 
 /// One row of the sidebar tree. Every row is clickable and shows it on hover.
@@ -6777,7 +7089,10 @@ fn tree_row(ui: &mut Ui, r: TreeRow) -> egui::Response {
     }
     let col = if r.selected || r.strong { TEXT } else { soft };
     let font = egui::FontId::proportional(if r.small { 13.5 } else { 14.5 });
-    if r.branch.is_some() {
+    if r.section && r.dot.is_none() {
+        x += 18.0;
+    }
+    if r.branch.is_some() || r.section {
         // Section names: upper case, spaced out.
         let mut job = egui::text::LayoutJob::simple_singleline(r.text.to_uppercase(), egui::FontId::proportional(12.5), TEXT);
         if let Some(sec) = job.sections.first_mut() {
@@ -6923,4 +7238,387 @@ struct ReadingPoint {
     enc: Option<f32>,
     kbps: Option<f32>,
     skipped: Option<f32>,
+}
+
+
+fn sub_line(ui: &mut Ui, s: &str) {
+    ui.horizontal(|ui| {
+        ui.add_space(30.0);
+        ui.label(RichText::new(s).size(11.5).color(MUTED));
+    });
+    ui.add_space(2.0);
+}
+
+#[derive(Clone, Copy)]
+enum Icon {
+    Game,
+    Style,
+    Test,
+    Fix,
+    Setup,
+    Flag,
+    Live,
+    Summary,
+    History,
+    Settings,
+    Help,
+    Expand,
+}
+
+#[derive(Clone, Copy)]
+enum Badge {
+    None,
+    Count(usize),
+    Tick,
+    Dot(Color32),
+}
+
+fn rail_sep(ui: &mut Ui, name: &str, col: Color32) {
+    ui.add_space(4.0);
+    let (r, _) = ui.allocate_exact_size(Vec2::new(48.0, 14.0), egui::Sense::hover());
+    let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), egui::FontId::proportional(9.5), col);
+    if let Some(sec) = job.sections.first_mut() {
+        sec.format.extra_letter_spacing = 1.4;
+    }
+    let g = ui.painter().layout_job(job);
+    ui.painter().galley(r.center() - g.size() / 2.0, g, col);
+}
+
+/// One icon in the folded sidebar: drawn with lines, a name on hover, and a badge.
+fn rail_icon(ui: &mut Ui, icon: Icon, tip: &str, selected: bool, badge: Badge) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(48.0, 42.0), egui::Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
+    let p = ui.painter();
+    if selected {
+        p.rect_filled(rect, egui::CornerRadius::same(10), Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 30));
+        p.rect_filled(egui::Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())), egui::CornerRadius::same(2), ACCENT);
+    } else if resp.hovered() {
+        p.rect_filled(rect, egui::CornerRadius::same(10), RAISED);
+    }
+    if resp.has_focus() {
+        p.rect_stroke(rect, egui::CornerRadius::same(10), egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+    }
+    let c = rect.center();
+    let col = if selected { TEXT } else { Color32::from_rgb(0xB7, 0xC0, 0xCC) };
+    let s = egui::Stroke::new(1.7, col);
+    let pt = |x: f32, y: f32| egui::pos2(c.x + x, c.y + y);
+    let line = |pts: Vec<egui::Pos2>| egui::Shape::line(pts, s);
+    let arc = |cx: f32, cy: f32, r: f32, a0: f32, a1: f32| {
+        let n = 16;
+        egui::Shape::line((0..=n).map(|k| {
+            let a = (a0 + (a1 - a0) * k as f32 / n as f32).to_radians();
+            pt(cx + r * a.cos(), cy + r * a.sin())
+        }).collect(), s)
+    };
+    match icon {
+        Icon::Game => {
+            p.rect_stroke(egui::Rect::from_center_size(c, Vec2::new(20.0, 11.0)), egui::CornerRadius::same(5), s, egui::StrokeKind::Middle);
+            p.add(line(vec![pt(-6.0, -2.5), pt(-6.0, 2.5)]));
+            p.add(line(vec![pt(-8.5, 0.0), pt(-3.5, 0.0)]));
+            p.circle_filled(pt(4.0, -1.5), 1.2, col);
+            p.circle_filled(pt(6.5, 1.5), 1.2, col);
+        }
+        Icon::Style => {
+            for (y, x) in [(-6.0, 3.0), (0.0, -3.0), (6.0, 5.0)] {
+                p.add(line(vec![pt(-9.0, y), pt(9.0, y)]));
+                p.circle_filled(pt(x, y), 2.4, Color32::from_rgb(0x0E, 0x12, 0x1C));
+                p.circle_stroke(pt(x, y), 2.4, s);
+            }
+        }
+        Icon::Test => {
+            p.add(arc(0.0, 1.5, 8.0, 0.0, 360.0));
+            p.add(line(vec![pt(0.0, 1.5), pt(0.0, -3.0)]));
+            p.add(line(vec![pt(0.0, 1.5), pt(3.0, 3.5)]));
+            p.add(line(vec![pt(-2.5, -9.0), pt(2.5, -9.0)]));
+        }
+        Icon::Fix => {
+            p.add(line(vec![pt(-7.0, 7.0), pt(1.0, -1.0)]));
+            p.add(arc(4.0, -4.0, 4.5, 90.0, 360.0));
+        }
+        Icon::Setup => {
+            p.rect_stroke(egui::Rect::from_center_size(pt(0.0, -2.0), Vec2::new(18.0, 12.0)), egui::CornerRadius::same(2), s, egui::StrokeKind::Middle);
+            p.add(line(vec![pt(-4.0, 8.0), pt(4.0, 8.0)]));
+            p.add(line(vec![pt(0.0, 4.0), pt(0.0, 8.0)]));
+        }
+        Icon::Flag => {
+            p.add(line(vec![pt(-6.0, 9.0), pt(-6.0, -8.0)]));
+            p.add(line(vec![pt(-6.0, -8.0), pt(7.0, -8.0), pt(4.0, -4.0), pt(7.0, 0.0), pt(-6.0, 0.0)]));
+        }
+        Icon::Live => {
+            p.circle_filled(c, 2.2, col);
+            p.add(arc(0.0, 0.0, 5.5, 135.0, 225.0));
+            p.add(arc(0.0, 0.0, 5.5, -45.0, 45.0));
+            p.add(arc(0.0, 0.0, 9.0, 135.0, 225.0));
+            p.add(arc(0.0, 0.0, 9.0, -45.0, 45.0));
+        }
+        Icon::Summary => {
+            p.rect_stroke(egui::Rect::from_center_size(c, Vec2::new(13.0, 17.0)), egui::CornerRadius::same(2), s, egui::StrokeKind::Middle);
+            for y in [-3.5, 0.5, 4.5] {
+                p.add(line(vec![pt(-3.5, y), pt(3.5, y)]));
+            }
+        }
+        Icon::History => {
+            p.add(arc(0.0, 0.0, 8.5, 0.0, 360.0));
+            p.add(line(vec![pt(0.0, -4.5), pt(0.0, 0.0), pt(3.0, 2.0)]));
+        }
+        Icon::Settings => {
+            p.circle_stroke(c, 3.0, s);
+            for k in 0..8 {
+                let a = (k as f32 * 45.0).to_radians();
+                p.add(line(vec![pt(5.5 * a.cos(), 5.5 * a.sin()), pt(8.5 * a.cos(), 8.5 * a.sin())]));
+            }
+        }
+        Icon::Help => {
+            p.add(arc(0.0, 0.0, 8.5, 0.0, 360.0));
+            p.text(c, egui::Align2::CENTER_CENTER, "?", egui::FontId::proportional(13.0), col);
+        }
+        Icon::Expand => {
+            p.add(line(vec![pt(-2.0, -5.0), pt(3.0, 0.0), pt(-2.0, 5.0)]));
+        }
+    }
+    match badge {
+        Badge::None => {}
+        Badge::Count(n) => {
+            let bc = egui::pos2(rect.max.x - 9.0, rect.min.y + 9.0);
+            p.circle_filled(bc, 8.0, theme::AMBER);
+            p.text(bc, egui::Align2::CENTER_CENTER, n.min(99).to_string(), egui::FontId::monospace(10.0), Color32::from_rgb(0x1A, 0x12, 0x06));
+        }
+        Badge::Tick => {
+            let b = egui::pos2(rect.max.x - 9.0, rect.max.y - 9.0);
+            p.add(egui::Shape::line(vec![egui::pos2(b.x - 4.0, b.y), egui::pos2(b.x - 1.0, b.y + 3.0), egui::pos2(b.x + 4.0, b.y - 3.0)], egui::Stroke::new(2.0, GOOD)));
+        }
+        Badge::Dot(dc) => {
+            p.circle_filled(egui::pos2(rect.max.x - 9.0, rect.max.y - 9.0), 4.0, dc);
+        }
+    }
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tip));
+    resp
+}
+
+impl App {
+    /// While you're live: big, calm numbers and plain alerts. Nothing to click.
+    fn ui_inflight(&mut self, ui: &mut Ui) {
+        let Some(l) = self.live.clone() else {
+            ui.label(theme::caps("In-flight · while you're live", 12.0, MUTED));
+            ui.label(RichText::new("Not live right now").size(30.0).strong());
+            ui.add_space(6.0);
+            theme::card(ui, |ui| {
+                ui.label(RichText::new("This page opens by itself when you start streaming in OBS.").color(TEXT_SOFT));
+                ui.label(RichText::new("You'll see your bitrate, dropped and skipped frames and your PC's load as you stream, with a plain note if anything goes wrong.").color(TEXT_SOFT));
+                if let Some(s) = self.streams.first() {
+                    let p = crate::streamwatch::summarize(s);
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("Last stream: {} · {} · {}", history::fmt_time(s.started_at), crate::streamwatch::fmt_duration(p.duration), p.grade)).color(TEXT));
+                        if outlined(ui, "See the summary").clicked() {
+                            self.stream_sel = 0;
+                            self.pending_act = Some(NextAct::Screen(Screen::PostFlight));
+                        }
+                    });
+                }
+                ui.checkbox(&mut self.st.inflight_auto, "Open this page by itself when I go live");
+            });
+            return;
+        };
+        let h: Vec<ReadingPoint> = self.reading_hist.iter().cloned().collect();
+        let kbps: Vec<f32> = h.iter().filter_map(|p| p.kbps).collect();
+        let target = self.obs.as_ref().and_then(|o| o.bitrate_kbps).map(|b| b as f32);
+        let dropped = l.dropped_pct;
+        let skipped_now = self.obs.as_ref().and_then(|o| o.outputs.iter().find(|x| x.active && x.kind.contains("stream")).and_then(|x| match (x.skipped, x.total) {
+            (Some(s), Some(t)) if t > 0 => Some(s as f32 * 100.0 / t as f32),
+            _ => None,
+        }));
+        let gpu = h.last().and_then(|p| p.gpu);
+        let enc = h.last().and_then(|p| p.enc);
+        // One verdict.
+        let low_bitrate = match (target, kbps.last()) {
+            (Some(t), Some(k)) => *k < t * 0.75,
+            _ => false,
+        };
+        let (verdict, vcol, vline) = if dropped >= 2.0 || skipped_now.unwrap_or(0.0) >= 2.0 {
+            ("Rough", BAD, "Viewers are seeing stutter. The note below says why.")
+        } else if dropped >= 0.5 || skipped_now.unwrap_or(0.0) >= 0.5 || low_bitrate {
+            ("Watch it", theme::AMBER, "A few problems; most viewers won't notice yet.")
+        } else {
+            ("All smooth", theme::TEAL, "Viewers are getting a clean stream")
+        };
+        let platforms = if self.st.platforms.is_empty() { self.st.platform.name().to_string() } else { self.st.platforms.join(" and ") };
+        ui.label(theme::caps(&format!("In-flight · live on {platforms}"), 12.0, Color32::from_rgb(0xFF, 0x5C, 0x6C)));
+        ui.horizontal(|ui| {
+            let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), egui::Sense::hover());
+            let t = ui.input(|i| i.time) as f32;
+            let pulse = 0.5 + 0.5 * (t * 2.5).sin();
+            ui.painter().circle_filled(r.center(), 9.0 + pulse * 3.0, Color32::from_rgba_unmultiplied(0xFF, 0x5C, 0x6C, (40.0 * (1.0 - pulse)) as u8 + 20));
+            ui.painter().circle_filled(r.center(), 7.0, Color32::from_rgb(0xFF, 0x5C, 0x6C));
+            ui.label(RichText::new(crate::streamwatch::fmt_t(l.elapsed)).monospace().size(38.0).color(TEXT));
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+            ui.add_space(16.0);
+            egui::Frame::NONE
+                .fill(Color32::from_rgba_unmultiplied(vcol.r(), vcol.g(), vcol.b(), 30))
+                .stroke(egui::Stroke::new(1.0, vcol))
+                .corner_radius(egui::CornerRadius::same(255))
+                .inner_margin(egui::Margin::symmetric(16, 6))
+                .show(ui, |ui| {
+                    ui.label(theme::caps(verdict, 13.0, vcol));
+                });
+            ui.label(RichText::new(vline).color(MUTED));
+        });
+        ui.add_space(12.0);
+        // Four big numbers.
+        ui.horizontal(|ui| {
+            let gap = ui.spacing().item_spacing.x;
+            let w = ((ui.available_width() - gap * 3.0) / 4.0).max(150.0);
+            let rec_on = self.obs.as_ref().map(|o| o.outputs.iter().any(|x| x.active && x.kind.contains("record"))).unwrap_or(false);
+            let tiles: [(&str, String, &str, String, Vec<f32>, Color32); 4] = [
+                ("Bitrate", kbps.last().map(|k| format!("{k:.0}")).unwrap_or_else(|| "–".into()), "kbps", target.map(|t| format!("Target {t:.0}")).unwrap_or_default(), kbps.iter().rev().take(60).rev().cloned().collect(), theme::TEAL),
+                ("Dropped · internet", format!("{dropped:.2}"), "%", if dropped < 0.1 { "Your connection is steady".into() } else { "Frames lost on the way to the platform".into() }, { let v: Vec<f32> = h.iter().filter_map(|p| p.skipped).collect(); v[v.len().saturating_sub(60)..].to_vec() }, theme::AMBER),
+                ("Skipped · encoder", skipped_now.map(|v| format!("{v:.2}")).unwrap_or_else(|| "–".into()), "%", if skipped_now.unwrap_or(0.0) < 0.1 { "The encoder is keeping up".into() } else { "The encoder is falling behind".into() }, Vec::new(), ACCENT),
+                ("Recording", if rec_on { "On".into() } else { "Off".into() }, "", if rec_on { "Recording alongside the stream".into() } else { "Not recording".into() }, Vec::new(), Color32::from_rgb(0xFF, 0x5C, 0x6C)),
+            ];
+            for (label, value, unit, sub, series, col) in tiles {
+                egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(14)).inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
+                    ui.set_width(w - 34.0);
+                    ui.vertical(|ui| {
+                        ui.label(theme::caps(label, 11.0, MUTED));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(value).monospace().size(28.0).color(TEXT));
+                            ui.label(RichText::new(unit).color(MUTED));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                theme::sparkline(ui, &series, 56.0, 20.0, col);
+                            });
+                        });
+                        ui.label(RichText::new(sub).size(13.0).color(TEXT_SOFT));
+                    });
+                });
+            }
+        });
+        ui.add_space(12.0);
+        ui.horizontal_top(|ui| {
+            let wide = (ui.available_width() * 0.62).max(360.0);
+            egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 14)).show(ui, |ui| {
+                ui.set_width(wide - 38.0);
+                ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(theme::caps("Bitrate · last 10 minutes", 11.0, MUTED));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if target.is_some() {
+                            ui.label(RichText::new("dashed line: your target").size(12.0).color(MUTED));
+                        }
+                    });
+                });
+                bitrate_graph(ui, &kbps, target, 150.0);
+                // Plain notes: only when something happened.
+                let dip = target.and_then(|t| kbps.iter().rposition(|k| *k < t * 0.75).map(|i| (i, t)));
+                if let Some((i, _)) = dip {
+                    let ago = (kbps.len() - i) as f32;
+                    let steady = kbps.iter().rev().take(10).all(|k| target.map(|t| *k >= t * 0.85).unwrap_or(true));
+                    alert_line(ui, &format!("Your bitrate dipped about {} ago{}", crate::streamwatch::fmt_t(ago), if steady { ". It's steady again; nothing to do." } else { ". If it keeps dipping, your upload is struggling: lower the bitrate a little next time." }), theme::AMBER);
+                } else if dropped >= 0.5 {
+                    alert_line(ui, "Your internet is dropping frames. If it keeps happening, lower the bitrate next time or use a cable instead of Wi-Fi.", theme::AMBER);
+                } else if skipped_now.unwrap_or(0.0) >= 0.5 {
+                    alert_line(ui, "The encoder is falling behind: the game is using the whole GPU. Capping the game's frame rate helps.", theme::AMBER);
+                }
+                });
+            });
+            egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 14)).show(ui, |ui| {
+                ui.set_width(ui.available_width() - 2.0);
+                ui.vertical(|ui| {
+                ui.label(theme::caps("Each output", 11.0, MUTED));
+                let outs: Vec<crate::obs::OutputInfo> = self.obs.as_ref().map(|o| o.outputs.iter().filter(|x| x.active).cloned().collect()).unwrap_or_default();
+                if outs.is_empty() {
+                    theme::small(ui, "OBS will list each stream and recording here.");
+                }
+                for o in &outs {
+                    let pct = match (o.skipped, o.total) {
+                        (Some(s), Some(t)) if t > 0 => format!("{:.2}%", s as f32 * 100.0 / t as f32),
+                        _ => "–".into(),
+                    };
+                    out_line(ui, &o.platform_hint.clone().unwrap_or_else(|| o.label.clone()), &pct, "skipped");
+                }
+                ui.add_space(8.0);
+                ui.label(theme::caps("This PC", 11.0, MUTED));
+                out_line(ui, "GPU", &gpu.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()), if gpu.unwrap_or(0.0) >= 95.0 { "maxed out" } else { "has room" });
+                out_line(ui, "Encoder", &enc.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()), "busy");
+                });
+            });
+        });
+    }
+}
+
+fn out_line(ui: &mut Ui, name: &str, value: &str, note: &str) {
+    ui.add(egui::Separator::default().spacing(8.0));
+    ui.horizontal(|ui| {
+        ui.label(name);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(RichText::new(note).size(12.5).color(MUTED));
+            ui.label(RichText::new(value).monospace());
+        });
+    });
+}
+
+fn alert_line(ui: &mut Ui, text: &str, col: Color32) {
+    ui.add_space(6.0);
+    egui::Frame::NONE
+        .fill(Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 22))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 110)))
+        .corner_radius(egui::CornerRadius::same(10))
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new(text).size(13.5));
+        });
+}
+
+/// The bitrate over time, with the target as a dashed line.
+fn bitrate_graph(ui: &mut Ui, kbps: &[f32], target: Option<f32>, h: f32) {
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), egui::Sense::hover());
+    let p = ui.painter();
+    if kbps.len() < 2 {
+        p.text(rect.center(), egui::Align2::CENTER_CENTER, "The graph fills in as you stream", egui::FontId::proportional(13.0), MUTED);
+        return;
+    }
+    let top = kbps.iter().cloned().fold(target.unwrap_or(0.0), f32::max) * 1.08;
+    let y = |v: f32| rect.max.y - (v / top.max(1.0)) * rect.height();
+    let n = kbps.len().max(2);
+    let pts: Vec<egui::Pos2> = kbps.iter().enumerate().map(|(i, v)| egui::pos2(rect.min.x + i as f32 * rect.width() / (n - 1) as f32, y(*v))).collect();
+    let fill = Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 34);
+    for pair in pts.windows(2) {
+        p.add(egui::Shape::convex_polygon(vec![pair[0], pair[1], egui::pos2(pair[1].x, rect.max.y), egui::pos2(pair[0].x, rect.max.y)], fill, egui::Stroke::NONE));
+    }
+    if let Some(t) = target {
+        let ty = y(t);
+        let mut x = rect.min.x;
+        while x < rect.max.x {
+            p.line_segment([egui::pos2(x, ty), egui::pos2((x + 5.0).min(rect.max.x), ty)], egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 140)));
+            x += 9.0;
+        }
+    }
+    p.add(egui::Shape::line(pts, egui::Stroke::new(2.0, theme::TEAL)));
+}
+
+fn quiet_link(ui: &mut Ui, text: &str) -> egui::Response {
+    ui.add(egui::Button::new(RichText::new(text).size(14.0).color(TEXT_SOFT).underline()).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// A one-line banner: a coloured dot, the message (details on hover), and one button.
+fn slim_banner(ui: &mut Ui, col: Color32, text: &str, detail: &str, button: &str, clicked: &mut bool) {
+    egui::Frame::NONE
+        .fill(Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 24))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 120)))
+        .corner_radius(egui::CornerRadius::same(10))
+        .inner_margin(egui::Margin { left: 14, right: 8, top: 6, bottom: 6 })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
+                ui.painter().circle_filled(r.center(), 4.0, col);
+                ui.label(RichText::new(text).color(TEXT)).on_hover_text(detail);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if outlined(ui, button).clicked() {
+                        *clicked = true;
+                    }
+                });
+            });
+        });
 }

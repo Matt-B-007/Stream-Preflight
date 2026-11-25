@@ -27,7 +27,21 @@ pub fn asset_name() -> &'static str {
     if cfg!(windows) { "stream-preflight-windows-x86_64.exe" } else { "stream-preflight-linux-x86_64" }
 }
 
+/// A version like 0.1.0-beta.3 (anything after a dash) is a beta.
+pub fn is_beta_version(v: &str) -> bool {
+    v.trim_start_matches('v').contains('-')
+}
+
 pub fn check(beta: bool) -> Result<UpdateInfo, String> {
+    pick(beta, false)
+}
+
+/// The newest stable release, even if it's older than this beta ("Switch back to stable").
+pub fn check_stable() -> Result<UpdateInfo, String> {
+    pick(false, true)
+}
+
+fn pick(beta: bool, stable_even_if_older: bool) -> Result<UpdateInfo, String> {
     let Some(repo) = REPO else {
         return Err("Update checks turn on once the project's GitHub repository is set. This test build doesn't contact anything.".into());
     };
@@ -50,24 +64,26 @@ pub fn check(beta: bool) -> Result<UpdateInfo, String> {
     let current = semver::Version::parse(crate::util::VERSION).map_err(|e| e.to_string())?;
     let mut best: Option<(semver::Version, serde_json::Value)> = None;
     for r in v.as_array().cloned().unwrap_or_default() {
-        if r["draft"].as_bool() == Some(true) || (!beta && r["prerelease"].as_bool() == Some(true)) {
+        let tag = r["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
+        // A beta is a beta whether or not GitHub's pre-release box was ticked.
+        let pre = r["prerelease"].as_bool() == Some(true) || is_beta_version(&tag);
+        if r["draft"].as_bool() == Some(true) || (!beta && pre) {
             continue;
         }
-        let tag = r["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
         if let Ok(ver) = semver::Version::parse(&tag) {
             if best.as_ref().map(|(b, _)| ver > *b).unwrap_or(true) {
                 best = Some((ver, r));
             }
         }
     }
-    let (latest, rel) = best.ok_or("No releases found.")?;
+    let (latest, rel) = best.ok_or(if beta { "No releases found." } else { "No stable release yet. Turn on Include beta versions to get betas." })?;
     Ok(UpdateInfo {
         current: current.to_string(),
         latest: latest.to_string(),
-        newer: latest > current,
+        newer: if stable_even_if_older { latest != current } else { latest > current },
         notes: rel["body"].as_str().unwrap_or("").to_string(),
         url: rel["html_url"].as_str().unwrap_or("").to_string(),
-        prerelease: rel["prerelease"].as_bool().unwrap_or(false),
+        prerelease: rel["prerelease"].as_bool().unwrap_or(false) || is_beta_version(&latest.to_string()),
         asset_url: find_asset(&rel, asset_name()),
         sums_url: find_asset(&rel, "SHA256SUMS.txt"),
     })
@@ -146,6 +162,16 @@ pub fn install(u: &UpdateInfo) -> Result<std::path::PathBuf, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn betas_by_name_and_order() {
+        assert!(super::is_beta_version("v0.1.0-beta.3"));
+        assert!(!super::is_beta_version("0.1.0"));
+        let b3 = semver::Version::parse("0.1.0-beta.3").unwrap();
+        let b2 = semver::Version::parse("0.1.0-beta.2").unwrap();
+        let s = semver::Version::parse("0.1.0").unwrap();
+        assert!(b3 > b2 && s > b3, "stable 0.1.0 is newer than its betas");
+    }
+
     #[test]
     fn checksum_lines() {
         let sums = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  stream-preflight-linux-x86_64\nffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff *stream-preflight-windows-x86_64.exe\n";

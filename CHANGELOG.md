@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.0-beta.3
+
+- **First-time welcome** in three steps: what Preflight does, connect OBS, and how you stream. Empty states and one-time hints so nothing looks broken before the first test.
+- **In-flight**: a page just for when you're live. It opens by itself when you start streaming (never over your game): live time, one verdict, bitrate, dropped and skipped frames, recording, a 10-minute bitrate graph and plain notes when something goes wrong.
+- **Sidebar**: Pre-flight, In-flight and Post-flight. It folds to icons with names on hover and badges (Ctrl+B), and folds by itself on narrow windows.
+- **Simpler screens**: one message per screen, one verdict at the top, the test choice folded to one line, and the fix shown as an instruction first with quiet choices underneath and an "All fixes" list.
+- **Settings in five tabs**: General, OBS & PCs, Tray & notifications, Privacy & data, Updates & about.
+- **Betas**: any version with a dash counts as a beta; beta builds look for betas; "Switch back to stable".
+- **Install**: the one-line command finds the newest release, including betas when there's no stable release yet.
+- **GitHub**: checks that build and test every push, and a release workflow that builds and publishes the Linux download from a tag.
+- Linux only for now.
+
 ## v0.1.1
 
 - **One-line install**: `install.sh` for Linux and `install.ps1` for Windows download the newest release, check it against SHA256SUMS.txt, install it for you and add the menu or Start menu entry.

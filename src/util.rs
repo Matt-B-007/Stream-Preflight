@@ -4,10 +4,9 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 pub const APP_NAME: &str = "Stream Preflight";
-pub const SHORT_NAME: &str = "Preflight";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Label shown in the app while we are in private testing.
-pub const BUILD_LABEL: &str = "First release";
+pub const BUILD_LABEL: &str = "Beta 3";
 
 /// Folders the app is allowed to write to. Everything lives under the
 /// user's normal per-app data folder; nothing is written anywhere else.

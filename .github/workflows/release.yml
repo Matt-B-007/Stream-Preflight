@@ -1,0 +1,61 @@
+name: Release
+
+# Push a tag like v0.1.0-beta.3 (or v0.1.0) and this builds the Linux
+# download, writes SHA256SUMS.txt, and attaches both, plus install.sh, to a
+# GitHub release. Tags with a dash (-beta.3, -rc.1) become pre-releases.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Build the Linux release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Zig and cargo-zigbuild (runs on older Linux too)
+        run: |
+          python -m pip install ziglang
+          cargo install --locked cargo-zigbuild
+      - name: Check the version matches the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have="$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          if [ "$want" != "$have" ]; then
+            echo "Cargo.toml says $have but the tag is $GITHUB_REF_NAME. Make them match." >&2
+            exit 1
+          fi
+      - name: Test
+        run: cargo test --locked
+      - name: Build
+        run: cargo zigbuild --locked --release --target x86_64-unknown-linux-gnu.2.31
+      - name: Package
+        run: |
+          mkdir dist
+          cp target/x86_64-unknown-linux-gnu/release/stream-preflight dist/stream-preflight-linux-x86_64
+          cp scripts/install.sh dist/install.sh
+          cd dist && sha256sum stream-preflight-linux-x86_64 install.sh > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Stream Preflight ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            dist/stream-preflight-linux-x86_64
+            dist/install.sh
+            dist/SHA256SUMS.txt

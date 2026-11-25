@@ -432,8 +432,15 @@ pub fn dial(ui: &mut Ui, value: Option<u8>, label: &str, col: Color32) -> egui::
         p.add(egui::Shape::line(arc(start, end), Stroke::new(12.0, Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 40))));
         p.add(egui::Shape::line(arc(start, end), Stroke::new(6.0, col)));
     }
-    let txt = value.map(|v| v.to_string()).unwrap_or_else(|| "–".into());
-    p.text(c, egui::Align2::CENTER_CENTER, txt, egui::FontId::monospace(22.0), TEXT);
+    match value {
+        Some(v) => {
+            p.text(c, egui::Align2::CENTER_CENTER, v.to_string(), egui::FontId::monospace(22.0), TEXT);
+        }
+        None => {
+            p.text(egui::pos2(c.x, c.y - 6.0), egui::Align2::CENTER_CENTER, "NOT", egui::FontId::proportional(10.5), MUTED);
+            p.text(egui::pos2(c.x, c.y + 6.0), egui::Align2::CENTER_CENTER, "TESTED", egui::FontId::proportional(10.5), MUTED);
+        }
+    }
     let mut job = egui::text::LayoutJob::simple_singleline(label.to_uppercase(), egui::FontId::proportional(10.5), MUTED);
     if let Some(sec) = job.sections.first_mut() {
         sec.format.extra_letter_spacing = 1.6;

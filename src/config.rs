@@ -138,6 +138,14 @@ pub struct Settings {
     pub close_to_tray: bool,
     /// Show desktop notifications from the tray (test done, stream ended, flag reminder).
     pub tray_notifications: bool,
+    /// The sidebar shows icons only.
+    pub sidebar_collapsed: bool,
+    /// One-time hints already shown ("first_test", "first_live", "rail"...).
+    pub hints_seen: Vec<String>,
+    /// Open the In-flight page by itself when a real stream starts.
+    pub inflight_auto: bool,
+    /// The user chose the beta setting themselves (beta builds turn betas on until then).
+    pub updates_beta_set: bool,
     /// When updates were last checked (unix time), for the daily automatic check.
     pub last_update_check: i64,
     /// Which computer this is: "one" (everything here), "gaming" or "streaming".
@@ -216,6 +224,10 @@ impl Default for Settings {
             close_to_tray: false,
             tray_notifications: true,
             last_update_check: 0,
+            sidebar_collapsed: false,
+            hints_seen: Vec::new(),
+            inflight_auto: true,
+            updates_beta_set: false,
             pc_role: "one".into(),
             two_pc_asked: false,
             paired: false,

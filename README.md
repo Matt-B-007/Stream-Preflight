@@ -4,42 +4,52 @@ Check your game, OBS and stream before you go live.
 
 Stream Preflight watches a short test while you play, then tells you the one thing to change next: in your game, in OBS, or on your PC. It reads settings and measures; it never changes anything for you.
 
-Windows and Linux. Free, no account, no ads, no analytics.
+Linux (Windows builds are paused for now). Free, no account, no ads, no analytics.
 
-## Install
+## Install (Linux)
 
-One command. It downloads the newest version, checks it against its checksum, installs it for you (no admin or sudo), and adds it to your app menu or Start menu. After that, Stream Preflight updates itself: when a new version is out, click **Update now** and it restarts on the new version.
-
-**Linux** (terminal):
+One command. It finds the newest release, checks it against its checksum, installs it for you (no sudo), and adds it to your app menu:
 
 ```sh
-curl -fsSL https://github.com/Matt-B-007/Stream-Preflight/releases/latest/download/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Matt-B-007/Stream-Preflight/main/scripts/install.sh | sh
 ```
 
-**Windows** (PowerShell):
+While there are only beta releases, this installs the newest beta. To get the newest beta even after a stable release is out:
 
-```powershell
-irm https://github.com/Matt-B-007/Stream-Preflight/releases/latest/download/install.ps1 | iex
+```sh
+curl -fsSL https://raw.githubusercontent.com/Matt-B-007/Stream-Preflight/main/scripts/install.sh | sh -s -- --beta
 ```
 
-Run the same command again any time to reinstall.
+After that, Stream Preflight updates itself: when a new version is out, click **Update now** and it restarts on the new version. Run the command again any time to reinstall.
+
+Windows builds are paused for now; the Windows code stays in the project.
 
 <details>
 <summary>Install by hand instead</summary>
 
-Download from the [Releases page](https://github.com/Matt-B-007/Stream-Preflight/releases):
+Download `stream-preflight-linux-x86_64` from the [Releases page](https://github.com/Matt-B-007/Stream-Preflight/releases) (64-bit Linux, glibc 2.31 or newer), then:
 
-| System | File |
-|---|---|
-| Windows 10/11 (64-bit) | `stream-preflight-windows-x86_64.exe` |
-| Linux (64-bit, glibc 2.31 or newer) | `stream-preflight-linux-x86_64` |
+```sh
+chmod +x ~/Downloads/stream-preflight-linux-x86_64
+~/Downloads/stream-preflight-linux-x86_64 --install
+```
 
-Then run it once with `--install` (or use **Settings › Advanced › Install**). `SHA256SUMS.txt` lists each file's checksum.
+`SHA256SUMS.txt` lists each file's checksum.
 </details>
 
-## Updates
+## Updates and betas
 
-Stream Preflight checks this repository's releases once a day (you can turn that off in Settings). When there's a newer version, a banner offers **Update now**: it downloads the right file, checks it against `SHA256SUMS.txt`, swaps it in and restarts. Your settings stay. Tick **Include beta versions** in Settings to get pre-releases too.
+Stream Preflight checks this repository's releases once a day (you can turn that off in **Settings › Updates & about**). When there's a newer version, a banner offers **Update now**: it downloads the right file, checks it against `SHA256SUMS.txt`, swaps it in and restarts. Your settings stay.
+
+- **Betas** are named after the next version: `v0.1.0-beta.3` comes before `v0.1.0`. Beta builds look for betas automatically.
+- **Include beta versions** in Settings turns beta updates on or off. Any version with a dash (like `-beta.3`) counts as a beta.
+- **Switch back to stable** installs the latest stable version, even if it's older than your beta.
+
+## Releasing (for maintainers)
+
+1. Set `version` in `Cargo.toml` to the new version, for example `0.1.0-beta.4`.
+2. Push a tag with the same version: `git tag v0.1.0-beta.4 && git push origin v0.1.0-beta.4`.
+3. The **Release** workflow tests, builds the Linux download, writes `SHA256SUMS.txt`, and publishes a release with `stream-preflight-linux-x86_64`, `install.sh` and `SHA256SUMS.txt`. Tags with a dash become pre-releases.
 
 ### OBS setup
 
