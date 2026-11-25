@@ -1,12 +1,19 @@
-//! Updates from GitHub Releases (github.com/Matt-B-007/Stream-Preflight).
-//! A check reads the public release list; nothing about you is sent.
-//! Installing downloads this platform's file and the release's SHA256SUMS,
-//! checks the file against it, and swaps the program file in place.
+//! Updates straight from the GitHub repository (github.com/Matt-B-007/Stream-Preflight).
+//!
+//! The repo has a `download/` folder:
+//!   download/version.txt                     which versions are there, and their checksums
+//!   download/stream-preflight-linux.gz       the newest stable version (once there is one)
+//!   download/beta/stream-preflight-linux.gz  the newest beta
+//!
+//! A check reads version.txt; nothing about you is sent. Installing downloads
+//! the file, checks it against the SHA-256 in version.txt, unpacks it and
+//! swaps the program file in place. No GitHub Releases or tags are involved.
 
 use serde::Serialize;
+use std::io::Read;
 use std::time::Duration;
 
-/// "owner/repo" once the project is on GitHub.
+/// "owner/repo" on GitHub.
 pub const REPO: Option<&str> = Some("Matt-B-007/Stream-Preflight");
 
 #[derive(Clone, Debug, Serialize)]
@@ -15,82 +22,31 @@ pub struct UpdateInfo {
     pub latest: String,
     pub newer: bool,
     pub notes: String,
+    /// Where "What's new" goes (the changelog).
     pub url: String,
     pub prerelease: bool,
-    /// This platform's download and the checksum list, from the release.
+    /// The download for this computer, and its SHA-256 from version.txt.
     pub asset_url: Option<String>,
-    pub sums_url: Option<String>,
+    pub sha256: Option<String>,
 }
 
-/// The release file for this computer.
+/// The file name for this computer inside download/ and download/beta/.
 pub fn asset_name() -> &'static str {
-    if cfg!(windows) { "stream-preflight-windows-x86_64.exe" } else { "stream-preflight-linux-x86_64" }
+    if cfg!(windows) { "stream-preflight-windows.exe.gz" } else { "stream-preflight-linux.gz" }
 }
 
-/// A version like 0.1.0-beta.3 (anything after a dash) is a beta.
+/// A version like 0.1.0-beta.4 (anything after a dash) is a beta.
 pub fn is_beta_version(v: &str) -> bool {
     v.trim_start_matches('v').contains('-')
 }
 
-pub fn check(beta: bool) -> Result<UpdateInfo, String> {
-    pick(beta, false)
-}
-
-/// The newest stable release, even if it's older than this beta ("Switch back to stable").
-pub fn check_stable() -> Result<UpdateInfo, String> {
-    pick(false, true)
-}
-
-fn pick(beta: bool, stable_even_if_older: bool) -> Result<UpdateInfo, String> {
-    let Some(repo) = REPO else {
-        return Err("Update checks turn on once the project's GitHub repository is set. This test build doesn't contact anything.".into());
-    };
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(10)))
-        .user_agent(format!("StreamPreflight/{}", crate::util::VERSION))
-        .build()
-        .into();
-    // STREAM_PREFLIGHT_RELEASES points at a test release list (for testing updates only).
-    let url = std::env::var("STREAM_PREFLIGHT_RELEASES").unwrap_or_else(|_| format!("https://api.github.com/repos/{repo}/releases"));
-    let body = agent
-        .get(&url)
-        .header("Accept", "application/vnd.github+json")
-        .call()
-        .map_err(|e| format!("Couldn't reach GitHub: {e}"))?
-        .body_mut()
-        .read_to_string()
-        .map_err(|e| e.to_string())?;
-    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    let current = semver::Version::parse(crate::util::VERSION).map_err(|e| e.to_string())?;
-    let mut best: Option<(semver::Version, serde_json::Value)> = None;
-    for r in v.as_array().cloned().unwrap_or_default() {
-        let tag = r["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
-        // A beta is a beta whether or not GitHub's pre-release box was ticked.
-        let pre = r["prerelease"].as_bool() == Some(true) || is_beta_version(&tag);
-        if r["draft"].as_bool() == Some(true) || (!beta && pre) {
-            continue;
-        }
-        if let Ok(ver) = semver::Version::parse(&tag) {
-            if best.as_ref().map(|(b, _)| ver > *b).unwrap_or(true) {
-                best = Some((ver, r));
-            }
-        }
+/// The download folder: the repo's download/ on GitHub, or
+/// STREAM_PREFLIGHT_DOWNLOADS (a test folder, for testing updates only).
+pub fn base_url() -> Option<String> {
+    if let Ok(b) = std::env::var("STREAM_PREFLIGHT_DOWNLOADS") {
+        return Some(b.trim_end_matches('/').to_string());
     }
-    let (latest, rel) = best.ok_or(if beta { "No releases found." } else { "No stable release yet. Turn on Include beta versions to get betas." })?;
-    Ok(UpdateInfo {
-        current: current.to_string(),
-        latest: latest.to_string(),
-        newer: if stable_even_if_older { latest != current } else { latest > current },
-        notes: rel["body"].as_str().unwrap_or("").to_string(),
-        url: rel["html_url"].as_str().unwrap_or("").to_string(),
-        prerelease: rel["prerelease"].as_bool().unwrap_or(false) || is_beta_version(&latest.to_string()),
-        asset_url: find_asset(&rel, asset_name()),
-        sums_url: find_asset(&rel, "SHA256SUMS.txt"),
-    })
-}
-
-fn find_asset(rel: &serde_json::Value, name: &str) -> Option<String> {
-    rel["assets"].as_array()?.iter().find(|a| a["name"].as_str() == Some(name)).and_then(|a| a["browser_download_url"].as_str()).map(|s| s.to_string())
+    REPO.map(|r| format!("https://raw.githubusercontent.com/{r}/main/download"))
 }
 
 fn agent(secs: u64) -> ureq::Agent {
@@ -101,12 +57,97 @@ fn agent(secs: u64) -> ureq::Agent {
         .into()
 }
 
-/// The checksum for `name` in a SHA256SUMS file ("<hex>  <name>" lines).
-pub fn sum_for(sums: &str, name: &str) -> Option<String> {
-    sums.lines().find_map(|l| {
-        let mut p = l.split_whitespace();
-        let (h, n) = (p.next()?, p.next()?);
-        (n.trim_start_matches('*') == name && h.len() == 64).then(|| h.to_lowercase())
+/// GitHub caches these files for a few minutes; a changing query asks for a fresh copy.
+fn fresh(url: &str) -> String {
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    format!("{url}?t={t}")
+}
+
+/// One channel's entry in version.txt.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Entry {
+    pub version: String,
+    pub sha256: String,
+    pub notes: String,
+}
+
+/// Reads version.txt: `key=value` lines, `#` comments.
+/// Keys: stable_version, stable_sha256, stable_notes, beta_version, beta_sha256, beta_notes.
+pub fn parse_manifest(text: &str) -> (Option<Entry>, Option<Entry>) {
+    let mut s = Entry::default();
+    let mut b = Entry::default();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else { continue };
+        let v = v.trim().to_string();
+        match k.trim() {
+            "stable_version" => s.version = v.trim_start_matches('v').to_string(),
+            "stable_sha256" => s.sha256 = v.to_lowercase(),
+            "stable_notes" => s.notes = v,
+            "beta_version" => b.version = v.trim_start_matches('v').to_string(),
+            "beta_sha256" => b.sha256 = v.to_lowercase(),
+            "beta_notes" => b.notes = v,
+            _ => {}
+        }
+    }
+    let ok = |e: Entry| (!e.version.is_empty() && e.sha256.len() == 64).then_some(e);
+    (ok(s), ok(b))
+}
+
+pub fn check(beta: bool) -> Result<UpdateInfo, String> {
+    pick(beta, false)
+}
+
+/// The newest stable version, even if it's older than this beta ("Switch back to stable").
+pub fn check_stable() -> Result<UpdateInfo, String> {
+    pick(false, true)
+}
+
+fn pick(beta: bool, stable_even_if_older: bool) -> Result<UpdateInfo, String> {
+    let base = base_url().ok_or("Update checks are off in this build.")?;
+    let manifest = match agent(10).get(&fresh(&format!("{base}/version.txt"))).call() {
+        Ok(mut r) => r.body_mut().read_to_string().map_err(|e| e.to_string())?,
+        Err(ureq::Error::StatusCode(404)) => {
+            return Err("GitHub doesn't have a download list yet (download/version.txt). If it was just uploaded, try again in a few minutes.".into())
+        }
+        Err(e) => return Err(format!("Couldn't reach GitHub: {e}")),
+    };
+    choose(&manifest, &base, beta, stable_even_if_older)
+}
+
+/// Picks the right entry from version.txt (kept apart from the network for testing).
+pub fn choose(manifest: &str, base: &str, beta: bool, stable_even_if_older: bool) -> Result<UpdateInfo, String> {
+    let current = semver::Version::parse(crate::util::VERSION).map_err(|e| e.to_string())?;
+    let (stable, betav) = parse_manifest(manifest);
+    let mut options: Vec<(semver::Version, Entry, String)> = Vec::new();
+    if let Some(e) = stable {
+        if let Ok(v) = semver::Version::parse(&e.version) {
+            options.push((v, e, format!("{base}/{}", asset_name())));
+        }
+    }
+    if beta {
+        if let Some(e) = betav {
+            if let Ok(v) = semver::Version::parse(&e.version) {
+                options.push((v, e, format!("{base}/beta/{}", asset_name())));
+            }
+        }
+    }
+    let (latest, entry, url) = options
+        .into_iter()
+        .max_by(|a, b| a.0.cmp(&b.0))
+        .ok_or(if beta { "Nothing has been put in the download folder yet." } else { "There's no stable version yet. Turn on Include beta versions to get betas." })?;
+    Ok(UpdateInfo {
+        current: current.to_string(),
+        latest: latest.to_string(),
+        newer: if stable_even_if_older { latest != current } else { latest > current },
+        notes: entry.notes.clone(),
+        url: REPO.map(|r| format!("https://github.com/{r}/blob/main/CHANGELOG.md")).unwrap_or_default(),
+        prerelease: is_beta_version(&latest.to_string()),
+        asset_url: Some(url),
+        sha256: Some(entry.sha256),
     })
 }
 
@@ -115,27 +156,41 @@ pub fn sha256_hex(b: &[u8]) -> String {
     Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// Unpacks a downloaded .gz and makes sure it's a program for this system.
+pub fn unpack(gz: &[u8]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(gz)
+        .take(400 * 1024 * 1024)
+        .read_to_end(&mut out)
+        .map_err(|e| format!("Couldn't unpack the update: {e}"))?;
+    let magic: &[u8] = if cfg!(windows) { b"MZ" } else { b"\x7fELF" };
+    if !out.starts_with(magic) {
+        return Err("The download isn't a program for this system, so it wasn't installed.".into());
+    }
+    Ok(out)
+}
+
 /// Downloads the update, checks it, and replaces this program file.
 /// Returns the program path to start afterwards.
 pub fn install(u: &UpdateInfo) -> Result<std::path::PathBuf, String> {
-    let url = u.asset_url.as_ref().ok_or("This release has no download for your system yet.")?;
-    let sums_url = u.sums_url.as_ref().ok_or("This release has no checksum file, so it can't be checked. Download it from the release page instead.")?;
-    let a = agent(300);
-    let sums = a.get(sums_url).call().map_err(|e| format!("Couldn't download the checksums: {e}"))?.body_mut().read_to_string().map_err(|e| e.to_string())?;
-    let want = sum_for(&sums, asset_name()).ok_or("The checksum file doesn't list this download.")?;
-    let bytes = a
-        .get(url)
+    let url = u.asset_url.as_ref().ok_or("There's no download for your system yet.")?;
+    let want = u.sha256.as_ref().ok_or("The download list has no checksum for this version, so it can't be checked.")?;
+    let gz = agent(300)
+        .get(&fresh(url))
         .call()
-        .map_err(|e| format!("Couldn't download the update: {e}"))?
+        .map_err(|e| match e {
+            ureq::Error::StatusCode(404) => "GitHub doesn't have the download file yet. If it was just uploaded, try again in a few minutes.".to_string(),
+            e => format!("Couldn't download the update: {e}"),
+        })?
         .body_mut()
         .with_config()
         .limit(200 * 1024 * 1024)
         .read_to_vec()
         .map_err(|e| format!("Download failed: {e}"))?;
-    let got = sha256_hex(&bytes);
-    if got != want {
-        return Err("The download didn't match its checksum, so it wasn't installed. Try again later.".into());
+    if &sha256_hex(&gz) != want {
+        return Err("The download didn't match its checksum, so it wasn't installed. If a new version was just uploaded, GitHub may still be catching up: try again in a few minutes.".into());
     }
+    let bytes = unpack(&gz)?;
     let me = std::env::current_exe().map_err(|e| e.to_string())?;
     let tmp = me.with_extension("new");
     std::fs::write(&tmp, &bytes).map_err(|e| format!("Couldn't save the update: {e}"))?;
@@ -162,22 +217,72 @@ pub fn install(u: &UpdateInfo) -> Result<std::path::PathBuf, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    const H1: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+    const H2: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+
     #[test]
     fn betas_by_name_and_order() {
-        assert!(super::is_beta_version("v0.1.0-beta.3"));
-        assert!(!super::is_beta_version("0.1.0"));
+        assert!(is_beta_version("v0.1.0-beta.4"));
+        assert!(!is_beta_version("0.1.0"));
+        let b4 = semver::Version::parse("0.1.0-beta.4").unwrap();
         let b3 = semver::Version::parse("0.1.0-beta.3").unwrap();
-        let b2 = semver::Version::parse("0.1.0-beta.2").unwrap();
         let s = semver::Version::parse("0.1.0").unwrap();
-        assert!(b3 > b2 && s > b3, "stable 0.1.0 is newer than its betas");
+        assert!(b4 > b3 && s > b4, "stable 0.1.0 is newer than its betas");
     }
 
     #[test]
-    fn checksum_lines() {
-        let sums = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  stream-preflight-linux-x86_64\nffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff *stream-preflight-windows-x86_64.exe\n";
-        assert_eq!(super::sum_for(sums, "stream-preflight-linux-x86_64").unwrap().len(), 64);
-        assert!(super::sum_for(sums, "stream-preflight-windows-x86_64.exe").unwrap().starts_with("ffff"));
-        assert!(super::sum_for(sums, "other").is_none());
-        assert_eq!(super::sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    fn manifest_parsing() {
+        let m = format!("# comment\nstable_version=\nstable_sha256=\nbeta_version=v0.1.0-beta.9\nbeta_sha256={H1}\nbeta_notes=Hello = world\n");
+        let (s, b) = parse_manifest(&m);
+        assert!(s.is_none(), "an empty stable entry means no stable yet");
+        let b = b.unwrap();
+        assert_eq!(b.version, "0.1.0-beta.9");
+        assert_eq!(b.notes, "Hello = world");
+        // A bad checksum makes the entry unusable.
+        assert!(parse_manifest("beta_version=0.1.0-beta.9\nbeta_sha256=abc").1.is_none());
+    }
+
+    #[test]
+    fn choosing_versions() {
+        // Only a newer beta in the folder.
+        let only_beta = format!("beta_version=9.0.0-beta.1\nbeta_sha256={H1}\n");
+        let u = choose(&only_beta, "http://x/download", true, false).unwrap();
+        assert!(u.newer && u.prerelease);
+        assert_eq!(u.asset_url.as_deref(), Some(format!("http://x/download/beta/{}", asset_name()).as_str()));
+        assert_eq!(u.sha256.as_deref(), Some(H1));
+        assert!(choose(&only_beta, "http://x/download", false, false).is_err(), "stable-only users don't get betas");
+
+        // Stable and beta: the newest wins when betas are on; stable only when off.
+        let both = format!("stable_version=9.0.0\nstable_sha256={H2}\nbeta_version=9.1.0-beta.1\nbeta_sha256={H1}\n");
+        assert_eq!(choose(&both, "b", true, false).unwrap().latest, "9.1.0-beta.1");
+        let s = choose(&both, "b", false, false).unwrap();
+        assert_eq!((s.latest.as_str(), s.prerelease), ("9.0.0", false));
+        assert_eq!(s.asset_url.as_deref(), Some(format!("b/{}", asset_name()).as_str()));
+
+        // This exact version isn't "newer".
+        let same = format!("beta_version={}\nbeta_sha256={H1}\n", crate::util::VERSION);
+        assert!(!choose(&same, "b", true, false).unwrap().newer);
+
+        // Switch back to stable offers an older stable.
+        let older = format!("stable_version=0.0.1\nstable_sha256={H2}\n");
+        assert!(choose(&older, "b", false, true).unwrap().newer);
+        assert!(!choose(&older, "b", false, false).unwrap().newer);
+    }
+
+    #[test]
+    fn unpack_checks_the_program() {
+        use std::io::Write;
+        let gz = |b: &[u8]| {
+            let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            e.write_all(b).unwrap();
+            e.finish().unwrap()
+        };
+        let magic: &[u8] = if cfg!(windows) { b"MZ rest" } else { b"\x7fELF rest" };
+        assert_eq!(unpack(&gz(magic)).unwrap(), magic);
+        assert!(unpack(&gz(b"<html>404</html>")).is_err());
+        assert!(unpack(b"not gzip").is_err());
+        assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 }

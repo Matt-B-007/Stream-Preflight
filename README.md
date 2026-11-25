@@ -8,48 +8,39 @@ Linux (Windows builds are paused for now). Free, no account, no ads, no analytic
 
 ## Install (Linux)
 
-One command. It finds the newest release, checks it against its checksum, installs it for you (no sudo), and adds it to your app menu:
+One line. It downloads the newest version from this repository, checks it against its checksum, installs it for you (no sudo) and adds it to your app menu:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Matt-B-007/Stream-Preflight/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Matt-B-007/Stream-Preflight/main/install.sh | sh
 ```
 
-While there are only beta releases, this installs the newest beta. To get the newest beta even after a stable release is out:
+While there are only betas, this installs the newest beta. To get the newest beta even after a stable version is out, add `-s -- --beta` after `sh`.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/Matt-B-007/Stream-Preflight/main/scripts/install.sh | sh -s -- --beta
-```
-
-After that, Stream Preflight updates itself: when a new version is out, click **Update now** and it restarts on the new version. Run the command again any time to reinstall.
+After that, Stream Preflight updates itself: when a new version is out, click **Update now** and it restarts on the new version. Run the line again any time to reinstall. (64-bit Linux, glibc 2.30 or newer.)
 
 Windows builds are paused for now; the Windows code stays in the project.
 
-<details>
-<summary>Install by hand instead</summary>
-
-Download `stream-preflight-linux-x86_64` from the [Releases page](https://github.com/Matt-B-007/Stream-Preflight/releases) (64-bit Linux, glibc 2.31 or newer), then:
-
-```sh
-chmod +x ~/Downloads/stream-preflight-linux-x86_64
-~/Downloads/stream-preflight-linux-x86_64 --install
-```
-
-`SHA256SUMS.txt` lists each file's checksum.
-</details>
-
 ## Updates and betas
 
-Stream Preflight checks this repository's releases once a day (you can turn that off in **Settings › Updates & about**). When there's a newer version, a banner offers **Update now**: it downloads the right file, checks it against `SHA256SUMS.txt`, swaps it in and restarts. Your settings stay.
+The finished app lives in this repository's `download/` folder:
 
-- **Betas** are named after the next version: `v0.1.0-beta.3` comes before `v0.1.0`. Beta builds look for betas automatically.
-- **Include beta versions** in Settings turns beta updates on or off. Any version with a dash (like `-beta.3`) counts as a beta.
+| File | What it is |
+|---|---|
+| `download/version.txt` | Which versions are there, with their SHA-256 checksums |
+| `download/stream-preflight-linux.gz` | The newest stable version (once there is one) |
+| `download/beta/stream-preflight-linux.gz` | The newest beta |
+
+Stream Preflight reads `version.txt` once a day (you can turn that off in **Settings › Updates & about**). When there's a newer version, a banner offers **Update now**: it downloads the file, checks it against the checksum, swaps it in and restarts. Your settings stay. No GitHub Releases or tags are used.
+
+- **Betas** are named after the next version: `v0.1.0-beta.4` comes before `v0.1.0`. Beta builds look for betas automatically.
+- **Include beta versions** in Settings turns beta updates on or off. Any version with a dash counts as a beta.
 - **Switch back to stable** installs the latest stable version, even if it's older than your beta.
 
-## Releasing (for maintainers)
+## Publishing a new version (for maintainers)
 
-1. Set `version` in `Cargo.toml` to the new version, for example `0.1.0-beta.4`.
-2. Push a tag with the same version: `git tag v0.1.0-beta.4 && git push origin v0.1.0-beta.4`.
-3. The **Release** workflow tests, builds the Linux download, writes `SHA256SUMS.txt`, and publishes a release with `stream-preflight-linux-x86_64`, `install.sh` and `SHA256SUMS.txt`. Tags with a dash become pre-releases.
+1. Set `version` in `Cargo.toml` (for example `0.1.0-beta.5`) and build: `cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.31`.
+2. Run `scripts/make-download.sh target/x86_64-unknown-linux-gnu/release/stream-preflight`. It puts the build in `download/` (or `download/beta/`) and updates `download/version.txt`.
+3. Upload the repository to GitHub. That's it: the install line and the in-app updater pick it up within a few minutes.
 
 ### OBS setup
 
@@ -67,12 +58,12 @@ In OBS: **Tools › WebSocket Server Settings › Enable WebSocket server**. Cop
 - **Several platforms**: Twitch, YouTube and Kick, through OBS plugins or a restream service.
 - **Two PCs**: connect to OBS on your streaming PC, with capture card checks (frame rate, resolution, colour range, MJPEG, HDR, refresh rate judder). **Paired mode** links Preflight on both PCs with a 6-digit code over your home network.
 - **System tray**: the icon shows idle, watching, testing or live, with notifications when a test finishes or a stream ends.
-- **Updates**: from this repository's releases, checked against `SHA256SUMS.txt` before installing. Turn on **Include beta versions** to get pre-releases.
+- **Updates**: from this repository's `download/` folder, checked against a SHA-256 checksum before installing. Turn on **Include beta versions** to get betas.
 
 ## Privacy
 
 - Nothing is sent anywhere automatically, and there's no analytics.
-- The only automatic network use: an optional daily update check (reads this repository's public release list), and an optional upload speed test during scans. Both can be turned off in Settings.
+- The only automatic network use: an optional daily update check (reads one small public file in this repository), and an optional upload speed test during scans. Both can be turned off in Settings.
 - Never collected: stream keys, passwords, tokens, account names, emails, chat, audio, video, IP or MAC addresses, Wi-Fi names, serial numbers or product keys.
 - Bug reports are saved on your PC for you to look at first. User names, home folders, Steam IDs, player names, OBS scene and source names, and addresses are removed. Reports and logs delete themselves after 14 days.
 - The OBS password is encrypted with Windows' data protection on Windows, and stored in a file only you can read on Linux.

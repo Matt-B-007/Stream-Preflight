@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.0-beta.4
+
+- **Install from the repository**: the finished app now lives in the repo's `download/` folder, so a new version is just an upload. No GitHub Releases, tags or workflows.
+- **One line to install**: `curl -fsSL https://raw.githubusercontent.com/Matt-B-007/Stream-Preflight/main/install.sh | sh`.
+- **Updates** read `download/version.txt` and check each download against its SHA-256 before installing. Clear messages if GitHub is still catching up after an upload.
+- Downloads are gzipped (about 6 MB instead of 14 MB).
+- Includes everything from beta.3, which couldn't be installed from GitHub.
+
 ## v0.1.0-beta.3
 
 - **First-time welcome** in three steps: what Preflight does, connect OBS, and how you stream. Empty states and one-time hints so nothing looks broken before the first test.

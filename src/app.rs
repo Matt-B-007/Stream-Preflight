@@ -5909,14 +5909,14 @@ impl App {
                     ui.label(RichText::new("Updates").size(16.0).strong());
                     ui.label(format!("{} v{} · {}", crate::util::APP_NAME, crate::util::VERSION, crate::util::BUILD_LABEL));
                     save |= ui.checkbox(&mut self.st.updates_auto, "Check for updates once a day").changed();
-                    theme::small(ui, "Reads the public release list on GitHub (Matt-B-007/Stream-Preflight). Nothing about you or your PC is sent.");
+                    theme::small(ui, "Reads one small public file in the GitHub repository (Matt-B-007/Stream-Preflight). Nothing about you or your PC is sent.");
                     if ui.checkbox(&mut self.st.updates_beta, "Include beta versions").changed() {
                         self.st.updates_beta_set = true;
                         save = true;
                         self.update_result = None;
                         self.st.last_update_check = 0;
                     }
-                    theme::small(ui, "Betas get new features first and may have rough edges. They're named after the next version, like v0.1.0-beta.3 before v0.1.0.");
+                    theme::small(ui, "Betas get new features first and may have rough edges. They're named after the next version, like v0.1.0-beta.4 before v0.1.0.");
                     if crate::update::is_beta_version(crate::util::VERSION) && !self.st.updates_beta {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(RichText::new("You're on a beta.").color(TEXT_SOFT));
@@ -5982,20 +5982,25 @@ impl App {
                                 }
                                 (None, Some(Err(e))) => {
                                     ui.label(RichText::new(e).color(BAD));
-                                    ui.hyperlink_to("Open the release page", &u.url);
+                                    ui.hyperlink_to("What's new", &u.url);
                                 }
                                 (None, None) => {
                                     ui.horizontal(|ui| {
                                         if outlined(ui, &format!("Update to v{}", u.latest)).clicked() {
                                             self.start_update();
                                         }
-                                        ui.hyperlink_to("Release page", &u.url);
+                                        ui.hyperlink_to("What's new", &u.url);
                                     });
                                 }
                             }
                         }
                         Some(Ok(u)) => {
-                            ui.label(RichText::new(format!("You're up to date (v{}).", u.current)).color(GOOD));
+                            let older = matches!((semver::Version::parse(&u.latest), semver::Version::parse(&u.current)), (Ok(l), Ok(c)) if l < c);
+                            if older {
+                                ui.label(RichText::new(format!("No newer stable version yet. You're on v{}; the latest stable is v{}.", u.current, u.latest)).color(TEXT_SOFT));
+                            } else {
+                                ui.label(RichText::new(format!("You're up to date (v{}).", u.current)).color(GOOD));
+                            }
                         }
                         Some(Err(e)) => theme::muted(ui, e),
                         None => {}
@@ -6320,7 +6325,15 @@ impl App {
             ui.label(RichText::new("About").size(17.0).strong());
             ui.label(format!("{} v{} · {}", crate::util::APP_NAME, crate::util::VERSION, crate::util::BUILD_LABEL));
             ui.add_space(4.0);
-            ui.label(RichText::new("New in v0.1.0-beta.3").strong());
+            ui.label(RichText::new("New in v0.1.0-beta.4").strong());
+            for s in [
+                "Install with one line, and updates come straight from the GitHub repository: no release pages needed",
+                "Each download is checked against its SHA-256 before it's installed",
+            ] {
+                theme::small(ui, format!("• {s}"));
+            }
+            ui.add_space(4.0);
+            ui.label(RichText::new("From v0.1.0-beta.3").strong());
             for s in [
                 "A three-step welcome the first time you open Preflight, and clearer empty screens before your first test",
                 "In-flight: its own page while you're live, opening by itself when you start streaming",

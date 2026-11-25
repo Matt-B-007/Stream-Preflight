@@ -1,6 +1,6 @@
 [package]
 name = "stream-preflight"
-version = "0.1.0-beta.3"
+version = "0.1.0-beta.4"
 edition = "2024"
 description = "Stream Preflight: check your game, OBS and stream before you go live"
 repository = "https://github.com/Matt-B-007/Stream-Preflight"
@@ -28,6 +28,7 @@ tungstenite = { version = "0.30.0", default-features = false, features = ["hands
 ureq = { version = "3.5.2", default-features = false, features = ["rustls"] }
 raw-window-handle = "0.6"
 getrandom = "0.3"
+flate2 = "1"
 
 [target."cfg(target_os = \"linux\")".dependencies]
 ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
