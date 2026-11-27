@@ -20,7 +20,9 @@ const ICONS: [(u32, &[u8]); 8] = [
 /// The files this module writes (for removal and for Help's folder list).
 #[cfg(not(windows))]
 pub fn files() -> Vec<std::path::PathBuf> {
-    let Some(base) = data_home() else { return Vec::new() };
+    let Some(base) = data_home() else {
+        return Vec::new();
+    };
     let mut v = vec![base.join(format!("applications/{APP_ID}.desktop"))];
     for (s, _) in ICONS {
         v.push(base.join(format!("icons/hicolor/{s}x{s}/apps/{APP_ID}.png")));
@@ -43,7 +45,9 @@ pub fn autostart_file() -> Option<std::path::PathBuf> {
 
 /// The program to start at login: the installed copy if there is one.
 fn login_exe() -> Option<std::path::PathBuf> {
-    crate::install::target().filter(|t| t.exists()).or_else(|| std::env::current_exe().ok())
+    crate::install::target()
+        .filter(|t| t.exists())
+        .or_else(|| std::env::current_exe().ok())
 }
 
 /// Turns "Start at login" on or off. Writes or removes Preflight's own
@@ -57,7 +61,11 @@ pub fn set_autostart(on: bool, tray: bool) -> Result<(), String> {
     }
     let exe = login_exe().ok_or("Couldn't find the program")?;
     let es = exe.to_string_lossy();
-    let quoted = if es.contains(' ') { format!("\"{es}\"") } else { es.to_string() };
+    let quoted = if es.contains(' ') {
+        format!("\"{es}\"")
+    } else {
+        es.to_string()
+    };
     let args = if tray { " --tray" } else { "" };
     if let Some(d) = f.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
@@ -78,12 +86,30 @@ pub fn set_autostart(on: bool, tray: bool) -> Result<(), String> {
     if on {
         let exe = login_exe().ok_or("Couldn't find the program")?;
         let val = format!("\"{}\"{}", exe.display(), if tray { " --tray" } else { "" });
-        c.args(["add", key, "/v", "StreamPreflight", "/t", "REG_SZ", "/d", &val, "/f"]);
+        c.args([
+            "add",
+            key,
+            "/v",
+            "StreamPreflight",
+            "/t",
+            "REG_SZ",
+            "/d",
+            &val,
+            "/f",
+        ]);
     } else {
         c.args(["delete", key, "/v", "StreamPreflight", "/f"]);
     }
-    let ok = c.creation_flags(0x0800_0000).status().map(|s| s.success()).unwrap_or(false);
-    if ok || !on { Ok(()) } else { Err("Windows didn't accept the startup entry".into()) }
+    let ok = c
+        .creation_flags(0x0800_0000)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ok || !on {
+        Ok(())
+    } else {
+        Err("Windows didn't accept the startup entry".into())
+    }
 }
 
 #[cfg(windows)]
@@ -111,14 +137,20 @@ pub fn write_entry(exe: &std::path::Path) {
         let _ = std::fs::write(&p, png);
     }
     let es = exe.to_string_lossy();
-    let quoted = if es.contains(' ') { format!("\"{es}\"") } else { es.to_string() };
+    let quoted = if es.contains(' ') {
+        format!("\"{es}\"")
+    } else {
+        es.to_string()
+    };
     let desktop = base.join(format!("applications/{APP_ID}.desktop"));
     if let Some(d) = desktop.parent() {
         let _ = std::fs::create_dir_all(d);
     }
     let _ = std::fs::write(
         &desktop,
-        format!("[Desktop Entry]\nType=Application\nName=Stream Preflight\nComment=Check your stream and recording before you go live\nExec={quoted}\nIcon={APP_ID}\nTerminal=false\nCategories=Utility;AudioVideo;\nStartupWMClass={APP_ID}\n"),
+        format!(
+            "[Desktop Entry]\nType=Application\nName=Stream Preflight\nComment=Check your stream and recording before you go live\nExec={quoted}\nIcon={APP_ID}\nTerminal=false\nCategories=Utility;AudioVideo;\nStartupWMClass={APP_ID}\n"
+        ),
     );
 }
 
@@ -143,16 +175,21 @@ pub fn ensure() -> bool {
     }
     // An installed copy owns the menu entry; a downloaded copy run from
     // somewhere else doesn't take it over.
-    if let Some(t) = crate::install::target() {
-        if t.exists() && exe.canonicalize().ok() != t.canonicalize().ok() {
-            return false;
-        }
+    if let Some(t) = crate::install::target()
+        && t.exists()
+        && exe.canonicalize().ok() != t.canonicalize().ok()
+    {
+        return false;
     }
-    let Some(base) = data_home() else { return false };
+    let Some(base) = data_home() else {
+        return false;
+    };
     // The old name's menu entry and icons ("Stream Pre-Flight Check").
     let _ = std::fs::remove_file(base.join("applications/stream-preflight-check.desktop"));
     for (s, _) in ICONS {
-        let _ = std::fs::remove_file(base.join(format!("icons/hicolor/{s}x{s}/apps/stream-preflight-check.png")));
+        let _ = std::fs::remove_file(base.join(format!(
+            "icons/hicolor/{s}x{s}/apps/stream-preflight-check.png"
+        )));
     }
     let desktop = base.join(format!("applications/{APP_ID}.desktop"));
     let first = !desktop.exists();
@@ -165,16 +202,30 @@ pub fn ensure() -> bool {
             let _ = std::fs::write(&p, png);
         }
     }
-    let quoted = if es.contains(' ') { format!("\"{es}\"") } else { es.to_string() };
+    let quoted = if es.contains(' ') {
+        format!("\"{es}\"")
+    } else {
+        es.to_string()
+    };
     let text = format!(
         "[Desktop Entry]\nType=Application\nName=Stream Preflight\nComment=Check your stream and recording before you go live\nExec={quoted}\nIcon={APP_ID}\nTerminal=false\nCategories=Utility;AudioVideo;\nStartupWMClass={APP_ID}\n"
     );
-    if std::fs::read_to_string(&desktop).map(|t| t != text).unwrap_or(true) {
+    if std::fs::read_to_string(&desktop)
+        .map(|t| t != text)
+        .unwrap_or(true)
+    {
         if let Some(d) = desktop.parent() {
             let _ = std::fs::create_dir_all(d);
         }
         if std::fs::write(&desktop, &text).is_ok() {
-            log::info!("App menu entry {}", if first { "added" } else { "updated (program moved)" });
+            log::info!(
+                "App menu entry {}",
+                if first {
+                    "added"
+                } else {
+                    "updated (program moved)"
+                }
+            );
         }
     }
     first && desktop.exists()

@@ -75,7 +75,10 @@ pub fn scan() -> HardwareInfo {
             sys.refresh_cpu_all();
             sys.refresh_memory();
             (
-                sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_else(|| "Unknown CPU".into()),
+                sys.cpus()
+                    .first()
+                    .map(|c| c.brand().trim().to_string())
+                    .unwrap_or_else(|| "Unknown CPU".into()),
                 sys.cpus().len(),
                 sys.total_memory() as f64 / 1_073_741_824.0,
             )
@@ -86,7 +89,9 @@ pub fn scan() -> HardwareInfo {
         }
     };
     let physical = System::physical_core_count().ok();
-    let os = System::long_os_version().or_else(|_| System::name()).unwrap_or_else(|_| "Unknown OS".into());
+    let os = System::long_os_version()
+        .or_else(|_| System::name())
+        .unwrap_or_else(|_| "Unknown OS".into());
     let kernel = System::kernel_version().unwrap_or_default();
     let os_family = if cfg!(windows) { "Windows" } else { "Linux" };
     let session = session_type();
@@ -126,7 +131,11 @@ pub fn scan() -> HardwareInfo {
         info.cpu,
         info.cpu_threads,
         info.ram_gb,
-        info.gpus.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", "),
+        info.gpus
+            .iter()
+            .map(|g| g.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
         info.encoders.join(", ")
     );
     info
@@ -203,7 +212,10 @@ fn platform_gpus(notes: &mut Vec<String>) -> Vec<Gpu> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
-            let n = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let n = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
             n.starts_with("card") && !n.contains('-')
         })
         .collect();
@@ -214,7 +226,9 @@ fn platform_gpus(notes: &mut Vec<String>) -> Vec<Gpu> {
             let s = std::fs::read_to_string(dev.join(f)).ok()?;
             u32::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok()
         };
-        let Some(vid) = read_hex("vendor") else { continue };
+        let Some(vid) = read_hex("vendor") else {
+            continue;
+        };
         let did = read_hex("device").unwrap_or(0);
         let driver = std::fs::read_link(dev.join("driver"))
             .ok()
@@ -224,8 +238,14 @@ fn platform_gpus(notes: &mut Vec<String>) -> Vec<Gpu> {
             .and_then(|s| s.trim().parse::<u64>().ok())
             .map(|b| b / 1_048_576);
         let vendor = Vendor::from_id(vid);
-        let name = lspci_name(vid, did).unwrap_or_else(|| format!("{} GPU ({:04x}:{:04x})", vendor.name(), vid, did));
-        out.push(Gpu { name, vendor, vram_mb, driver });
+        let name = lspci_name(vid, did)
+            .unwrap_or_else(|| format!("{} GPU ({:04x}:{:04x})", vendor.name(), vid, did));
+        out.push(Gpu {
+            name,
+            vendor,
+            vram_mb,
+            driver,
+        });
     }
     out
 }
@@ -380,7 +400,9 @@ impl Monitor {
                 nvml_wrapper::enums::device::UsedGpuMemory::Used(b) => b,
                 _ => 0,
             };
-            let Some(pr) = sy.process(sysinfo::Pid::from_u32(p.pid)) else { continue };
+            let Some(pr) = sy.process(sysinfo::Pid::from_u32(p.pid)) else {
+                continue;
+            };
             let mut name = pr.name().to_string_lossy().to_lowercase();
             if let Some(c0) = pr.cmd().first() {
                 let b = base_name(&c0.to_string_lossy());
@@ -425,26 +447,34 @@ impl Monitor {
             .flat_map(|c| c.iter())
             .filter(|c| {
                 let l = c.label().to_lowercase();
-                l.contains("package") || l.contains("tctl") || l.contains("tdie") || l.contains("cpu")
+                l.contains("package")
+                    || l.contains("tctl")
+                    || l.contains("tdie")
+                    || l.contains("cpu")
             })
             .filter_map(|c| c.temperature())
             .fold(None, |a: Option<f32>, b| Some(a.map_or(b, |x| x.max(b))));
-        let mut s = Sample { t, cpu, cpu_temp, ..Default::default() };
-        if let Some(n) = &self.nvml {
-            if let Ok(d) = n.device_by_index(0) {
-                s.gpu = d.utilization_rates().ok().map(|u| u.gpu as f32);
-                s.enc = d.encoder_utilization().ok().map(|u| u.utilization as f32);
-                s.gpu_temp = d
-                    .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
-                    .ok()
-                    .map(|v| v as f32);
-                if let Ok(r) = d.current_throttle_reasons() {
-                    use nvml_wrapper::bitmasks::device::ThrottleReasons as T;
-                    if r.intersects(T::HW_THERMAL_SLOWDOWN | T::SW_THERMAL_SLOWDOWN | T::HW_SLOWDOWN) {
-                        s.gpu_throttle = Some("thermal".into());
-                    } else if r.intersects(T::SW_POWER_CAP | T::HW_POWER_BRAKE_SLOWDOWN) {
-                        s.gpu_throttle = Some("power limit".into());
-                    }
+        let mut s = Sample {
+            t,
+            cpu,
+            cpu_temp,
+            ..Default::default()
+        };
+        if let Some(n) = &self.nvml
+            && let Ok(d) = n.device_by_index(0)
+        {
+            s.gpu = d.utilization_rates().ok().map(|u| u.gpu as f32);
+            s.enc = d.encoder_utilization().ok().map(|u| u.utilization as f32);
+            s.gpu_temp = d
+                .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
+                .ok()
+                .map(|v| v as f32);
+            if let Ok(r) = d.current_throttle_reasons() {
+                use nvml_wrapper::bitmasks::device::ThrottleReasons as T;
+                if r.intersects(T::HW_THERMAL_SLOWDOWN | T::SW_THERMAL_SLOWDOWN | T::HW_SLOWDOWN) {
+                    s.gpu_throttle = Some("thermal".into());
+                } else if r.intersects(T::SW_POWER_CAP | T::HW_POWER_BRAKE_SLOWDOWN) {
+                    s.gpu_throttle = Some("power limit".into());
                 }
             }
         }
@@ -463,15 +493,23 @@ impl Monitor {
         #[cfg(not(windows))]
         if s.gpu.is_none() {
             if let Some(p) = &self.amd_busy {
-                s.gpu = std::fs::read_to_string(p).ok().and_then(|v| v.trim().parse::<f32>().ok());
+                s.gpu = std::fs::read_to_string(p)
+                    .ok()
+                    .and_then(|v| v.trim().parse::<f32>().ok());
             }
             if let Some(p) = &self.amd_temp {
-                s.gpu_temp = std::fs::read_to_string(p).ok().and_then(|v| v.trim().parse::<f32>().ok()).map(|m| m / 1000.0);
+                s.gpu_temp = std::fs::read_to_string(p)
+                    .ok()
+                    .and_then(|v| v.trim().parse::<f32>().ok())
+                    .map(|m| m / 1000.0);
             }
         }
         // Developer test builds only: pretend the GPU is this busy (for testing without a GPU).
         #[cfg(debug_assertions)]
-        if let Some(v) = std::env::var("PREFLIGHT_FAKE_GPU").ok().and_then(|v| v.parse::<f32>().ok()) {
+        if let Some(v) = std::env::var("PREFLIGHT_FAKE_GPU")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+        {
             s.gpu = Some(v);
         }
         s
@@ -484,7 +522,10 @@ impl Monitor {
 const KNOWN_HOGS: &[(&str, &str)] = &[
     ("steam", "Steam (downloads and updates use bandwidth)"),
     ("steamwebhelper", "Steam"),
-    ("epicgameslauncher", "Epic Games Launcher (downloads use bandwidth)"),
+    (
+        "epicgameslauncher",
+        "Epic Games Launcher (downloads use bandwidth)",
+    ),
     ("battle.net", "Battle.net (downloads use bandwidth)"),
     ("onedrive", "OneDrive (cloud sync uses bandwidth)"),
     ("dropbox", "Dropbox (cloud sync uses bandwidth)"),
@@ -530,7 +571,11 @@ fn refresh_procs(sys: &mut System) {
     sys.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,
-        ProcessRefreshKind::nothing().with_cpu().with_memory().with_exe(UpdateKind::OnlyIfNotSet).with_cmd(UpdateKind::OnlyIfNotSet),
+        ProcessRefreshKind::nothing()
+            .with_cpu()
+            .with_memory()
+            .with_exe(UpdateKind::OnlyIfNotSet)
+            .with_cmd(UpdateKind::OnlyIfNotSet),
     );
 }
 
@@ -539,7 +584,9 @@ fn refresh_procs(sys: &mut System) {
 /// from its command line is added too (with 0% CPU, so nothing is counted
 /// twice).
 pub fn running_process_names(sys: &mut Option<System>) -> Vec<(String, f32)> {
-    let Some(sys) = sys.as_mut() else { return Vec::new() };
+    let Some(sys) = sys.as_mut() else {
+        return Vec::new();
+    };
     refresh_procs(sys);
     let mut v = Vec::new();
     for p in sys.processes().values() {
@@ -592,11 +639,16 @@ fn wine_to_unix(s: &str, prefix: Option<&std::path::Path>) -> Option<std::path::
 /// variables); nothing inside the game is touched.
 pub fn game_processes(sys: &mut Option<System>) -> Vec<GameProc> {
     use sysinfo::{ProcessRefreshKind, UpdateKind};
-    let Some(sys) = sys.as_mut() else { return Vec::new() };
+    let Some(sys) = sys.as_mut() else {
+        return Vec::new();
+    };
     sys.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,
-        ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet).with_cmd(UpdateKind::OnlyIfNotSet).with_environ(UpdateKind::OnlyIfNotSet),
+        ProcessRefreshKind::nothing()
+            .with_exe(UpdateKind::OnlyIfNotSet)
+            .with_cmd(UpdateKind::OnlyIfNotSet)
+            .with_environ(UpdateKind::OnlyIfNotSet),
     );
     let mut out: Vec<GameProc> = Vec::new();
     for p in sys.processes().values() {
@@ -611,8 +663,16 @@ pub fn game_processes(sys: &mut Option<System>) -> Vec<GameProc> {
                 g.steam_appid = v.parse().ok().filter(|n| *n > 0);
             }
         }
-        let prefix = g.compat.as_ref().map(|c| c.join("pfx")).or_else(|| g.wineprefix.clone());
-        let cmd0 = p.cmd().first().map(|c| c.to_string_lossy().to_string()).unwrap_or_default();
+        let prefix = g
+            .compat
+            .as_ref()
+            .map(|c| c.join("pfx"))
+            .or_else(|| g.wineprefix.clone());
+        let cmd0 = p
+            .cmd()
+            .first()
+            .map(|c| c.to_string_lossy().to_string())
+            .unwrap_or_default();
         let path = if cmd0.to_lowercase().ends_with(".exe") {
             wine_to_unix(&cmd0, prefix.as_deref()).or_else(|| Some(std::path::PathBuf::from(&cmd0)))
         } else {
@@ -625,11 +685,30 @@ pub fn game_processes(sys: &mut Option<System>) -> Vec<GameProc> {
             continue;
         }
         let looks_like_game = ps.contains("/steamapps/common/")
-            || (prefix.is_some() && exe.ends_with(".exe") && !ps.contains("/windows/system32") && !ps.contains("/windows/syswow64"))
-            || ps.contains("/heroic/") || ps.contains("/lutris/") || ps.contains("/bottles/") || ps.contains("/games/")
-            || (cfg!(windows) && (ps.contains("/epic games/") || ps.contains("/xboxgames/") || ps.contains("/ea games/") || ps.contains("/ubisoft game launcher/games/") || ps.contains("/gog galaxy/games/")));
-        let skip_dirs = ["/steamapps/common/proton", "/steamapps/common/steamlinuxruntime", "/steamapps/common/steamworks shared", "/steamapps/common/steam controller configs"];
-        if !looks_like_game || skip_dirs.iter().any(|d| ps.contains(d)) || ps.contains("/windows/") && !ps.contains("/steamapps/") {
+            || (prefix.is_some()
+                && exe.ends_with(".exe")
+                && !ps.contains("/windows/system32")
+                && !ps.contains("/windows/syswow64"))
+            || ps.contains("/heroic/")
+            || ps.contains("/lutris/")
+            || ps.contains("/bottles/")
+            || ps.contains("/games/")
+            || (cfg!(windows)
+                && (ps.contains("/epic games/")
+                    || ps.contains("/xboxgames/")
+                    || ps.contains("/ea games/")
+                    || ps.contains("/ubisoft game launcher/games/")
+                    || ps.contains("/gog galaxy/games/")));
+        let skip_dirs = [
+            "/steamapps/common/proton",
+            "/steamapps/common/steamlinuxruntime",
+            "/steamapps/common/steamworks shared",
+            "/steamapps/common/steam controller configs",
+        ];
+        if !looks_like_game
+            || skip_dirs.iter().any(|d| ps.contains(d))
+            || ps.contains("/windows/") && !ps.contains("/steamapps/")
+        {
             continue;
         }
         g.exe = exe;
@@ -643,30 +722,113 @@ pub fn game_processes(sys: &mut Option<System>) -> Vec<GameProc> {
 
 /// Programs that use the GPU but aren't games (matched at the start of the name).
 const NOT_GAMES: &[&str] = &[
-    "obs", "kwin", "gnome-shell", "xwayland", "xorg", "plasmashell", "steamwebhelper", "steam", "firefox", "chrome", "chromium", "brave", "discord",
-    "electron", "stream-preflight", "mutter", "hyprland", "sway", "kded", "spotify", "explorer.exe", "dwm.exe", "msedge",
+    "obs",
+    "kwin",
+    "gnome-shell",
+    "xwayland",
+    "xorg",
+    "plasmashell",
+    "steamwebhelper",
+    "steam",
+    "firefox",
+    "chrome",
+    "chromium",
+    "brave",
+    "discord",
+    "electron",
+    "stream-preflight",
+    "mutter",
+    "hyprland",
+    "sway",
+    "kded",
+    "spotify",
+    "explorer.exe",
+    "dwm.exe",
+    "msedge",
     // Desktop and system programs
-    "krunner", "ksmserver", "kscreenlocker", "ksplash", "systemsettings", "dolphin", "konsole", "okular", "gwenview", "spectacle",
-    "kdeconnect", "kwalletd", "baloo", "akonadi", "xdg-desktop-portal", "pipewire", "wireplumber", "nautilus", "gnome-", "nvidia-settings",
-    "corectrl", "mangohud", "gamescope", "gamemode", "kitty", "alacritty", "wezterm",
+    "krunner",
+    "ksmserver",
+    "kscreenlocker",
+    "ksplash",
+    "systemsettings",
+    "dolphin",
+    "konsole",
+    "okular",
+    "gwenview",
+    "spectacle",
+    "kdeconnect",
+    "kwalletd",
+    "baloo",
+    "akonadi",
+    "xdg-desktop-portal",
+    "pipewire",
+    "wireplumber",
+    "nautilus",
+    "gnome-",
+    "nvidia-settings",
+    "corectrl",
+    "mangohud",
+    "gamescope",
+    "gamemode",
+    "kitty",
+    "alacritty",
+    "wezterm",
     // Browsers, chat and media
-    "vivaldi", "librewolf", "thorium", "floorp", "waterfox", "vesktop", "telegram", "slack",
-    "thunderbird", "obsidian", "vlc", "mpv", "celluloid", "haruna", "zen-browser",
+    "vivaldi",
+    "librewolf",
+    "thorium",
+    "floorp",
+    "waterfox",
+    "vesktop",
+    "telegram",
+    "slack",
+    "thunderbird",
+    "obsidian",
+    "vlc",
+    "mpv",
+    "celluloid",
+    "haruna",
+    "zen-browser",
     // Launchers (the game runs as its own program)
-    "heroic", "lutris", "bottles", "legendary", "epicgameslauncher", "galaxyclient", "eadesktop", "ubisoftconnect", "battle.net", "riotclientservices",
+    "heroic",
+    "lutris",
+    "bottles",
+    "legendary",
+    "epicgameslauncher",
+    "galaxyclient",
+    "eadesktop",
+    "ubisoftconnect",
+    "battle.net",
+    "riotclientservices",
 ];
 
 /// Words anywhere in a name that mean "not a game": web views, helpers, crash reporters.
-const NOT_GAME_PARTS: &[&str] = &["webkit", "webprocess", "webview", "webhelper", "webengine", "crashpad", "crashhandler", "crashreport", "wine", "preloader"];
+const NOT_GAME_PARTS: &[&str] = &[
+    "webkit",
+    "webprocess",
+    "webview",
+    "webhelper",
+    "webengine",
+    "crashpad",
+    "crashhandler",
+    "crashreport",
+    "wine",
+    "preloader",
+];
 
 /// Short names that only count as an exact match (so "code" doesn't catch Code Vein).
-const NOT_GAMES_EXACT: &[&str] = &["code", "code-oss", "codium", "zen", "foot", "kate", "teams", "zoom", "signal", "lact", "opera", "zed"];
+const NOT_GAMES_EXACT: &[&str] = &[
+    "code", "code-oss", "codium", "zen", "foot", "kate", "teams", "zoom", "signal", "lact",
+    "opera", "zed",
+];
 
 /// True for programs that use the GPU but aren't games (browsers, web views, desktop parts, launchers).
 pub fn is_not_game(name: &str) -> bool {
     let n = name.to_lowercase();
     let base = n.trim_end_matches(".exe").trim_end_matches("-bin");
-    NOT_GAMES.iter().any(|x| n.starts_with(x)) || NOT_GAME_PARTS.iter().any(|x| n.contains(x)) || NOT_GAMES_EXACT.contains(&base)
+    NOT_GAMES.iter().any(|x| n.starts_with(x))
+        || NOT_GAME_PARTS.iter().any(|x| n.contains(x))
+        || NOT_GAMES_EXACT.contains(&base)
 }
 
 #[cfg(test)]
@@ -675,10 +837,31 @@ mod not_game_tests {
 
     #[test]
     fn web_views_and_desktop_programs_are_not_games() {
-        for n in ["webkitwebprocess", "WebKitNetworkProcess", "steamwebhelper", "firefox", "plasmashell", "code", "zen-bin", "msedgewebview2.exe", "heroic", "xdg-desktop-portal-kde"] {
+        for n in [
+            "webkitwebprocess",
+            "WebKitNetworkProcess",
+            "steamwebhelper",
+            "firefox",
+            "plasmashell",
+            "code",
+            "zen-bin",
+            "msedgewebview2.exe",
+            "heroic",
+            "xdg-desktop-portal-kde",
+        ] {
             assert!(is_not_game(n), "{n}");
         }
-        for n in ["cs2", "cyberpunk2077.exe", "portal2.exe", "codevein-win64-shipping.exe", "zenlesszonezero.exe", "mcc-win64-shipping.exe", "haloinfinite.exe", "cities2.exe", "opera_gx_game.exe"] {
+        for n in [
+            "cs2",
+            "cyberpunk2077.exe",
+            "portal2.exe",
+            "codevein-win64-shipping.exe",
+            "zenlesszonezero.exe",
+            "mcc-win64-shipping.exe",
+            "haloinfinite.exe",
+            "cities2.exe",
+            "opera_gx_game.exe",
+        ] {
             assert!(!is_not_game(n), "{n}");
         }
     }
@@ -693,11 +876,17 @@ pub fn find_hogs(procs: &[(String, f32)]) -> Vec<Hog> {
             continue;
         }
         let base = name.trim_end_matches(".exe");
-        if let Some((_, label)) = KNOWN_HOGS.iter().find(|(k, _)| base == *k || base.starts_with(k)) {
+        if let Some((_, label)) = KNOWN_HOGS
+            .iter()
+            .find(|(k, _)| base == *k || base.starts_with(k))
+        {
             if let Some(h) = out.iter_mut().find(|h| h.label == *label) {
                 h.cpu += cpu;
             } else {
-                out.push(Hog { label: label.to_string(), cpu: *cpu });
+                out.push(Hog {
+                    label: label.to_string(),
+                    cpu: *cpu,
+                });
             }
         }
     }
@@ -771,14 +960,23 @@ pub fn same_drive(a: &std::path::Path, b: &std::path::Path) -> bool {
     #[cfg(not(windows))]
     {
         use std::os::unix::fs::MetadataExt;
-        match (existing_ancestor(a).and_then(|x| std::fs::metadata(x).ok()), existing_ancestor(b).and_then(|x| std::fs::metadata(x).ok())) {
+        match (
+            existing_ancestor(a).and_then(|x| std::fs::metadata(x).ok()),
+            existing_ancestor(b).and_then(|x| std::fs::metadata(x).ok()),
+        ) {
             (Some(x), Some(y)) => x.dev() == y.dev(),
             _ => false,
         }
     }
     #[cfg(windows)]
     {
-        let d = |p: &std::path::Path| p.to_string_lossy().chars().take(2).collect::<String>().to_uppercase();
+        let d = |p: &std::path::Path| {
+            p.to_string_lossy()
+                .chars()
+                .take(2)
+                .collect::<String>()
+                .to_uppercase()
+        };
         d(a) == d(b)
     }
 }
@@ -787,8 +985,16 @@ pub fn same_drive(a: &std::path::Path, b: &std::path::Path) -> bool {
 mod name_tests {
     #[test]
     fn proton_command_line_names() {
-        assert_eq!(super::base_name("Z:\\mnt\\games\\SteamLibrary\\steamapps\\common\\Halo MCC\\MCC\\Binaries\\Win64\\MCC-Win64-Shipping.exe"), "mcc-win64-shipping.exe");
+        assert_eq!(
+            super::base_name(
+                "Z:\\mnt\\games\\SteamLibrary\\steamapps\\common\\Halo MCC\\MCC\\Binaries\\Win64\\MCC-Win64-Shipping.exe"
+            ),
+            "mcc-win64-shipping.exe"
+        );
         assert_eq!(super::base_name("/usr/bin/obs"), "obs");
-        assert!(crate::games::process_matches("mcc-win64-shipping.exe", "mcc-win64-shipping.exe"));
+        assert!(crate::games::process_matches(
+            "mcc-win64-shipping.exe",
+            "mcc-win64-shipping.exe"
+        ));
     }
 }

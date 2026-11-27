@@ -110,7 +110,12 @@ pub fn is_home_network(ip: IpAddr) -> bool {
         IpAddr::V4(v) => v.is_private() || v.is_link_local() || v.is_loopback(),
         IpAddr::V6(v) => {
             let s = v.segments()[0];
-            v.is_loopback() || (s & 0xffc0) == 0xfe80 || (s & 0xfe00) == 0xfc00 || v.to_ipv4_mapped().map(|m| m.is_private() || m.is_loopback()).unwrap_or(false)
+            v.is_loopback()
+                || (s & 0xffc0) == 0xfe80
+                || (s & 0xfe00) == 0xfc00
+                || v.to_ipv4_mapped()
+                    .map(|m| m.is_private() || m.is_loopback())
+                    .unwrap_or(false)
         }
     }
 }
@@ -132,7 +137,11 @@ pub fn new_code() -> String {
 
 /// Compares without stopping at the first different character.
 fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
 }
 
 fn read_msg(s: &mut TcpStream) -> Option<Msg> {
@@ -144,7 +153,9 @@ fn read_msg(s: &mut TcpStream) -> Option<Msg> {
 }
 
 fn send_msg(s: &mut TcpStream, m: &Msg) -> bool {
-    let Ok(mut t) = serde_json::to_string(m) else { return false };
+    let Ok(mut t) = serde_json::to_string(m) else {
+        return false;
+    };
     t.push('\n');
     s.write_all(t.as_bytes()).is_ok()
 }
@@ -153,9 +164,13 @@ use std::io::Read;
 
 /// Streaming PC: answer the gaming PC.
 pub fn start_host(token: Option<String>, ctx: eframe::egui::Context) -> Result<Pairing, String> {
-    let listener = TcpListener::bind(("0.0.0.0", PORT)).map_err(|e| format!("Can't open port {PORT}: {e}"))?;
+    let listener =
+        TcpListener::bind(("0.0.0.0", PORT)).map_err(|e| format!("Can't open port {PORT}: {e}"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-    let state = Arc::new(Mutex::new(PairState { token, ..Default::default() }));
+    let state = Arc::new(Mutex::new(PairState {
+        token,
+        ..Default::default()
+    }));
     let stop = Arc::new(AtomicBool::new(false));
     let (st, sp) = (state.clone(), stop.clone());
     std::thread::Builder::new()
@@ -165,14 +180,18 @@ pub fn start_host(token: Option<String>, ctx: eframe::egui::Context) -> Result<P
                 match listener.accept() {
                     Ok((mut s, peer)) => {
                         if !is_home_network(peer.ip()) {
-                            log::info!("Paired mode: ignored a connection from outside the home network");
+                            log::info!(
+                                "Paired mode: ignored a connection from outside the home network"
+                            );
                             continue;
                         }
                         let _ = s.set_nonblocking(false);
                         handle(&mut s, &st);
                         ctx.request_repaint();
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(150)),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(150))
+                    }
                     Err(_) => std::thread::sleep(Duration::from_millis(500)),
                 }
             }
@@ -188,7 +207,9 @@ fn handle(s: &mut TcpStream, st: &Arc<Mutex<PairState>>) {
         let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
         match m {
             Msg::Pair { code } => match g.code.take() {
-                Some((want, made, tries)) if made.elapsed() < Duration::from_secs(300) && tries > 0 => {
+                Some((want, made, tries))
+                    if made.elapsed() < Duration::from_secs(300) && tries > 0 =>
+                {
                     if same(&want, code.trim()) {
                         let token = random_hex(32);
                         g.token = Some(token.clone());
@@ -198,27 +219,44 @@ fn handle(s: &mut TcpStream, st: &Arc<Mutex<PairState>>) {
                         Msg::Paired { token }
                     } else {
                         g.code = Some((want, made, tries - 1));
-                        Msg::No { why: "wrong code".into() }
+                        Msg::No {
+                            why: "wrong code".into(),
+                        }
                     }
                 }
-                _ => Msg::No { why: "no code on screen".into() },
+                _ => Msg::No {
+                    why: "no code on screen".into(),
+                },
             },
             Msg::Hello { token, game } => match &g.token {
                 Some(t) if same(t, &token) => {
                     g.peer_game = Some((game, Instant::now()));
-                    Msg::Report { stream: g.my_stream.clone() }
+                    Msg::Report {
+                        stream: g.my_stream.clone(),
+                    }
                 }
-                _ => Msg::No { why: "not paired".into() },
+                _ => Msg::No {
+                    why: "not paired".into(),
+                },
             },
-            _ => Msg::No { why: "unexpected".into() },
+            _ => Msg::No {
+                why: "unexpected".into(),
+            },
         }
     };
     send_msg(s, &reply);
 }
 
 /// Gaming PC: talk to the streaming PC at the OBS address every 3 seconds.
-pub fn start_client(host: String, token: Option<String>, ctx: eframe::egui::Context) -> Result<Pairing, String> {
-    let state = Arc::new(Mutex::new(PairState { token, ..Default::default() }));
+pub fn start_client(
+    host: String,
+    token: Option<String>,
+    ctx: eframe::egui::Context,
+) -> Result<Pairing, String> {
+    let state = Arc::new(Mutex::new(PairState {
+        token,
+        ..Default::default()
+    }));
     let stop = Arc::new(AtomicBool::new(false));
     let (st, sp) = (state.clone(), stop.clone());
     std::thread::Builder::new()
@@ -272,12 +310,11 @@ pub fn start_client(host: String, token: Option<String>, ctx: eframe::egui::Cont
                         }
                         ctx.request_repaint();
                     }
-                } else if pending.is_some() {
-                    if let Ok(mut g) = st.lock() {
+                } else if pending.is_some()
+                    && let Ok(mut g) = st.lock() {
                         g.pair_with = None;
                         g.status = "The OBS address isn't on your home network, so pairing can't use it.".into();
                     }
-                }
                 for _ in 0..30 {
                     if sp.load(Ordering::Relaxed) || st.lock().map(|g| g.pair_with.is_some()).unwrap_or(false) {
                         break;
@@ -302,11 +339,24 @@ pub struct SideMeasure {
 
 impl SideMeasure {
     pub fn summary(&self) -> SideTest {
-        let avg = |v: &[f32]| if v.is_empty() { None } else { Some(v.iter().sum::<f32>() / v.len() as f32) };
-        let maxed = if self.gpu.is_empty() { 0.0 } else { self.gpu.iter().filter(|g| **g >= 92.0).count() as f32 * 100.0 / self.gpu.len() as f32 };
+        let avg = |v: &[f32]| {
+            if v.is_empty() {
+                None
+            } else {
+                Some(v.iter().sum::<f32>() / v.len() as f32)
+            }
+        };
+        let maxed = if self.gpu.is_empty() {
+            0.0
+        } else {
+            self.gpu.iter().filter(|g| **g >= 92.0).count() as f32 * 100.0 / self.gpu.len() as f32
+        };
         SideTest {
             test_id: self.test_id,
-            seconds: self.started.map(|s| s.elapsed().as_secs_f32()).unwrap_or(0.0),
+            seconds: self
+                .started
+                .map(|s| s.elapsed().as_secs_f32())
+                .unwrap_or(0.0),
             gpu_avg: avg(&self.gpu),
             gpu_maxed_pct: maxed,
             cpu_avg: avg(&self.cpu).unwrap_or(0.0),
@@ -348,15 +398,29 @@ mod tests {
             Err(_) => return, // port in use on this machine
         };
         host.state.lock().unwrap().code = Some(("424242".into(), Instant::now(), 5));
-        host.state.lock().unwrap().my_stream = StreamSide { obs_connected: true, kbps: Some(6000.0), ..Default::default() };
+        host.state.lock().unwrap().my_stream = StreamSide {
+            obs_connected: true,
+            kbps: Some(6000.0),
+            ..Default::default()
+        };
         let client = start_client("127.0.0.1".into(), None, ctx).unwrap();
         client.state.lock().unwrap().pair_with = Some("000000".into());
         std::thread::sleep(Duration::from_millis(800));
-        assert!(client.state.lock().unwrap().token.is_none(), "wrong code must not pair");
+        assert!(
+            client.state.lock().unwrap().token.is_none(),
+            "wrong code must not pair"
+        );
         client.state.lock().unwrap().pair_with = Some("424242".into());
         std::thread::sleep(Duration::from_millis(800));
-        assert!(client.state.lock().unwrap().token.is_some(), "right code pairs");
-        client.state.lock().unwrap().my_game = GameSide { game: Some("Test Game".into()), monitor_hz: 144, ..Default::default() };
+        assert!(
+            client.state.lock().unwrap().token.is_some(),
+            "right code pairs"
+        );
+        client.state.lock().unwrap().my_game = GameSide {
+            game: Some("Test Game".into()),
+            monitor_hz: 144,
+            ..Default::default()
+        };
         std::thread::sleep(Duration::from_millis(3500));
         let peer = client.state.lock().unwrap().peer_stream.clone();
         assert_eq!(peer.map(|p| p.0.kbps), Some(Some(6000.0)));

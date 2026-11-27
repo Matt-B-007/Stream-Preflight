@@ -269,7 +269,9 @@ impl Settings {
                     v
                 }
                 Err(e) => {
-                    log::warn!("Settings file could not be read ({e}); keeping a copy and starting fresh");
+                    log::warn!(
+                        "Settings file could not be read ({e}); keeping a copy and starting fresh"
+                    );
                     let _ = std::fs::copy(&p, p.with_extension("broken.json"));
                     Self::default()
                 }
@@ -280,15 +282,22 @@ impl Settings {
 
     fn migrate(&mut self) {
         if self.settings_version < SETTINGS_VERSION {
-            log::info!("Migrating settings from format {} to {}", self.settings_version, SETTINGS_VERSION);
+            log::info!(
+                "Migrating settings from format {} to {}",
+                self.settings_version,
+                SETTINGS_VERSION
+            );
             self.settings_version = SETTINGS_VERSION;
         }
         self.text_scale = self.text_scale.clamp(0.8, 1.6);
         // Earlier versions could save a web view or desktop program as a "game".
         let before = self.game_memory.len() + self.style_by_game.len() + self.kept_by_game.len();
-        self.game_memory.retain(|g, _| !crate::hardware::is_not_game(g));
-        self.style_by_game.retain(|g, _| !crate::hardware::is_not_game(g));
-        self.kept_by_game.retain(|g, _| !crate::hardware::is_not_game(g));
+        self.game_memory
+            .retain(|g, _| !crate::hardware::is_not_game(g));
+        self.style_by_game
+            .retain(|g, _| !crate::hardware::is_not_game(g));
+        self.kept_by_game
+            .retain(|g, _| !crate::hardware::is_not_game(g));
         if self.game_memory.len() + self.style_by_game.len() + self.kept_by_game.len() < before {
             log::info!("Removed saved entries for programs that aren't games");
         }

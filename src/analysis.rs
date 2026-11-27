@@ -67,8 +67,18 @@ pub struct Change {
     pub to: String,
 }
 
-fn change(setting: impl Into<String>, menu: impl Into<String>, now: Option<String>, to: impl Into<String>) -> Change {
-    Change { setting: setting.into(), menu: menu.into(), now, to: to.into() }
+fn change(
+    setting: impl Into<String>,
+    menu: impl Into<String>,
+    now: Option<String>,
+    to: impl Into<String>,
+) -> Change {
+    Change {
+        setting: setting.into(),
+        menu: menu.into(),
+        now,
+        to: to.into(),
+    }
 }
 
 impl Opt {
@@ -258,45 +268,142 @@ struct Ctx<'a> {
 impl Ctx<'_> {
     /// The game's FPS: measured in the test, or what the user told us.
     fn game_fps(&self, game: &str) -> Option<f32> {
-        self.test.and_then(|t| t.game_fps).or_else(|| self.st.game_fps_said.get(game).map(|v| *v as f32))
+        self.test
+            .and_then(|t| t.game_fps)
+            .or_else(|| self.st.game_fps_said.get(game).map(|v| *v as f32))
     }
 }
 
-fn opt(id: &str, name: impl Into<String>, menu: impl Into<String>, gain: impl Into<String>, cost: impl Into<String>) -> Opt {
-    Opt { id: id.into(), name: name.into(), menu: menu.into(), gain: gain.into(), cost: cost.into(), suggested: false, changes: Vec::new() }
+fn opt(
+    id: &str,
+    name: impl Into<String>,
+    menu: impl Into<String>,
+    gain: impl Into<String>,
+    cost: impl Into<String>,
+) -> Opt {
+    Opt {
+        id: id.into(),
+        name: name.into(),
+        menu: menu.into(),
+        gain: gain.into(),
+        cost: cost.into(),
+        suggested: false,
+        changes: Vec::new(),
+    }
 }
 
 /// An FPS limit outside the game, for games without one in their menus.
 /// Nothing is changed by Preflight: these are steps for the player.
-fn outside_cap(g: &GameResult, cap: u32, vendor: Option<crate::hardware::Vendor>, cost: String) -> Opt {
+fn outside_cap(
+    g: &GameResult,
+    cap: u32,
+    vendor: Option<crate::hardware::Vendor>,
+    cost: String,
+) -> Opt {
     use crate::hardware::Vendor;
     let dxvk = matches!(g.api.as_deref(), Some("dx9" | "dx10" | "dx11"));
     // A game read automatically may still have its own limit: say "if".
-    let no_limit = if g.auto.is_some() { format!("If {} has no FPS limit of its own", g.name) } else { format!("{} has no FPS limit of its own", g.name) };
+    let no_limit = if g.auto.is_some() {
+        format!("If {} has no FPS limit of its own", g.name)
+    } else {
+        format!("{} has no FPS limit of its own", g.name)
+    };
     if cfg!(not(windows)) {
         // Where launch options or environment variables go, per launcher.
         let (menu, env_style) = match g.launcher.as_str() {
-            "Heroic" => (format!("Heroic › {} › Settings › Advanced › Environment Variables", g.name), true),
-            "Lutris" => (format!("Lutris › right-click {} › Configure › System options › Environment variables", g.name), true),
-            "Bottles" => ("Bottles › your bottle › Settings › Environment Variables".to_string(), true),
-            _ => (format!("Steam › Library › right-click {} › Properties › General › Launch Options", g.name), false),
+            "Heroic" => (
+                format!(
+                    "Heroic › {} › Settings › Advanced › Environment Variables",
+                    g.name
+                ),
+                true,
+            ),
+            "Lutris" => (
+                format!(
+                    "Lutris › right-click {} › Configure › System options › Environment variables",
+                    g.name
+                ),
+                true,
+            ),
+            "Bottles" => (
+                "Bottles › your bottle › Settings › Environment Variables".to_string(),
+                true,
+            ),
+            _ => (
+                format!(
+                    "Steam › Library › right-click {} › Properties › General › Launch Options",
+                    g.name
+                ),
+                false,
+            ),
         };
         if g.proton && dxvk {
-            let line = if env_style { format!("DXVK_FRAME_RATE = {cap}") } else { format!("DXVK_FRAME_RATE={cap} %command%") };
+            let line = if env_style {
+                format!("DXVK_FRAME_RATE = {cap}")
+            } else {
+                format!("DXVK_FRAME_RATE={cap} %command%")
+            };
             return opt("cap", format!("Cap FPS at {cap} with {}", if env_style { "an environment variable" } else { "a Steam launch option" }), menu.clone(), format!("{no_limit}. This one is built into Proton/DXVK, so nothing is added to the game"), cost)
                 .with(change(if env_style { "Environment variable" } else { "Launch Options" }, menu, Some("—".into()), line));
         }
-        let line = if env_style { format!("MANGOHUD = 1 and MANGOHUD_CONFIG = fps_limit={cap}") } else { format!("MANGOHUD_CONFIG=fps_limit={cap} mangohud %command%") };
-        return opt("cap", format!("Cap FPS at {cap} with MangoHud"), menu.clone(), no_limit, format!("{cost}. Needs MangoHud installed; skip it in games with anti-cheat"))
-            .with(change(if env_style { "Environment variables" } else { "Launch Options" }, menu, Some("—".into()), line));
+        let line = if env_style {
+            format!("MANGOHUD = 1 and MANGOHUD_CONFIG = fps_limit={cap}")
+        } else {
+            format!("MANGOHUD_CONFIG=fps_limit={cap} mangohud %command%")
+        };
+        return opt(
+            "cap",
+            format!("Cap FPS at {cap} with MangoHud"),
+            menu.clone(),
+            no_limit,
+            format!("{cost}. Needs MangoHud installed; skip it in games with anti-cheat"),
+        )
+        .with(change(
+            if env_style {
+                "Environment variables"
+            } else {
+                "Launch Options"
+            },
+            menu,
+            Some("—".into()),
+            line,
+        ));
     }
     let (menu, setting) = match vendor {
-        Some(Vendor::Nvidia) => (format!("NVIDIA app › Graphics › Program Settings › {} › Max Frame Rate", g.name), "Max Frame Rate"),
-        Some(Vendor::Amd) => (format!("AMD Software › Gaming › {} › Frame Rate Target Control", g.name), "Frame Rate Target Control"),
-        Some(Vendor::Intel) => (format!("Intel Graphics Software › Gaming › {} › Frame Rate Limiter", g.name), "Frame Rate Limiter"),
-        _ => ("Your graphics driver's control panel › frame rate limit for this game".to_string(), "Frame rate limit"),
+        Some(Vendor::Nvidia) => (
+            format!(
+                "NVIDIA app › Graphics › Program Settings › {} › Max Frame Rate",
+                g.name
+            ),
+            "Max Frame Rate",
+        ),
+        Some(Vendor::Amd) => (
+            format!(
+                "AMD Software › Gaming › {} › Frame Rate Target Control",
+                g.name
+            ),
+            "Frame Rate Target Control",
+        ),
+        Some(Vendor::Intel) => (
+            format!(
+                "Intel Graphics Software › Gaming › {} › Frame Rate Limiter",
+                g.name
+            ),
+            "Frame Rate Limiter",
+        ),
+        _ => (
+            "Your graphics driver's control panel › frame rate limit for this game".to_string(),
+            "Frame rate limit",
+        ),
     };
-    opt("cap", format!("Cap FPS at {cap} in your graphics driver"), menu.clone(), no_limit, cost).with(change(setting, menu, Some("Off".into()), cap.to_string()))
+    opt(
+        "cap",
+        format!("Cap FPS at {cap} in your graphics driver"),
+        menu.clone(),
+        no_limit,
+        cost,
+    )
+    .with(change(setting, menu, Some("Off".into()), cap.to_string()))
 }
 
 /// The FPS cap to suggest: one the game will actually hit, so the GPU gets
@@ -313,7 +420,11 @@ pub fn cap_target(hz: u32, stream_fps: Option<f32>, style: Style, game_fps: Opti
     if let Some(g) = game_fps.filter(|g| *g > 10.0) {
         want = want.min(g * 0.9);
     }
-    NICE.iter().rev().copied().find(|n| *n as f32 <= want + 0.5).unwrap_or(30)
+    NICE.iter()
+        .rev()
+        .copied()
+        .find(|n| *n as f32 <= want + 0.5)
+        .unwrap_or(30)
 }
 
 /// Which fix comes first for each style:
@@ -323,14 +434,37 @@ pub fn cap_target(hz: u32, stream_fps: Option<f32>, style: Style, game_fps: Opti
 /// - Cinematic keeps the graphics: an FPS cap first, then DLSS/FSR.
 pub fn style_pick(st: &Settings, opts: &[Opt]) -> String {
     let has = |id: &str| opts.iter().any(|o| o.id == id);
-    let rt = opts.iter().find(|o| o.id.starts_with("rt_")).map(|o| o.id.clone());
-    let heavy = opts.iter().find(|o| o.id.starts_with("h_")).map(|o| o.id.clone());
-    let graphics = if has("tune") { Some("tune".to_string()) } else { rt.clone().or(heavy.clone()).or_else(|| has("preset").then(|| "preset".to_string())) };
-    let first = |ids: Vec<Option<String>>| ids.into_iter().flatten().find(|i| has(i)).unwrap_or_else(|| opts.first().map(|o| o.id.clone()).unwrap_or_default());
+    let rt = opts
+        .iter()
+        .find(|o| o.id.starts_with("rt_"))
+        .map(|o| o.id.clone());
+    let heavy = opts
+        .iter()
+        .find(|o| o.id.starts_with("h_"))
+        .map(|o| o.id.clone());
+    let graphics = if has("tune") {
+        Some("tune".to_string())
+    } else {
+        rt.clone()
+            .or(heavy.clone())
+            .or_else(|| has("preset").then(|| "preset".to_string()))
+    };
+    let first = |ids: Vec<Option<String>>| {
+        ids.into_iter()
+            .flatten()
+            .find(|i| has(i))
+            .unwrap_or_else(|| opts.first().map(|o| o.id.clone()).unwrap_or_default())
+    };
     let s = |x: &str| Some(x.to_string());
     let style = match st.style {
         Style::Custom => {
-            if st.fps_vs_visuals <= 30 { Style::Competitive } else if st.fps_vs_visuals >= 70 { Style::Cinematic } else { Style::Balanced }
+            if st.fps_vs_visuals <= 30 {
+                Style::Competitive
+            } else if st.fps_vs_visuals >= 70 {
+                Style::Cinematic
+            } else {
+                Style::Balanced
+            }
         }
         x => x,
     };
@@ -351,10 +485,8 @@ fn suggest(opts: &mut [Opt], id: &str) {
     for o in opts.iter_mut() {
         o.suggested = if any { o.id == id } else { false };
     }
-    if !any {
-        if let Some(o) = opts.first_mut() {
-            o.suggested = true;
-        }
+    if !any && let Some(o) = opts.first_mut() {
+        o.suggested = true;
     }
 }
 
@@ -396,7 +528,15 @@ pub fn analyze(
     test: Option<&TestResult>,
     gpu_changed: bool,
 ) -> Analysis {
-    let c = Ctx { st, hw, games, obs, net, test, gpu_changed };
+    let c = Ctx {
+        st,
+        hw,
+        games,
+        obs,
+        net,
+        test,
+        gpu_changed,
+    };
     let mut a = Analysis::default();
     let mut issues: Vec<Issue> = Vec::new();
 
@@ -418,23 +558,37 @@ pub fn analyze(
     // encoder" advice doesn't apply; on the streaming PC the game isn't here.
     match crate::twopc::Role::from_str(&st.pc_role) {
         crate::twopc::Role::One => {}
-        crate::twopc::Role::Gaming => issues.retain(|i| !matches!(i.id.as_str(), "gpu_maxed" | "gpu_maybe" | "gpu_near" | "encode_budget" | "cpu_encodes")),
-        crate::twopc::Role::Streaming => issues.retain(|i| !matches!(i.id.as_str(), "gpu_maxed" | "gpu_maybe" | "gpu_near" | "bitrate_effects")),
+        crate::twopc::Role::Gaming => issues.retain(|i| {
+            !matches!(
+                i.id.as_str(),
+                "gpu_maxed" | "gpu_maybe" | "gpu_near" | "encode_budget" | "cpu_encodes"
+            )
+        }),
+        crate::twopc::Role::Streaming => issues.retain(|i| {
+            !matches!(
+                i.id.as_str(),
+                "gpu_maxed" | "gpu_maybe" | "gpu_near" | "bitrate_effects"
+            )
+        }),
     }
 
     // Options the user asked never to see again.
     for i in issues.iter_mut() {
         let had_suggested = i.options.iter().any(|o| o.suggested);
         i.options.retain(|o| !st.is_hidden(&i.id, &o.id));
-        if had_suggested && !i.options.iter().any(|o| o.suggested) {
-            if let Some(o) = i.options.first_mut() {
-                o.suggested = true;
-            }
+        if had_suggested
+            && !i.options.iter().any(|o| o.suggested)
+            && let Some(o) = i.options.first_mut()
+        {
+            o.suggested = true;
         }
     }
     issues.sort_by_key(|i| i.priority);
     let mut score: i32 = 100;
-    for i in issues.iter().filter(|i| !st.kept_issues.contains(&i.id) && !unscored(&i.id)) {
+    for i in issues
+        .iter()
+        .filter(|i| !st.kept_issues.contains(&i.id) && !unscored(&i.id))
+    {
         score -= points_of(i.priority);
     }
     for ch in &a.checks {
@@ -444,14 +598,27 @@ pub fn analyze(
     }
     a.score = score.clamp(0, 100) as u8;
     let fixes = issues.len();
-    let unknown = a.checks.iter().filter(|c| c.status == Status::Unknown).count();
+    let unknown = a
+        .checks
+        .iter()
+        .filter(|c| c.status == Status::Unknown)
+        .count();
     a.headline = match (a.score, fixes) {
         (90..=100, 0) => "Ready to go live".into(),
-        (_, 0) if unknown > 0 => format!("{unknown} check{} couldn't run yet", if unknown == 1 { "" } else { "s" }),
+        (_, 0) if unknown > 0 => format!(
+            "{unknown} check{} couldn't run yet",
+            if unknown == 1 { "" } else { "s" }
+        ),
         (_, 0) => "Almost ready".into(),
         (90..=100, _) => "Almost ready".into(),
-        (s, n) if s >= 70 => format!("Nearly there. {n} issue{} to look at", if n == 1 { "" } else { "s" }),
-        (_, n) => format!("Not quite ready. {n} issue{} to look at", if n == 1 { "" } else { "s" }),
+        (s, n) if s >= 70 => format!(
+            "Nearly there. {n} issue{} to look at",
+            if n == 1 { "" } else { "s" }
+        ),
+        (_, n) => format!(
+            "Not quite ready. {n} issue{} to look at",
+            if n == 1 { "" } else { "s" }
+        ),
     };
     a.summary = if test.is_none() {
         "Based on a quick scan. Run a full test while playing to measure real performance.".into()
@@ -460,7 +627,10 @@ pub fn analyze(
     };
     a.recommended = recommended(&c, &a);
     a.setup = setup_view(&c, &a, &issues);
-    let open: Vec<&Issue> = issues.iter().filter(|i| !st.kept_issues.contains(&i.id)).collect();
+    let open: Vec<&Issue> = issues
+        .iter()
+        .filter(|i| !st.kept_issues.contains(&i.id))
+        .collect();
     let important = open.iter().filter(|i| !is_optional(i)).count();
     let optional = open.len() - important;
     // Two scores: what the test measured, and how the settings are set up.
@@ -489,9 +659,18 @@ pub fn analyze(
 /// numbers: no names, paths, scene names, keys or passwords.
 pub fn setup_text(a: &Analysis) -> String {
     let mut t = String::new();
-    t.push_str(&format!("Stream Preflight · my setup ({})\n", crate::util::now_local()));
-    let sm = a.smoothness.map(|v| v.to_string()).unwrap_or_else(|| "not tested".into());
-    t.push_str(&format!("Smoothness {sm} · Setup {} · {}\n", a.setup_score, a.verdict));
+    t.push_str(&format!(
+        "Stream Preflight · my setup ({})\n",
+        crate::util::now_local()
+    ));
+    let sm = a
+        .smoothness
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "not tested".into());
+    t.push_str(&format!(
+        "Smoothness {sm} · Setup {} · {}\n",
+        a.setup_score, a.verdict
+    ));
     let section = |t: &mut String, title: &str, rows: &[SetupRow]| {
         if rows.is_empty() {
             return;
@@ -507,12 +686,25 @@ pub fn setup_text(a: &Analysis) -> String {
             if matches!(r.tag, Tag::Keep | Tag::Kept) {
                 t.push_str(&format!("- {}: {} ({tag})\n", r.setting, r.now));
             } else {
-                t.push_str(&format!("- {}: {} -> {} ({tag}) · {}\n", r.setting, r.now, r.suggested, r.why));
+                t.push_str(&format!(
+                    "- {}: {} -> {} ({tag}) · {}\n",
+                    r.setting, r.now, r.suggested, r.why
+                ));
             }
         }
     };
     section(&mut t, "In OBS", &a.setup.obs);
-    section(&mut t, &format!("In {}", a.setup.game_name.clone().unwrap_or_else(|| "your game".into())), &a.setup.game);
+    section(
+        &mut t,
+        &format!(
+            "In {}",
+            a.setup
+                .game_name
+                .clone()
+                .unwrap_or_else(|| "your game".into())
+        ),
+        &a.setup.game,
+    );
     section(&mut t, "On my PC", &a.setup.pc);
     t
 }
@@ -541,10 +733,18 @@ fn tag_for(issue: Option<&Issue>, ok: bool, st: &Settings) -> Tag {
     match issue {
         Some(i) if st.kept_issues.contains(&i.id) => Tag::Kept,
         Some(i) => {
-            if is_optional(i) { Tag::Optional } else { Tag::Change }
+            if is_optional(i) {
+                Tag::Optional
+            } else {
+                Tag::Change
+            }
         }
         None => {
-            if ok { Tag::Keep } else { Tag::Change }
+            if ok {
+                Tag::Keep
+            } else {
+                Tag::Change
+            }
         }
     }
 }
@@ -584,15 +784,19 @@ fn row_name(id: &str) -> &'static str {
 fn target_game<'a>(c: &Ctx<'a>, any_detected: bool) -> Option<&'a GameResult> {
     let detected: Vec<&GameResult> = c.games.iter().filter(|g| g.relevant()).collect();
     if let Some(t) = c.test {
-        if let Some(n) = &t.game_running {
-            if let Some(g) = detected.iter().find(|g| &g.name == n) {
-                return Some(g);
-            }
+        if let Some(n) = &t.game_running
+            && let Some(g) = detected.iter().find(|g| &g.name == n)
+        {
+            return Some(g);
         }
-        if let Some(guess) = &t.game_guess {
-            if let Some(g) = detected.iter().find(|g| g.processes.iter().any(|p| p == guess || crate::games::process_matches(guess, p))) {
-                return Some(g);
-            }
+        if let Some(guess) = &t.game_guess
+            && let Some(g) = detected.iter().find(|g| {
+                g.processes
+                    .iter()
+                    .any(|p| p == guess || crate::games::process_matches(guess, p))
+            })
+        {
+            return Some(g);
         }
         if t.game_running.is_none() && !detected.iter().any(|g| g.running) {
             return None;
@@ -602,8 +806,19 @@ fn target_game<'a>(c: &Ctx<'a>, any_detected: bool) -> Option<&'a GameResult> {
         .iter()
         .find(|g| g.running)
         .copied()
-        .or_else(|| detected.iter().find(|g| !g.findings.is_empty() && g.auto.is_none()).copied())
-        .or_else(|| if any_detected { detected.iter().find(|g| g.auto.is_none()).copied() } else { None })
+        .or_else(|| {
+            detected
+                .iter()
+                .find(|g| !g.findings.is_empty() && g.auto.is_none())
+                .copied()
+        })
+        .or_else(|| {
+            if any_detected {
+                detected.iter().find(|g| g.auto.is_none()).copied()
+            } else {
+                None
+            }
+        })
 }
 
 fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
@@ -615,10 +830,17 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
     // ---- OBS
     if let Some(o) = c.obs {
         for r in &a.recommended {
-            let (issue, why_ok, why_change): (Option<&Issue>, String, String) = match r.setting.as_str() {
+            let (issue, why_ok, why_change): (Option<&Issue>, String, String) = match r
+                .setting
+                .as_str()
+            {
                 "Encoder" => (
                     first(&["encoder"]),
-                    if o.encoder_kind.contains("CPU") { "No hardware encoder found, so the CPU is the only choice".into() } else { "Uses your graphics card, so the game keeps your CPU".into() },
+                    if o.encoder_kind.contains("CPU") {
+                        "No hardware encoder found, so the CPU is the only choice".into()
+                    } else {
+                        "Uses your graphics card, so the game keeps your CPU".into()
+                    },
                     "Encoding on the CPU competes with your game".into(),
                 ),
                 "Bitrate" => {
@@ -626,32 +848,87 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                         let need = (o.bitrate_kbps.unwrap_or(6000) as f32 + 160.0) / 1000.0;
                         format!("; your upload has about {:.0}x headroom", n.low_mbps / need)
                     });
-                    (first(&["bitrate_network", "bitrate_platform"]), format!("Fits {plat}{}", head.unwrap_or_default()), "Too high for your connection or platform".into())
+                    (
+                        first(&["bitrate_network", "bitrate_platform"]),
+                        format!("Fits {plat}{}", head.unwrap_or_default()),
+                        "Too high for your connection or platform".into(),
+                    )
                 }
-                "Rate control" => (first(&["rate_control"]), format!("CBR is what {plat} expects"), "Bitrate spikes can cause dropped frames".into()),
-                "Keyframe interval" => (first(&["keyframes"]), "Every 2 s is the standard".into(), format!("{plat} wants a keyframe every 2 s")),
-                "Preset" => (first(&["preset"]), "Good quality without slowing the encoder".into(), "Too fast to look good, or too slow to keep up".into()),
-                "Output (resolution · FPS)" => (first(&["bitrate_network", "resolution_bitrate"]), "Sharp for your bitrate and your game's motion".into(), if find("resolution_bitrate").is_some() { "A smaller picture stays sharp at your bitrate".into() } else { "A smaller picture keeps the stream smooth on your connection".into() }),
-                "Downscale filter" => (first(&["downscale"]), "Keeps text and edges sharp".into(), "Bilinear makes text and HUD blurry".into()),
-                "Audio" => (first(&["audio_bitrate", "sample_rate"]), "Clear voice and game sound".into(), "Muffled audio or extra resampling".into()),
+                "Rate control" => (
+                    first(&["rate_control"]),
+                    format!("CBR is what {plat} expects"),
+                    "Bitrate spikes can cause dropped frames".into(),
+                ),
+                "Keyframe interval" => (
+                    first(&["keyframes"]),
+                    "Every 2 s is the standard".into(),
+                    format!("{plat} wants a keyframe every 2 s"),
+                ),
+                "Preset" => (
+                    first(&["preset"]),
+                    "Good quality without slowing the encoder".into(),
+                    "Too fast to look good, or too slow to keep up".into(),
+                ),
+                "Output (resolution · FPS)" => (
+                    first(&["bitrate_network", "resolution_bitrate"]),
+                    "Sharp for your bitrate and your game's motion".into(),
+                    if find("resolution_bitrate").is_some() {
+                        "A smaller picture stays sharp at your bitrate".into()
+                    } else {
+                        "A smaller picture keeps the stream smooth on your connection".into()
+                    },
+                ),
+                "Downscale filter" => (
+                    first(&["downscale"]),
+                    "Keeps text and edges sharp".into(),
+                    "Bilinear makes text and HUD blurry".into(),
+                ),
+                "Audio" => (
+                    first(&["audio_bitrate", "sample_rate"]),
+                    "Clear voice and game sound".into(),
+                    "Muffled audio or extra resampling".into(),
+                ),
                 "Recording encoder" => {
-                    let chips = crate::hardware::nvenc_chips(&c.hw.and_then(|h| h.main_gpu()).map(|g| g.name.clone()).unwrap_or_default());
+                    let chips = crate::hardware::nvenc_chips(
+                        &c.hw
+                            .and_then(|h| h.main_gpu())
+                            .map(|g| g.name.clone())
+                            .unwrap_or_default(),
+                    );
                     let ok = if o.rec_encoder_raw.is_empty() {
                         "Shares the stream encoder: no extra load".to_string()
                     } else if let Some(n) = chips.filter(|n| *n >= 2) {
-                        format!("Your card has {n} encoder chips, so recording separately doesn't slow the stream")
+                        format!(
+                            "Your card has {n} encoder chips, so recording separately doesn't slow the stream"
+                        )
                     } else {
                         "Light enough for your card".to_string()
                     };
-                    (first(&["rec_encoder", "enc_load"]), ok, "Adds work to the encoder".into())
+                    (
+                        first(&["rec_encoder", "enc_load"]),
+                        ok,
+                        "Adds work to the encoder".into(),
+                    )
                 }
-                "Recording format" => (first(&["rec_format"]), "Survives crashes".into(), "Plain MP4/MOV is lost if OBS crashes".into()),
+                "Recording format" => (
+                    first(&["rec_format"]),
+                    "Survives crashes".into(),
+                    "Plain MP4/MOV is lost if OBS crashes".into(),
+                ),
                 "Auto-record when streaming" => (
                     None,
-                    if o.auto_record == Some(true) { "Every stream is recorded too; Preflight watches both".into() } else { "Start recording yourself when you want a copy".into() },
+                    if o.auto_record == Some(true) {
+                        "Every stream is recorded too; Preflight watches both".into()
+                    } else {
+                        "Start recording yourself when you want a copy".into()
+                    },
                     String::new(),
                 ),
-                "Enhanced Broadcasting" => (first(&["multitrack"]), "Your encoder has room for it".into(), "Several stream versions keep your encoder busy".into()),
+                "Enhanced Broadcasting" => (
+                    first(&["multitrack"]),
+                    "Your encoder has room for it".into(),
+                    "Several stream versions keep your encoder busy".into(),
+                ),
                 _ => (None, String::new(), String::new()),
             };
             // A setting that isn't ideal but isn't causing a problem here is optional, never "Change".
@@ -662,11 +939,19 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
             } else {
                 tag_for(issue, r.ok, st)
             };
-            let why_change = if issue.is_none() && r.setting == "Downscale filter" { "Only matters when OBS shrinks your picture; Bicubic is safer if you do".to_string() } else { why_change };
+            let why_change = if issue.is_none() && r.setting == "Downscale filter" {
+                "Only matters when OBS shrinks your picture; Bicubic is safer if you do".to_string()
+            } else {
+                why_change
+            };
             v.obs.push(SetupRow {
                 setting: r.setting.clone(),
                 now: r.yours.clone(),
-                suggested: if tag == Tag::Keep || tag == Tag::Kept { "Keep".into() } else { r.suggested.clone() },
+                suggested: if tag == Tag::Keep || tag == Tag::Kept {
+                    "Keep".into()
+                } else {
+                    r.suggested.clone()
+                },
                 why: if tag == Tag::Keep { why_ok } else { why_change },
                 tag,
                 menu: r.menu.clone(),
@@ -678,37 +963,81 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
         let doubled = o.doubled_desktop_audio() >= 2;
         v.obs.push(SetupRow {
             setting: "Game audio".into(),
-            now: if o.desktop_audio().is_empty() { "None".into() } else if doubled { "Captured twice".into() } else { "Captured".into() },
-            suggested: if ga.is_some() { "Add Desktop Audio".into() } else { "Keep".into() },
-            why: if ga.is_some() { "Viewers won't hear the game".into() } else { "Viewers hear the game".into() },
-            tag: if ga.is_some() { tag_for(ga, false, st) } else { Tag::Keep },
+            now: if o.desktop_audio().is_empty() {
+                "None".into()
+            } else if doubled {
+                "Captured twice".into()
+            } else {
+                "Captured".into()
+            },
+            suggested: if ga.is_some() {
+                "Add Desktop Audio".into()
+            } else {
+                "Keep".into()
+            },
+            why: if ga.is_some() {
+                "Viewers won't hear the game".into()
+            } else {
+                "Viewers hear the game".into()
+            },
+            tag: if ga.is_some() {
+                tag_for(ga, false, st)
+            } else {
+                Tag::Keep
+            },
             menu: "OBS › Settings › Audio › Desktop Audio".into(),
             issue_id: ga.map(|i| i.id.clone()),
         });
-        if let Some(t) = c.test {
-            if let Some(m) = t.mic_db {
-                let mi = first(&["audio_balance", "mic_quiet"]);
-                let now = match t.desktop_db {
-                    Some(d) => format!("{:.0} dB under the game", (d - m).max(0.0)),
-                    None => format!("Peaks at {m:.0} dB"),
-                };
-                // Without game sound in the test, the two can't be compared.
-                let compared = t.desktop_db.is_some();
-                v.obs.push(SetupRow {
-                    setting: "Mic level".into(),
-                    now: if mi.is_some() { now } else if compared { "Above the game".into() } else { "Couldn't compare".into() },
-                    suggested: if mi.is_some() { "Raise the mic".into() } else if compared { "Keep".into() } else { "Test with game sound".into() },
-                    why: if mi.is_some() { "Viewers may not hear you over the game".into() } else if compared { "Viewers hear you clearly".into() } else { format!("No game sound was heard during the test; your mic peaked at {m:.0} dB") },
-                    tag: if mi.is_some() { tag_for(mi, false, st) } else { Tag::Keep },
-                    menu: "OBS › Audio Mixer › your mic".into(),
-                    issue_id: mi.map(|i| i.id.clone()),
-                });
-            }
+        if let Some(t) = c.test
+            && let Some(m) = t.mic_db
+        {
+            let mi = first(&["audio_balance", "mic_quiet"]);
+            let now = match t.desktop_db {
+                Some(d) => format!("{:.0} dB under the game", (d - m).max(0.0)),
+                None => format!("Peaks at {m:.0} dB"),
+            };
+            // Without game sound in the test, the two can't be compared.
+            let compared = t.desktop_db.is_some();
+            v.obs.push(SetupRow {
+                setting: "Mic level".into(),
+                now: if mi.is_some() {
+                    now
+                } else if compared {
+                    "Above the game".into()
+                } else {
+                    "Couldn't compare".into()
+                },
+                suggested: if mi.is_some() {
+                    "Raise the mic".into()
+                } else if compared {
+                    "Keep".into()
+                } else {
+                    "Test with game sound".into()
+                },
+                why: if mi.is_some() {
+                    "Viewers may not hear you over the game".into()
+                } else if compared {
+                    "Viewers hear you clearly".into()
+                } else {
+                    format!("No game sound was heard during the test; your mic peaked at {m:.0} dB")
+                },
+                tag: if mi.is_some() {
+                    tag_for(mi, false, st)
+                } else {
+                    Tag::Keep
+                },
+                menu: "OBS › Audio Mixer › your mic".into(),
+                issue_id: mi.map(|i| i.id.clone()),
+            });
         }
         let cap = find("display_capture");
         if o.uses_display_capture() || o.uses_game_capture() || o.uses_portal_capture() {
             let now = if o.uses_game_capture() {
-                if o.sources.iter().any(|s| s.kind.contains("vkcapture")) { "Game capture (vkcapture)".to_string() } else { "Game capture".to_string() }
+                if o.sources.iter().any(|s| s.kind.contains("vkcapture")) {
+                    "Game capture (vkcapture)".to_string()
+                } else {
+                    "Game capture".to_string()
+                }
             } else if o.uses_display_capture() {
                 "Whole screen".to_string()
             } else {
@@ -750,18 +1079,45 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                     if f.inline_text.is_some() || f.format == "unity prefs" {
                         "Unity's saved settings".to_string()
                     } else {
-                        f.shown_path.rsplit(['/', '\\']).next().unwrap_or(&f.shown_path).to_string()
+                        f.shown_path
+                            .rsplit(['/', '\\'])
+                            .next()
+                            .unwrap_or(&f.shown_path)
+                            .to_string()
                     }
                 };
                 let newest = read.iter().filter_map(|f| f.modified).max();
-                let saved = newest.or(f.modified).map(|t| format!(" · saved by the game {}", crate::util::fmt_local(t))).unwrap_or_default();
+                let saved = newest
+                    .or(f.modified)
+                    .map(|t| format!(" · saved by the game {}", crate::util::fmt_local(t)))
+                    .unwrap_or_default();
                 let names: Vec<String> = read.iter().map(|f| short(f)).collect();
                 let total: usize = read.iter().map(|f| f.settings_count).sum();
-                if names.len() == 1 { format!("Read {total} settings from {}{saved}", names[0]) } else { format!("Read {total} settings from {} files ({}){saved}", names.len(), names.join(", ")) }
+                if names.len() == 1 {
+                    format!("Read {total} settings from {}{saved}", names[0])
+                } else {
+                    format!(
+                        "Read {total} settings from {} files ({}){saved}",
+                        names.len(),
+                        names.join(", ")
+                    )
+                }
             }
             None => match g.files.iter().find(|f| f.found) {
-                Some(f) => format!("Found {} but couldn't read it: {}", f.shown_path.rsplit(['/', '\\']).next().unwrap_or(""), f.error.clone().unwrap_or_else(|| "unknown error".into())),
-                None => format!("No settings file yet (looked in {} place{}). Launch the game once and change a setting.", g.files.iter().map(|f| f.searched.len()).sum::<usize>(), if g.files.iter().map(|f| f.searched.len()).sum::<usize>() == 1 { "" } else { "s" }),
+                Some(f) => format!(
+                    "Found {} but couldn't read it: {}",
+                    f.shown_path.rsplit(['/', '\\']).next().unwrap_or(""),
+                    f.error.clone().unwrap_or_else(|| "unknown error".into())
+                ),
+                None => format!(
+                    "No settings file yet (looked in {} place{}). Launch the game once and change a setting.",
+                    g.files.iter().map(|f| f.searched.len()).sum::<usize>(),
+                    if g.files.iter().map(|f| f.searched.len()).sum::<usize>() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ),
             },
         });
         // How much of what was read the advice actually uses.
@@ -770,15 +1126,31 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
             let uses = if other == 0 {
                 format!("The advice uses all {} settings read.", g.settings_read)
             } else {
-                format!("The advice uses {} of the {} settings read; Preflight couldn't check the other {other} (most are controls, audio and other non-graphics settings).", g.settings_used, g.settings_read)
+                format!(
+                    "The advice uses {} of the {} settings read; Preflight couldn't check the other {other} (most are controls, audio and other non-graphics settings).",
+                    g.settings_used, g.settings_read
+                )
             };
-            v.game_coverage = Some(if g.auto.is_some() { format!("Read automatically ({}), not hand-checked. {uses}", g.auto.clone().unwrap_or_default()) } else { uses });
+            v.game_coverage = Some(if g.auto.is_some() {
+                format!(
+                    "Read automatically ({}), not hand-checked. {uses}",
+                    g.auto.clone().unwrap_or_default()
+                )
+            } else {
+                uses
+            });
         }
         if let Some(gap) = &g.read_gap {
             v.game_coverage = Some(gap.clone());
         }
-        v.report_helps = g.auto.is_some() || !g.unreadable.is_empty() || g.verified.starts_with("Unverified") || g.verified.starts_with("Not yet") || g.files.iter().any(|f| f.found && !f.read_ok);
-        let kept = gpu_issue.map(|i| st.kept_issues.contains(&i.id)).unwrap_or(false);
+        v.report_helps = g.auto.is_some()
+            || !g.unreadable.is_empty()
+            || g.verified.starts_with("Unverified")
+            || g.verified.starts_with("Not yet")
+            || g.files.iter().any(|f| f.found && !f.read_ok);
+        let kept = gpu_issue
+            .map(|i| st.kept_issues.contains(&i.id))
+            .unwrap_or(false);
         let mut shown: std::collections::HashSet<String> = std::collections::HashSet::new();
         // The fixes first: exactly what the Fix step suggests, from the same list.
         if let Some(i) = gpu_issue {
@@ -789,12 +1161,22 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                     if !shown.insert(ch.setting.to_lowercase()) {
                         continue;
                     }
-                    let tag = if kept { Tag::Kept } else if o.suggested && need_room { Tag::Change } else { Tag::Optional };
+                    let tag = if kept {
+                        Tag::Kept
+                    } else if o.suggested && need_room {
+                        Tag::Change
+                    } else {
+                        Tag::Optional
+                    };
                     v.game.push(SetupRow {
                         setting: ch.setting.clone(),
                         now: ch.now.clone().unwrap_or_else(|| "Couldn't read".into()),
                         suggested: ch.to.clone(),
-                        why: if o.suggested { o.gain.clone() } else { "Only if the GPU is still maxed after the change above".into() },
+                        why: if o.suggested {
+                            o.gain.clone()
+                        } else {
+                            "Only if the GPU is still maxed after the change above".into()
+                        },
                         tag,
                         menu: ch.menu.clone(),
                         issue_id: Some(i.id.clone()),
@@ -804,7 +1186,14 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
         }
         // Then everything else Preflight read, as it is.
         let mut cur = g.current.clone();
-        cur.sort_by_key(|s| match s.effect.as_str() { "uncapped_fps" => 1, "upscaler_off" => 2, "info" => 3, "heavy" => 4, "rt_on" => 5, _ => 6 });
+        cur.sort_by_key(|s| match s.effect.as_str() {
+            "uncapped_fps" => 1,
+            "upscaler_off" => 2,
+            "info" => 3,
+            "heavy" => 4,
+            "rt_on" => 5,
+            _ => 6,
+        });
         for s in &cur {
             if !shown.insert(s.setting.to_lowercase()) {
                 continue;
@@ -819,8 +1208,16 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                     let n = s.setting.to_lowercase();
                     let off = s.value.eq_ignore_ascii_case("off");
                     if n.contains("reflex") || n.contains("anti-lag") || n.contains("latency") {
-                        if off { "Off. Turning it on lowers input lag; it doesn't affect the stream".into() } else { "Lowers input lag; it doesn't affect the stream".into() }
-                    } else if n.contains("cmaa") || n.contains("fxaa") || n.contains("anti-aliasing") {
+                        if off {
+                            "Off. Turning it on lowers input lag; it doesn't affect the stream"
+                                .into()
+                        } else {
+                            "Lowers input lag; it doesn't affect the stream".into()
+                        }
+                    } else if n.contains("cmaa")
+                        || n.contains("fxaa")
+                        || n.contains("anti-aliasing")
+                    {
                         "Light anti-aliasing that costs almost nothing".into()
                     } else if n.contains("frame gen") {
                         "Raises the FPS you see; doesn't free the GPU for OBS".into()
@@ -839,22 +1236,53 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                 ("bitrate", false) => "Off, so viewers get a cleaner picture".to_string(),
                 _ => "Fine as it is".to_string(),
             };
-            v.game.push(SetupRow { setting: s.setting.clone(), now: s.value.clone(), suggested: "Keep".into(), why, tag: Tag::Keep, menu: s.menu.clone(), issue_id: None });
+            v.game.push(SetupRow {
+                setting: s.setting.clone(),
+                now: s.value.clone(),
+                suggested: "Keep".into(),
+                why,
+                tag: Tag::Keep,
+                menu: s.menu.clone(),
+                issue_id: None,
+            });
         }
-        if let Some(p) = &g.preset {
-            if shown.insert(p.setting.to_lowercase()) {
-                let why = if p.custom { "You've set individual settings; the heavy ones are listed here".to_string() } else { "Fine as it is".to_string() };
-                v.game.push(SetupRow { setting: p.setting.clone(), now: p.value.clone(), suggested: "Keep".into(), why, tag: Tag::Keep, menu: p.menu.clone(), issue_id: None });
-            }
+        if let Some(p) = &g.preset
+            && shown.insert(p.setting.to_lowercase())
+        {
+            let why = if p.custom {
+                "You've set individual settings; the heavy ones are listed here".to_string()
+            } else {
+                "Fine as it is".to_string()
+            };
+            v.game.push(SetupRow {
+                setting: p.setting.clone(),
+                now: p.value.clone(),
+                suggested: "Keep".into(),
+                why,
+                tag: Tag::Keep,
+                menu: p.menu.clone(),
+                issue_id: None,
+            });
         }
         for t in &g.tunables {
             if shown.insert(t.setting.to_lowercase()) {
                 let why = match (t.change_to.is_some(), gpu_issue.is_some()) {
-                    (true, true) => format!("Heavy. Lower it to {} too if the GPU is still maxed", t.change_to.clone().unwrap_or_default()),
+                    (true, true) => format!(
+                        "Heavy. Lower it to {} too if the GPU is still maxed",
+                        t.change_to.clone().unwrap_or_default()
+                    ),
                     (true, false) => "Heavy, but your GPU has room right now".to_string(),
                     _ => "Fine as it is".to_string(),
                 };
-                v.game.push(SetupRow { setting: t.setting.clone(), now: t.now.clone(), suggested: "Keep".into(), why, tag: Tag::Keep, menu: t.menu.clone(), issue_id: None });
+                v.game.push(SetupRow {
+                    setting: t.setting.clone(),
+                    now: t.now.clone(),
+                    suggested: "Keep".into(),
+                    why,
+                    tag: Tag::Keep,
+                    menu: t.menu.clone(),
+                    issue_id: None,
+                });
             }
         }
         // The game's own display mode next to the monitor's (inform only).
@@ -867,10 +1295,20 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
             };
             let mon = st.monitor_hz;
             let why = match g.display_hz {
-                Some(h) if (h - mon as f32).abs() > 2.0 => format!("Your monitor runs at {mon} Hz; the game is set to {h:.0} Hz. Fine if that's on purpose"),
+                Some(h) if (h - mon as f32).abs() > 2.0 => format!(
+                    "Your monitor runs at {mon} Hz; the game is set to {h:.0} Hz. Fine if that's on purpose"
+                ),
                 _ => "Matches your monitor".to_string(),
             };
-            v.game.push(SetupRow { setting: "Game display mode".into(), now, suggested: "Keep".into(), why, tag: Tag::Keep, menu: format!("{} › Settings › Display", g.name), issue_id: None });
+            v.game.push(SetupRow {
+                setting: "Game display mode".into(),
+                now,
+                suggested: "Keep".into(),
+                why,
+                tag: Tag::Keep,
+                menu: format!("{} › Settings › Display", g.name),
+                issue_id: None,
+            });
         }
         // Settings a game update may have renamed: say so, never hide it.
         for u in &g.unreadable {
@@ -879,7 +1317,8 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                     setting: u.clone(),
                     now: "Couldn't read".into(),
                     suggested: "Check it in the game".into(),
-                    why: "A game update may have renamed it. Preflight's profile needs an update".into(),
+                    why: "A game update may have renamed it. Preflight's profile needs an update"
+                        .into(),
                     tag: Tag::Optional,
                     menu: format!("{} › Settings", g.name),
                     issue_id: None,
@@ -887,26 +1326,47 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
             }
         }
         if g.verified.starts_with("Unverified") && !v.game.is_empty() {
-            v.game_note = Some(format!("Preflight's {} profile is new and not checked on a real PC yet.", g.name));
+            v.game_note = Some(format!(
+                "Preflight's {} profile is new and not checked on a real PC yet.",
+                g.name
+            ));
         }
         if v.game.is_empty() {
             v.game_note = Some(if g.files.iter().any(|f| f.read_ok) {
-                "Preflight read this game's settings but none of the ones it checks were found.".into()
+                "Preflight read this game's settings but none of the ones it checks were found."
+                    .into()
             } else {
                 "Not launched on this PC yet, so there are no settings to read.".into()
             });
         }
     } else if let Some(i) = gpu_issue {
         let guess = c.test.and_then(|t| t.game_guess.clone());
-        v.game_name = Some(guess.map(|g| format!("Your game ({g})")).unwrap_or_else(|| "Your game".into()));
-        v.game_note = Some("Preflight doesn't know this game's settings yet, so it can't show what's set now.".into());
+        v.game_name = Some(
+            guess
+                .map(|g| format!("Your game ({g})"))
+                .unwrap_or_else(|| "Your game".into()),
+        );
+        v.game_note = Some(
+            "Preflight doesn't know this game's settings yet, so it can't show what's set now."
+                .into(),
+        );
         for o in &i.options {
             v.game.push(SetupRow {
                 setting: o.name.clone(),
                 now: "Not readable".into(),
-                suggested: if o.suggested { "Do this first".into() } else { "If still maxed".into() },
+                suggested: if o.suggested {
+                    "Do this first".into()
+                } else {
+                    "If still maxed".into()
+                },
                 why: o.gain.clone(),
-                tag: if st.kept_issues.contains(&i.id) { Tag::Kept } else if o.suggested && !is_optional(i) { Tag::Change } else { Tag::Optional },
+                tag: if st.kept_issues.contains(&i.id) {
+                    Tag::Kept
+                } else if o.suggested && !is_optional(i) {
+                    Tag::Change
+                } else {
+                    Tag::Optional
+                },
                 menu: o.menu.clone(),
                 issue_id: Some(i.id.clone()),
             });
@@ -914,13 +1374,20 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
     }
 
     // ---- Every other issue gets a row too, so no fix is hidden.
-    let covered: std::collections::HashSet<String> = v.obs.iter().chain(v.game.iter()).filter_map(|r| r.issue_id.clone()).collect();
+    let covered: std::collections::HashSet<String> = v
+        .obs
+        .iter()
+        .chain(v.game.iter())
+        .filter_map(|r| r.issue_id.clone())
+        .collect();
     for i in issues.iter().filter(|i| !covered.contains(&i.id)) {
         let sug = i.options.iter().find(|o| o.suggested).or(i.options.first());
         let row = SetupRow {
             setting: row_name(&i.id).into(),
             now: i.title.trim_end_matches('.').to_string(),
-            suggested: sug.map(|o| o.name.clone()).unwrap_or_else(|| "See the fix".into()),
+            suggested: sug
+                .map(|o| o.name.clone())
+                .unwrap_or_else(|| "See the fix".into()),
             why: impact_of(&i.id).into(),
             tag: tag_for(Some(i), false, st),
             menu: sug.map(|o| o.menu.clone()).unwrap_or_default(),
@@ -934,30 +1401,62 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
     }
 
     // ---- Summary
-    let changes: Vec<&SetupRow> = v.game.iter().chain(v.obs.iter()).chain(v.pc.iter()).filter(|r| r.tag == Tag::Change).collect();
+    let changes: Vec<&SetupRow> = v
+        .game
+        .iter()
+        .chain(v.obs.iter())
+        .chain(v.pc.iter())
+        .filter(|r| r.tag == Tag::Change)
+        .collect();
     // Counts come from the fix list itself, so every screen says the same number.
-    let open_issues: Vec<&Issue> = issues.iter().filter(|i| !st.kept_issues.contains(&i.id)).collect();
+    let open_issues: Vec<&Issue> = issues
+        .iter()
+        .filter(|i| !st.kept_issues.contains(&i.id))
+        .collect();
     let optional = open_issues.iter().filter(|i| is_optional(i)).count();
     let important = open_issues.len() - optional;
     v.summary = if important == 0 {
         if optional > 0 {
-            format!("Everything important is set well. {optional} optional improvement{} below.", if optional == 1 { "" } else { "s" })
+            format!(
+                "Everything important is set well. {optional} optional improvement{} below.",
+                if optional == 1 { "" } else { "s" }
+            )
         } else {
             "Everything is set well for a smooth stream and recording.".into()
         }
     } else {
-        let names: Vec<String> = changes.iter().take(3).map(|r| {
-            let s = r.suggested.to_lowercase();
-            if r.suggested.starts_with("Cap at") { format!("cap {} at {}", v.game_name.clone().unwrap_or_default(), &r.suggested[7..]) } else { format!("{} to {}", r.setting.to_lowercase(), s) }
-        }).collect();
+        let names: Vec<String> = changes
+            .iter()
+            .take(3)
+            .map(|r| {
+                let s = r.suggested.to_lowercase();
+                if r.suggested.starts_with("Cap at") {
+                    format!(
+                        "cap {} at {}",
+                        v.game_name.clone().unwrap_or_default(),
+                        &r.suggested[7..]
+                    )
+                } else {
+                    format!("{} to {}", r.setting.to_lowercase(), s)
+                }
+            })
+            .collect();
         let more = important.saturating_sub(names.len());
         format!(
             "To stream and record without stutter, change {} thing{}: {}{}.{}",
             important,
             if important == 1 { "" } else { "s" },
             names.join("; "),
-            if more > 0 { format!("; and {more} more below") } else { String::new() },
-            if optional > 0 { format!(" {optional} optional.") } else { " Everything else is fine.".into() }
+            if more > 0 {
+                format!("; and {more} more below")
+            } else {
+                String::new()
+            },
+            if optional > 0 {
+                format!(" {optional} optional.")
+            } else {
+                " Everything else is fine.".into()
+            }
         )
     };
     v
@@ -986,11 +1485,25 @@ fn encoder(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             status = Status::Bad;
             note = format!("OBS encodes on your CPU, but your graphics card has {he}.");
             let mut opts = vec![
-                opt("hw", format!("Switch to {he}"), "OBS › Settings › Output › Video Encoder", "Frees your CPU for the game and OBS", "Very little on recent cards"),
-                opt("faster", "Keep x264, use a faster preset", "OBS › Settings › Output › CPU Usage Preset (Advanced mode)", "Lighter CPU load, keeps x264", "Blockier image in fast motion"),
+                opt(
+                    "hw",
+                    format!("Switch to {he}"),
+                    "OBS › Settings › Output › Video Encoder",
+                    "Frees your CPU for the game and OBS",
+                    "Very little on recent cards",
+                ),
+                opt(
+                    "faster",
+                    "Keep x264, use a faster preset",
+                    "OBS › Settings › Output › CPU Usage Preset (Advanced mode)",
+                    "Lighter CPU load, keeps x264",
+                    "Blockier image in fast motion",
+                ),
             ];
             let strong_cpu = c.hw.map(|h| h.cpu_threads >= 16).unwrap_or(false);
-            let keep_x264 = c.st.style == Style::Cinematic && strong_cpu && c.test.map(|t| t.cpu_avg < 50.0).unwrap_or(false);
+            let keep_x264 = c.st.style == Style::Cinematic
+                && strong_cpu
+                && c.test.map(|t| t.cpu_avg < 50.0).unwrap_or(false);
             suggest(&mut opts, if keep_x264 { "faster" } else { "hw" });
             issues.push(Issue {
                 id: "encoder".into(),
@@ -1029,8 +1542,16 @@ fn encoder(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
         let advanced = o.output_mode.eq_ignore_ascii_case("advanced");
         let mut opts = vec![opt(
             "match",
-            if advanced { "Record with the stream encoder" } else { "Set recording quality to \"Same as stream\"" },
-            if advanced { "OBS › Settings › Output › Recording › Video Encoder › (Use stream encoder)" } else { "OBS › Settings › Output › Recording Quality › Same as stream" },
+            if advanced {
+                "Record with the stream encoder"
+            } else {
+                "Set recording quality to \"Same as stream\""
+            },
+            if advanced {
+                "OBS › Settings › Output › Recording › Video Encoder › (Use stream encoder)"
+            } else {
+                "OBS › Settings › Output › Recording Quality › Same as stream"
+            },
             "Test results reflect your real stream",
             "Your normal recordings use stream quality while it's set",
         )];
@@ -1080,9 +1601,18 @@ fn stream_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     if !rc.is_empty() {
         parts.push(rc.clone());
     }
-    let no_cap = matches!(rc.as_str(), "CQP" | "CRF" | "ICQ" | "LOSSLESS" | "CQVBR" | "QVBR");
+    let no_cap = matches!(
+        rc.as_str(),
+        "CQP" | "CRF" | "ICQ" | "LOSSLESS" | "CQVBR" | "QVBR"
+    );
     if advanced && (no_cap || rc == "VBR") {
-        let mut opts = vec![opt("cbr", "Switch to CBR", format!("{enc_menu} › Rate Control › CBR"), "Steady bitrate that platforms expect", "Very simple scenes use the full bitrate anyway")];
+        let mut opts = vec![opt(
+            "cbr",
+            "Switch to CBR",
+            format!("{enc_menu} › Rate Control › CBR"),
+            "Steady bitrate that platforms expect",
+            "Very simple scenes use the full bitrate anyway",
+        )];
         suggest(&mut opts, "cbr");
         issues.push(Issue {
             id: "rate_control".into(),
@@ -1103,24 +1633,45 @@ fn stream_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
 
     // Keyframe interval
     if let Some(k) = o.keyint_sec {
-        parts.push(if k == 0 { "auto keyframes".into() } else { format!("{k} s keyframes") });
+        parts.push(if k == 0 {
+            "auto keyframes".into()
+        } else {
+            format!("{k} s keyframes")
+        });
         let ignoring = o.ignore_recommended == Some(true);
         if advanced && k != 2 && k != 1 {
-            let mut opts = vec![opt("two", "Set it to 2 seconds", format!("{enc_menu} › Keyframe Interval › 2 s"), format!("Matches what {plat} wants"), "Nothing noticeable")];
+            let mut opts = vec![opt(
+                "two",
+                "Set it to 2 seconds",
+                format!("{enc_menu} › Keyframe Interval › 2 s"),
+                format!("Matches what {plat} wants"),
+                "Nothing noticeable",
+            )];
             suggest(&mut opts, "two");
             let (title, why) = if k == 0 {
                 (
                     "Your keyframe interval is on auto, not 2 seconds.".to_string(),
                     if ignoring {
-                        format!("Auto usually means a keyframe every 4 seconds or more, and you've told OBS to ignore {plat}'s recommendations. {plat} wants one every 2 seconds, or viewers can get longer buffering and a delay when they join.")
+                        format!(
+                            "Auto usually means a keyframe every 4 seconds or more, and you've told OBS to ignore {plat}'s recommendations. {plat} wants one every 2 seconds, or viewers can get longer buffering and a delay when they join."
+                        )
                     } else {
-                        format!("OBS usually fixes this to 2 seconds for {plat} on its own, unless you use a custom server. Setting 2 seconds yourself removes the guesswork.")
+                        format!(
+                            "OBS usually fixes this to 2 seconds for {plat} on its own, unless you use a custom server. Setting 2 seconds yourself removes the guesswork."
+                        )
                     },
                 )
             } else {
                 (
                     format!("Your keyframe interval is {k} seconds; {plat} wants 2."),
-                    format!("Longer gaps between keyframes mean longer buffering and a slower start when viewers join{}.", if plat == "YouTube" { ". YouTube accepts up to 4 seconds, but 2 is recommended" } else { ", and the stream can be rejected or show warnings" }),
+                    format!(
+                        "Longer gaps between keyframes mean longer buffering and a slower start when viewers join{}.",
+                        if plat == "YouTube" {
+                            ". YouTube accepts up to 4 seconds, but 2 is recommended"
+                        } else {
+                            ", and the stream can be rejected or show warnings"
+                        }
+                    ),
                 )
             };
             issues.push(Issue {
@@ -1140,17 +1691,40 @@ fn stream_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     // Encoder preset
     if !o.preset.is_empty() {
         parts.push(preset_label(&o.preset));
-        let skipping = c.test.map(|t| t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.005).unwrap_or(false);
+        let skipping = c
+            .test
+            .map(|t| t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.005)
+            .unwrap_or(false);
         let cpu_busy = c.test.map(|t| t.cpu_avg >= 70.0).unwrap_or(false);
         let p = o.preset.to_lowercase();
         let kind = o.encoder_kind.as_str();
-        let menu = if advanced { format!("{enc_menu} › Preset") } else { "OBS › Settings › Output › Encoder Preset".to_string() };
-        let x264_menu = if advanced { format!("{enc_menu} › CPU Usage Preset") } else { "OBS › Settings › Output › Encoder Preset".to_string() };
+        let menu = if advanced {
+            format!("{enc_menu} › Preset")
+        } else {
+            "OBS › Settings › Output › Encoder Preset".to_string()
+        };
+        let x264_menu = if advanced {
+            format!("{enc_menu} › CPU Usage Preset")
+        } else {
+            "OBS › Settings › Output › Encoder Preset".to_string()
+        };
         let mut found: Option<(Priority, String, String, Vec<Opt>, &str)> = None;
         if kind.contains("x264") {
             match p.as_str() {
                 "ultrafast" | "superfast" => {
-                    found = Some((Priority::Medium, format!("x264 is set to the {p} preset, the lowest quality."), "It saves CPU, but fast motion turns blocky at the same bitrate.".into(), vec![opt("veryfast", "Use veryfast", format!("{x264_menu} › veryfast"), "Noticeably cleaner picture", "A little more CPU")], "veryfast"));
+                    found = Some((
+                        Priority::Medium,
+                        format!("x264 is set to the {p} preset, the lowest quality."),
+                        "It saves CPU, but fast motion turns blocky at the same bitrate.".into(),
+                        vec![opt(
+                            "veryfast",
+                            "Use veryfast",
+                            format!("{x264_menu} › veryfast"),
+                            "Noticeably cleaner picture",
+                            "A little more CPU",
+                        )],
+                        "veryfast",
+                    ));
                 }
                 "slow" | "slower" | "veryslow" | "placebo" => {
                     found = Some((Priority::High, format!("x264 is set to the {p} preset, which is too heavy for live streaming."), "On most CPUs it can't keep up in real time while you play, so OBS skips frames.".into(), vec![opt("veryfast", "Use veryfast or faster", format!("{x264_menu} › veryfast"), "Encoder keeps up", "Slightly softer detail")], "veryfast"));
@@ -1170,10 +1744,26 @@ fn stream_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 }
                 _ => {}
             }
-        } else if kind.contains("AMD") || kind.contains("Intel") {
-            if p == "speed" || p == "tu7" || p == "tu6" {
-                found = Some((Priority::Low, format!("{kind} is set to its fastest preset ({}).", preset_label(&p)), "Balanced or Quality looks cleaner at the same bitrate with little extra load.".into(), vec![opt("balanced", "Use Balanced or Quality", menu.clone(), "Cleaner picture", "Slightly more GPU")], "balanced"));
-            }
+        } else if (kind.contains("AMD") || kind.contains("Intel"))
+            && (p == "speed" || p == "tu7" || p == "tu6")
+        {
+            found = Some((
+                Priority::Low,
+                format!(
+                    "{kind} is set to its fastest preset ({}).",
+                    preset_label(&p)
+                ),
+                "Balanced or Quality looks cleaner at the same bitrate with little extra load."
+                    .into(),
+                vec![opt(
+                    "balanced",
+                    "Use Balanced or Quality",
+                    menu.clone(),
+                    "Cleaner picture",
+                    "Slightly more GPU",
+                )],
+                "balanced",
+            ));
         }
         if let Some((pri, title, why, mut opts, sug)) = found {
             suggest(&mut opts, sug);
@@ -1192,19 +1782,48 @@ fn stream_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     }
 
     // Downscale filter (only matters when OBS shrinks the picture)
-    if let (Some(base), Some(out)) = (o.base_res, o.output_res) {
-        if base != out && out.1 < base.1 {
-            let f = o.scale_type.to_lowercase();
-            parts.push(format!("{} downscale", filter_label(&f)));
-            if f == "bilinear" {
-                let big = base.1 as f32 / out.1 as f32 >= 1.9;
-                let mut opts = vec![
-                    opt("lanczos", "Lanczos (sharpest)", "OBS › Settings › Video › Downscale Filter › Lanczos", "Sharpest picture", "A little more GPU work"),
-                    opt("bicubic", "Bicubic", "OBS › Settings › Video › Downscale Filter › Bicubic", "Sharper text and edges", "Very little"),
-                    opt("area", "Area", "OBS › Settings › Video › Downscale Filter › Area", "Clean and smooth for big size drops", "Slightly softer than Lanczos"),
-                ];
-                suggest(&mut opts, if big { "area" } else if c.st.q_game_stream() == 2 { "lanczos" } else { "bicubic" });
-                issues.push(Issue {
+    if let (Some(base), Some(out)) = (o.base_res, o.output_res)
+        && base != out
+        && out.1 < base.1
+    {
+        let f = o.scale_type.to_lowercase();
+        parts.push(format!("{} downscale", filter_label(&f)));
+        if f == "bilinear" {
+            let big = base.1 as f32 / out.1 as f32 >= 1.9;
+            let mut opts = vec![
+                opt(
+                    "lanczos",
+                    "Lanczos (sharpest)",
+                    "OBS › Settings › Video › Downscale Filter › Lanczos",
+                    "Sharpest picture",
+                    "A little more GPU work",
+                ),
+                opt(
+                    "bicubic",
+                    "Bicubic",
+                    "OBS › Settings › Video › Downscale Filter › Bicubic",
+                    "Sharper text and edges",
+                    "Very little",
+                ),
+                opt(
+                    "area",
+                    "Area",
+                    "OBS › Settings › Video › Downscale Filter › Area",
+                    "Clean and smooth for big size drops",
+                    "Slightly softer than Lanczos",
+                ),
+            ];
+            suggest(
+                &mut opts,
+                if big {
+                    "area"
+                } else if c.st.q_game_stream() == 2 {
+                    "lanczos"
+                } else {
+                    "bicubic"
+                },
+            );
+            issues.push(Issue {
                     id: "downscale".into(),
                     priority: Priority::Low,
                     area: "OBS".into(),
@@ -1215,7 +1834,6 @@ fn stream_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                     measured: false,
                     options: opts,
                 });
-            }
         }
     }
 
@@ -1228,8 +1846,16 @@ fn stream_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             Some(Priority::High) => Status::Bad,
             _ => Status::Warn,
         },
-        label: if found_n == 0 { "Good".into() } else { format!("{found_n} to change") },
-        metric: if parts.is_empty() { "—".into() } else { parts.join(" · ") },
+        label: if found_n == 0 {
+            "Good".into()
+        } else {
+            format!("{found_n} to change")
+        },
+        metric: if parts.is_empty() {
+            "—".into()
+        } else {
+            parts.join(" · ")
+        },
         note: if found_n == 0 {
             format!("Rate control, keyframes, preset and scaling are set the way {plat} expects.")
         } else {
@@ -1270,7 +1896,6 @@ fn filter_label(f: &str) -> &'static str {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Picture quality: resolution for the bitrate, encoder quality options,
 // separate full-resolution recording.
@@ -1296,7 +1921,14 @@ pub fn needed_kbps(w: u32, h: u32, fps: f32, motion: &str, codec: &str) -> u32 {
 
 /// The biggest standard stream size (same shape as the canvas) that this
 /// bitrate keeps clean.
-pub fn best_height(base: (u32, u32), bitrate: u32, fps: f32, motion: &str, codec: &str, max_h: u32) -> (u32, u32) {
+pub fn best_height(
+    base: (u32, u32),
+    bitrate: u32,
+    fps: f32,
+    motion: &str,
+    codec: &str,
+    max_h: u32,
+) -> (u32, u32) {
     let aspect = base.0 as f64 / base.1.max(1) as f64;
     let size = |h: u32| (((h as f64 * aspect) / 2.0).round() as u32 * 2, h);
     for h in [2160u32, 1440, 1080, 936, 720] {
@@ -1312,7 +1944,9 @@ pub fn best_height(base: (u32, u32), bitrate: u32, fps: f32, motion: &str, codec
 }
 
 fn picture_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
-    let Some(o) = c.obs.filter(|o| o.connected || !o.encoder_raw.is_empty()) else { return };
+    let Some(o) = c.obs.filter(|o| o.connected || !o.encoder_raw.is_empty()) else {
+        return;
+    };
     let plat = c.st.platform;
     let pname = plat.name();
     let fps = o.fps.unwrap_or(60.0);
@@ -1320,61 +1954,151 @@ fn picture_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     let target = target_game(c, true);
     // With several tested games, the stream setup suits the fastest one, so
     // OBS doesn't need changing per game.
-    let mrank = |m: &str| match m { "high" => 3, "medium" => 2, "low" => 1, _ => 0 };
-    let own = target.map(|g| g.motion.clone()).filter(|m| !m.is_empty()).unwrap_or_else(|| "medium".into());
-    let motion = if mrank(&c.st.fleet_motion) > mrank(&own) { c.st.fleet_motion.clone() } else { own };
-    let gname = target.map(|g| g.name.clone()).unwrap_or_else(|| "your game".into());
+    let mrank = |m: &str| match m {
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    };
+    let own = target
+        .map(|g| g.motion.clone())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| "medium".into());
+    let motion = if mrank(&c.st.fleet_motion) > mrank(&own) {
+        c.st.fleet_motion.clone()
+    } else {
+        own
+    };
+    let gname = target
+        .map(|g| g.name.clone())
+        .unwrap_or_else(|| "your game".into());
     // Does the GPU have room for heavier encoder settings?
-    let skipped = c.test.map(|t| t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.001).unwrap_or(false);
-    let maxed_frac = c.test.map(|t| {
-        let v: Vec<f32> = t.samples.iter().filter_map(|s| s.gpu).collect();
-        if v.is_empty() { 0.0 } else { v.iter().filter(|g| **g >= 95.0).count() as f32 / v.len() as f32 }
-    }).unwrap_or(0.0);
-    let headroom = !c.st.fleet_busy && c.test.map(|t| t.gpu_avg.map(|g| g < 85.0).unwrap_or(false) && maxed_frac < 0.10 && !skipped).unwrap_or(false);
+    let skipped = c
+        .test
+        .map(|t| t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.001)
+        .unwrap_or(false);
+    let maxed_frac = c
+        .test
+        .map(|t| {
+            let v: Vec<f32> = t.samples.iter().filter_map(|s| s.gpu).collect();
+            if v.is_empty() {
+                0.0
+            } else {
+                v.iter().filter(|g| **g >= 95.0).count() as f32 / v.len() as f32
+            }
+        })
+        .unwrap_or(0.0);
+    let headroom = !c.st.fleet_busy
+        && c.test
+            .map(|t| t.gpu_avg.map(|g| g < 85.0).unwrap_or(false) && maxed_frac < 0.10 && !skipped)
+            .unwrap_or(false);
     let safe_upload = c.net.filter(|n| n.ok).map(|n| n.safe_video_kbps());
     let upload_text = |need: u32| match safe_upload {
         Some(s) if s >= need => format!("Your upload can carry it (safe up to about {s} kbps)"),
-        Some(s) => format!("Your upload is only safe up to about {s} kbps, so this needs a faster connection"),
-        None => "Preflight hasn't measured your upload yet, so check it first (Quick scan)".to_string(),
+        Some(s) => format!(
+            "Your upload is only safe up to about {s} kbps, so this needs a faster connection"
+        ),
+        None => {
+            "Preflight hasn't measured your upload yet, so check it first (Quick scan)".to_string()
+        }
     };
     let upload_ok = |need: u32| safe_upload.map(|s| s >= need).unwrap_or(false);
 
     // ---- Resolution for the bitrate
     if let (Some(b), Some(base), Some(out)) = (o.bitrate_kbps, o.base_res, o.output_res) {
         let multitrack = o.multitrack == Some(true);
-        let max_h = if plat == crate::config::Platform::Kick { 1080 } else { 2160 };
+        let max_h = if plat == crate::config::Platform::Kick {
+            1080
+        } else {
+            2160
+        };
         let need_now = needed_kbps(out.0, out.1, fps, &motion, &o.codec);
         let best = best_height(base, b, fps, &motion, &o.codec, max_h);
         let per_px = |r: (u32, u32)| b as f64 / (r.0 as f64 * r.1 as f64);
         let note: String;
         if multitrack {
-            note = format!("Enhanced Broadcasting picks the stream sizes and bitrates for {pname}.");
+            note =
+                format!("Enhanced Broadcasting picks the stream sizes and bitrates for {pname}.");
         } else if out.1 > best.1 {
             let more = ((per_px(best) / per_px(out) - 1.0) * 100.0).round() as i64;
             let kick_cap = plat == crate::config::Platform::Kick && out.1 > 1080;
             let mut opts = Vec::new();
-            let mut down = opt("res_down", format!("Stream at {}p{fps_n}, keep your {}p canvas", best.1, base.1), "OBS › Settings › Video › Output (Scaled) Resolution", format!("About {more}% more data per pixel, so fast motion stays sharp"), "A little less fine detail in still scenes")
-                .with(change("Output (Scaled) Resolution", "OBS › Settings › Video", Some(format!("{}x{}", out.0, out.1)), format!("{}x{}", best.0, best.1)));
+            let mut down = opt(
+                "res_down",
+                format!("Stream at {}p{fps_n}, keep your {}p canvas", best.1, base.1),
+                "OBS › Settings › Video › Output (Scaled) Resolution",
+                format!("About {more}% more data per pixel, so fast motion stays sharp"),
+                "A little less fine detail in still scenes",
+            )
+            .with(change(
+                "Output (Scaled) Resolution",
+                "OBS › Settings › Video",
+                Some(format!("{}x{}", out.0, out.1)),
+                format!("{}x{}", best.0, best.1),
+            ));
             if o.scale_type.to_lowercase() != "lanczos" {
-                down = down.with(change("Downscale Filter", "OBS › Settings › Video", Some(filter_label(&o.scale_type.to_lowercase()).to_string()), "Lanczos (sharpest)"));
+                down = down.with(change(
+                    "Downscale Filter",
+                    "OBS › Settings › Video",
+                    Some(filter_label(&o.scale_type.to_lowercase()).to_string()),
+                    "Lanczos (sharpest)",
+                ));
             }
             opts.push(down);
             let need_up = ((need_now as f32 / 500.0).ceil() * 500.0) as u32;
             let yt = plat == crate::config::Platform::YouTube;
             if yt {
-                let to = need_up.max(12000).min(30000);
-                opts.push(opt("bitrate_up", format!("Raise your bitrate to {to} kbps"), "OBS › Settings › Output › Video Bitrate", "Keeps your resolution. YouTube recommends about 24 Mbps for 1440p60", upload_text(to + 160))
-                    .with(change("Video Bitrate", "OBS › Settings › Output", Some(format!("{b} kbps")), format!("{to} kbps"))));
+                let to = need_up.clamp(12000, 30000);
+                opts.push(
+                    opt(
+                        "bitrate_up",
+                        format!("Raise your bitrate to {to} kbps"),
+                        "OBS › Settings › Output › Video Bitrate",
+                        "Keeps your resolution. YouTube recommends about 24 Mbps for 1440p60",
+                        upload_text(to + 160),
+                    )
+                    .with(change(
+                        "Video Bitrate",
+                        "OBS › Settings › Output",
+                        Some(format!("{b} kbps")),
+                        format!("{to} kbps"),
+                    )),
+                );
             }
             if plat == crate::config::Platform::Twitch && out.1 >= 1440 {
-                opts.push(opt("eb", "Turn on Enhanced Broadcasting", "OBS › Settings › Stream › Enhanced Broadcasting", "Twitch gets several versions, up to 1440p (about 9 Mbps in total)", format!("For Affiliates and Partners. {}", upload_text(9000)))
-                    .with(change("Enhanced Broadcasting", "OBS › Settings › Stream", Some("Off".into()), "On")));
+                opts.push(
+                    opt(
+                        "eb",
+                        "Turn on Enhanced Broadcasting",
+                        "OBS › Settings › Stream › Enhanced Broadcasting",
+                        "Twitch gets several versions, up to 1440p (about 9 Mbps in total)",
+                        format!("For Affiliates and Partners. {}", upload_text(9000)),
+                    )
+                    .with(change(
+                        "Enhanced Broadcasting",
+                        "OBS › Settings › Stream",
+                        Some("Off".into()),
+                        "On",
+                    )),
+                );
             }
-            let pick = if yt && upload_ok(need_up.max(12000) + 160) { "bitrate_up" } else { "res_down" };
+            let pick = if yt && upload_ok(need_up.max(12000) + 160) {
+                "bitrate_up"
+            } else {
+                "res_down"
+            };
             suggest(&mut opts, pick);
             if !issues.iter().any(|i| i.id == "bitrate_network") {
-                let s = opts.iter().find(|o| o.suggested).map(|o| o.id.clone()).unwrap_or_default();
-                a.recommended_output = if s == "bitrate_up" { format!("{}p{fps_n} · {} kbps", out.1, need_up.max(12000).min(30000)) } else { format!("{}p{fps_n} · {b} kbps", best.1) };
+                let s = opts
+                    .iter()
+                    .find(|o| o.suggested)
+                    .map(|o| o.id.clone())
+                    .unwrap_or_default();
+                a.recommended_output = if s == "bitrate_up" {
+                    format!("{}p{fps_n} · {} kbps", out.1, need_up.clamp(12000, 30000))
+                } else {
+                    format!("{}p{fps_n} · {b} kbps", best.1)
+                };
             }
             let ratio = need_now as f32 / b as f32;
             issues.push(Issue {
@@ -1394,18 +2118,35 @@ fn picture_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 measured: false,
                 options: opts,
             });
-            note = format!("At {b} kbps, {}p{fps_n} is the sharpest size for {} motion.", best.1, motion);
+            note = format!(
+                "At {b} kbps, {}p{fps_n} is the sharpest size for {} motion.",
+                best.1, motion
+            );
         } else if plat == crate::config::Platform::YouTube && out.1 >= 1440 {
             note = "1440p on YouTube gets a better encode on YouTube's side, so it looks sharper even to viewers watching at 1080p.".into();
         } else if out.1 < best.1 && out.1 < base.1 {
-            note = format!("You could stream at {}p{fps_n} at this bitrate if you want more detail.", best.1);
+            note = format!(
+                "You could stream at {}p{fps_n} at this bitrate if you want more detail.",
+                best.1
+            );
         } else {
             note = format!("{}p{fps_n} at {b} kbps suits {} motion.", out.1, motion);
         }
         a.checks.push(Check {
             name: "Picture for viewers".into(),
-            status: if issues.iter().any(|i| i.id == "resolution_bitrate" && i.priority == Priority::Medium) { Status::Warn } else { Status::Ok },
-            label: if issues.iter().any(|i| i.id == "resolution_bitrate") { "Too big for the bitrate".into() } else { "Sharp".into() },
+            status: if issues
+                .iter()
+                .any(|i| i.id == "resolution_bitrate" && i.priority == Priority::Medium)
+            {
+                Status::Warn
+            } else {
+                Status::Ok
+            },
+            label: if issues.iter().any(|i| i.id == "resolution_bitrate") {
+                "Too big for the bitrate".into()
+            } else {
+                "Sharp".into()
+            },
             metric: format!("{}p{fps_n} · {b} kbps", out.1),
             note,
             measured: false,
@@ -1414,11 +2155,32 @@ fn picture_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
 
     // ---- In-game effects that cost stream bitrate (heads-up, not scored)
     if let Some(g) = target {
-        let fx: Vec<&crate::games::CurrentSetting> = g.current.iter().filter(|s| s.effect == "bitrate" && s.flagged).collect();
+        let fx: Vec<&crate::games::CurrentSetting> = g
+            .current
+            .iter()
+            .filter(|s| s.effect == "bitrate" && s.flagged)
+            .collect();
         if !fx.is_empty() && o.multitrack != Some(true) {
-            let mut o2 = opt("fx_off", format!("Turn off {}", fx.iter().map(|f| f.setting.to_lowercase()).collect::<Vec<_>>().join(", ")), fx[0].menu.clone(), "A cleaner stream at the same bitrate", "Only a look you may like (your game still runs the same)");
+            let mut o2 = opt(
+                "fx_off",
+                format!(
+                    "Turn off {}",
+                    fx.iter()
+                        .map(|f| f.setting.to_lowercase())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                fx[0].menu.clone(),
+                "A cleaner stream at the same bitrate",
+                "Only a look you may like (your game still runs the same)",
+            );
             for f in &fx {
-                o2 = o2.with(change(f.setting.clone(), f.menu.clone(), Some(f.value.clone()), "Off"));
+                o2 = o2.with(change(
+                    f.setting.clone(),
+                    f.menu.clone(),
+                    Some(f.value.clone()),
+                    "Off",
+                ));
             }
             let mut opts = vec![o2];
             suggest(&mut opts, "fx_off");
@@ -1441,30 +2203,74 @@ fn picture_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
         let menu = "OBS › Settings › Output › Streaming";
         let mut ch: Vec<Change> = Vec::new();
         let preset_issue = issues.iter().any(|i| i.id == "preset");
-        let (want_preset, want_mp, want_mp_label) = if headroom { ("p7", "fullres", "Two Passes (Full Resolution)") } else { ("p5", "qres", "Two Passes (Quarter Resolution)") };
+        let (want_preset, want_mp, want_mp_label) = if headroom {
+            ("p7", "fullres", "Two Passes (Full Resolution)")
+        } else {
+            ("p5", "qres", "Two Passes (Quarter Resolution)")
+        };
         // P6 and P7 look almost the same: with headroom, only presets below P6
         // are worth changing (to P7); otherwise below P5.
         let floor = if headroom { 6 } else { 5 };
         if !preset_issue && preset_rank(&o.preset).map(|r| r < floor).unwrap_or(false) {
-            ch.push(change("Preset", menu, Some(preset_label(&o.preset)), preset_label(want_preset)));
+            ch.push(change(
+                "Preset",
+                menu,
+                Some(preset_label(&o.preset)),
+                preset_label(want_preset),
+            ));
         }
-        let mp_rank = |m: &str| match m { "fullres" => 2, "qres" => 1, _ => 0 };
+        let mp_rank = |m: &str| match m {
+            "fullres" => 2,
+            "qres" => 1,
+            _ => 0,
+        };
         if mp_rank(&o.enc_multipass) < mp_rank(want_mp) {
-            let now = match o.enc_multipass.as_str() { "qres" => "Two Passes (Quarter Resolution)", "fullres" => "Two Passes (Full Resolution)", _ => "Single Pass" };
-            ch.push(change("Multipass Mode", menu, Some(now.into()), want_mp_label));
+            let now = match o.enc_multipass.as_str() {
+                "qres" => "Two Passes (Quarter Resolution)",
+                "fullres" => "Two Passes (Full Resolution)",
+                _ => "Single Pass",
+            };
+            ch.push(change(
+                "Multipass Mode",
+                menu,
+                Some(now.into()),
+                want_mp_label,
+            ));
         }
         if !o.enc_tune.is_empty() && o.enc_tune != "hq" {
-            let now = match o.enc_tune.as_str() { "ll" => "Low Latency", "ull" => "Ultra Low Latency", x => x };
+            let now = match o.enc_tune.as_str() {
+                "ll" => "Low Latency",
+                "ull" => "Ultra Low Latency",
+                x => x,
+            };
             ch.push(change("Tuning", menu, Some(now.into()), "High Quality"));
         }
         if o.enc_bframes == Some(0) {
             ch.push(change("Max B-frames", menu, Some("0".into()), "2"));
         }
         if matches!(o.enc_profile.as_str(), "baseline" | "main") {
-            ch.push(change("Profile", menu, Some(super_cap(&o.enc_profile)), "High"));
+            ch.push(change(
+                "Profile",
+                menu,
+                Some(super_cap(&o.enc_profile)),
+                "High",
+            ));
         }
         if !ch.is_empty() {
-            let mut opts = vec![Opt { changes: ch, ..opt("nvenc_hq", "Use NVENC's high-quality options", menu, "A cleaner picture at the same bitrate", if headroom { "A little more encoder work; your GPU had room in the test" } else { "A little more encoder work" }) }];
+            let mut opts = vec![Opt {
+                changes: ch,
+                ..opt(
+                    "nvenc_hq",
+                    "Use NVENC's high-quality options",
+                    menu,
+                    "A cleaner picture at the same bitrate",
+                    if headroom {
+                        "A little more encoder work; your GPU had room in the test"
+                    } else {
+                        "A little more encoder work"
+                    },
+                )
+            }];
             suggest(&mut opts, "nvenc_hq");
             issues.push(Issue {
                 id: "enc_quality".into(),
@@ -1490,11 +2296,48 @@ fn picture_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     if let (Some(base), Some(out)) = (o.base_res, o.output_res) {
         let has_hw = c.hw.map(|h| !h.encoders.is_empty()).unwrap_or(false);
         if out.1 < base.1 && o.rec_encoder_raw.is_empty() && has_hw && o.multitrack != Some(true) {
-            let chips = crate::hardware::nvenc_chips(&c.hw.and_then(|h| h.main_gpu()).map(|g| g.name.clone()).unwrap_or_default()).unwrap_or(1);
-            let rec_menu = if o.output_mode.eq_ignore_ascii_case("advanced") { "OBS › Settings › Output › Recording" } else { "OBS › Settings › Output › Recording Quality" };
-            let mut opts = vec![opt("rec_native", format!("Record separately at {}p", base.1), rec_menu, format!("Your recordings keep the full {}p detail for YouTube uploads and clips", base.1), if chips >= 2 { format!("Your card has {chips} encoder chips, so this doesn't slow the stream") } else { "Adds encoder work: use P4 or faster for the recording".to_string() })
-                .with(change("Recording encoder", rec_menu, Some("Same as stream".into()), "Separate GPU encoder, CQP 18–20"))
-                .with(change("Rescale output", rec_menu, None, format!("Off ({}p)", base.1)))];
+            let chips = crate::hardware::nvenc_chips(
+                &c.hw
+                    .and_then(|h| h.main_gpu())
+                    .map(|g| g.name.clone())
+                    .unwrap_or_default(),
+            )
+            .unwrap_or(1);
+            let rec_menu = if o.output_mode.eq_ignore_ascii_case("advanced") {
+                "OBS › Settings › Output › Recording"
+            } else {
+                "OBS › Settings › Output › Recording Quality"
+            };
+            let mut opts = vec![
+                opt(
+                    "rec_native",
+                    format!("Record separately at {}p", base.1),
+                    rec_menu,
+                    format!(
+                        "Your recordings keep the full {}p detail for YouTube uploads and clips",
+                        base.1
+                    ),
+                    if chips >= 2 {
+                        format!(
+                            "Your card has {chips} encoder chips, so this doesn't slow the stream"
+                        )
+                    } else {
+                        "Adds encoder work: use P4 or faster for the recording".to_string()
+                    },
+                )
+                .with(change(
+                    "Recording encoder",
+                    rec_menu,
+                    Some("Same as stream".into()),
+                    "Separate GPU encoder, CQP 18–20",
+                ))
+                .with(change(
+                    "Rescale output",
+                    rec_menu,
+                    None,
+                    format!("Off ({}p)", base.1),
+                )),
+            ];
             suggest(&mut opts, "rec_native");
             issues.push(Issue {
                 id: "rec_native".into(),
@@ -1511,23 +2354,44 @@ fn picture_quality(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     }
 }
 
-
 /// Every encode the setup runs (stream, separate recording, plugin outputs,
 /// Source Record, extra platforms), against the card's encoder chips.
 pub fn encode_list(o: &ObsSnapshot, extra_platforms: usize) -> Vec<(String, bool)> {
     // (what, uses the CPU)
-    let mut v: Vec<(String, bool)> = vec![("Stream".into(), o.encoder_kind.contains("CPU") || o.encoder_kind.contains("x264"))];
+    let mut v: Vec<(String, bool)> = vec![(
+        "Stream".into(),
+        o.encoder_kind.contains("CPU") || o.encoder_kind.contains("x264"),
+    )];
     if o.recording_uses_stream_settings == Some(false) && !o.rec_encoder_kind.is_empty() {
-        v.push(("Recording (its own encoder)".into(), o.rec_encoder_kind.contains("CPU") || o.rec_encoder_kind.contains("x264")));
+        v.push((
+            "Recording (its own encoder)".into(),
+            o.rec_encoder_kind.contains("CPU") || o.rec_encoder_kind.contains("x264"),
+        ));
     }
-    for out in o.outputs.iter().filter(|x| x.plugin && x.label != "Source Record" && x.kind != "virtualcam_output") {
+    for out in o
+        .outputs
+        .iter()
+        .filter(|x| x.plugin && x.label != "Source Record" && x.kind != "virtualcam_output")
+    {
         v.push((out.label.clone(), false));
     }
-    for (i, sr) in o.source_records.iter().filter(|s| s.enabled && s.mode != "Off").enumerate() {
-        v.push((format!("Source Record {} ({})", i + 1, sr.mode.to_lowercase()), sr.encoder.contains("CPU") || sr.encoder.contains("x264")));
+    for (i, sr) in o
+        .source_records
+        .iter()
+        .filter(|s| s.enabled && s.mode != "Off")
+        .enumerate()
+    {
+        v.push((
+            format!("Source Record {} ({})", i + 1, sr.mode.to_lowercase()),
+            sr.encoder.contains("CPU") || sr.encoder.contains("x264"),
+        ));
     }
     // Extra platforms streamed through a plugin, when no plugin output shows them.
-    let shown = o.outputs.iter().filter(|x| x.plugin && x.label.starts_with("Extra stream")).count();
+    let shown = o
+        .outputs
+        .iter()
+        .filter(|x| x.plugin && x.label.starts_with("Extra stream"))
+        .count();
     for i in shown..extra_platforms {
         v.push((format!("Extra stream {}", i + 1), false));
     }
@@ -1535,36 +2399,107 @@ pub fn encode_list(o: &ObsSnapshot, extra_platforms: usize) -> Vec<(String, bool
 }
 
 fn encode_budget(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
-    let Some(o) = c.obs.filter(|o| o.connected) else { return };
-    let extra = if c.st.multistream_how == "plugin" { c.st.platforms.len().saturating_sub(1) } else { 0 };
+    let Some(o) = c.obs.filter(|o| o.connected) else {
+        return;
+    };
+    let extra = if c.st.multistream_how == "plugin" {
+        c.st.platforms.len().saturating_sub(1)
+    } else {
+        0
+    };
     let list = encode_list(o, extra);
     // Without a readable GPU the chip count is a guess: count, don't warn.
-    let Some(gpu_name) = c.hw.and_then(|h| h.main_gpu()).map(|g| g.name.clone()) else { return };
+    let Some(gpu_name) = c.hw.and_then(|h| h.main_gpu()).map(|g| g.name.clone()) else {
+        return;
+    };
     let nvenc = o.encoder_kind.contains("NVENC");
-    let chips = if nvenc { crate::hardware::nvenc_chips(&gpu_name).unwrap_or(1) as usize } else { 1 };
+    let chips = if nvenc {
+        crate::hardware::nvenc_chips(&gpu_name).unwrap_or(1) as usize
+    } else {
+        1
+    };
     let gpu_encodes = list.iter().filter(|(_, cpu)| !cpu).count();
-    let cpu_encodes: Vec<&String> = list.iter().filter(|(_, cpu)| *cpu).map(|(n, _)| n).collect();
+    let cpu_encodes: Vec<&String> = list
+        .iter()
+        .filter(|(_, cpu)| *cpu)
+        .map(|(n, _)| n)
+        .collect();
     if list.len() > 1 || !o.plugins.is_empty() {
         a.checks.push(Check {
             name: "Encodes".into(),
-            status: if gpu_encodes > chips * 2 { Status::Warn } else { Status::Ok },
-            label: if gpu_encodes > chips * 2 { "More encodes than the chips handle well".into() } else { "Fits".into() },
-            metric: format!("{} encode{} · {chips} encoder chip{}", list.len(), if list.len() == 1 { "" } else { "s" }, if chips == 1 { "" } else { "s" }),
-            note: format!("{}{}", list.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>().join(", "), if o.plugins.is_empty() { String::new() } else { format!(". Plugins: {}", o.plugins.join(", ")) }),
+            status: if gpu_encodes > chips * 2 {
+                Status::Warn
+            } else {
+                Status::Ok
+            },
+            label: if gpu_encodes > chips * 2 {
+                "More encodes than the chips handle well".into()
+            } else {
+                "Fits".into()
+            },
+            metric: format!(
+                "{} encode{} · {chips} encoder chip{}",
+                list.len(),
+                if list.len() == 1 { "" } else { "s" },
+                if chips == 1 { "" } else { "s" }
+            ),
+            note: format!(
+                "{}{}",
+                list.iter()
+                    .map(|(n, _)| n.clone())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                if o.plugins.is_empty() {
+                    String::new()
+                } else {
+                    format!(". Plugins: {}", o.plugins.join(", "))
+                }
+            ),
             measured: false,
         });
     }
     // One chip comfortably runs two encodes. More than that per chip, or an
     // encoder that fell behind in the test with more encodes than chips, is a problem.
-    let measured_lag = c.test.map(|t| (t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.001) || t.enc_avg.map(|e| e >= 85.0).unwrap_or(false)).unwrap_or(false);
+    let measured_lag = c
+        .test
+        .map(|t| {
+            (t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.001)
+                || t.enc_avg.map(|e| e >= 85.0).unwrap_or(false)
+        })
+        .unwrap_or(false);
     let over = gpu_encodes > chips * 2 || (gpu_encodes > chips && measured_lag);
     if over && nvenc {
         let mut opts = vec![
-            opt("share", "Let extra outputs share the stream's encoder", "Your plugin's settings (e.g. \"use stream encoder\")", "One encode instead of two for that output", "That output gets the stream's quality"),
-            opt("fewer", "Turn off outputs you don't use", "OBS › your plugin, or the Source Record filter", "Frees an encoder chip", "Fewer separate files"),
-            opt("lighter", "Use a faster preset for recordings (P4 or lower)", "OBS › Settings › Output › Recording", "Each recording uses less of the encoder", "Slightly bigger files at the same quality"),
+            opt(
+                "share",
+                "Let extra outputs share the stream's encoder",
+                "Your plugin's settings (e.g. \"use stream encoder\")",
+                "One encode instead of two for that output",
+                "That output gets the stream's quality",
+            ),
+            opt(
+                "fewer",
+                "Turn off outputs you don't use",
+                "OBS › your plugin, or the Source Record filter",
+                "Frees an encoder chip",
+                "Fewer separate files",
+            ),
+            opt(
+                "lighter",
+                "Use a faster preset for recordings (P4 or lower)",
+                "OBS › Settings › Output › Recording",
+                "Each recording uses less of the encoder",
+                "Slightly bigger files at the same quality",
+            ),
         ];
-        suggest(&mut opts, if list.iter().any(|(n, _)| n.starts_with("Source Record")) { "fewer" } else { "share" });
+        suggest(
+            &mut opts,
+            if list.iter().any(|(n, _)| n.starts_with("Source Record")) {
+                "fewer"
+            } else {
+                "share"
+            },
+        );
         issues.push(Issue {
             id: "encode_budget".into(),
             priority: if measured_lag { Priority::High } else { Priority::Medium },
@@ -1578,7 +2513,13 @@ fn encode_budget(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
         });
     }
     if !cpu_encodes.is_empty() {
-        let mut opts = vec![opt("gpu", "Switch them to the GPU encoder", "OBS › the output's or plugin's encoder setting", "Frees your CPU for the game", "Nothing noticeable")];
+        let mut opts = vec![opt(
+            "gpu",
+            "Switch them to the GPU encoder",
+            "OBS › the output's or plugin's encoder setting",
+            "Frees your CPU for the game",
+            "Nothing noticeable",
+        )];
         suggest(&mut opts, "gpu");
         issues.push(Issue {
             id: "cpu_encodes".into(),
@@ -1594,13 +2535,22 @@ fn encode_budget(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     }
 }
 
-
 /// What each platform should get when it has its own encode.
 pub fn platform_target(name: &str, base_h: u32, fps: u32, codecs: &[String]) -> (String, u32) {
     match name {
         "YouTube" if base_h >= 1440 => {
             if codecs.iter().any(|c| c == "AV1" || c == "HEVC") {
-                (format!("1440p{fps} · about 14000 kbps · {} (or H.264 at 24000)", if codecs.iter().any(|c| c == "AV1") { "AV1" } else { "HEVC" }), 14000)
+                (
+                    format!(
+                        "1440p{fps} · about 14000 kbps · {} (or H.264 at 24000)",
+                        if codecs.iter().any(|c| c == "AV1") {
+                            "AV1"
+                        } else {
+                            "HEVC"
+                        }
+                    ),
+                    14000,
+                )
             } else {
                 (format!("1440p{fps} · 24000 kbps · H.264"), 24000)
             }
@@ -1618,35 +2568,99 @@ fn multistream(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     if st.platforms.len() < 2 {
         return;
     }
-    let Some(o) = c.obs.filter(|o| o.connected || !o.encoder_raw.is_empty()) else { return };
-    let plugin_seen = o.outputs.iter().any(|x| x.plugin && x.label.starts_with("Extra stream"));
-    let how = if plugin_seen { "plugin" } else { st.multistream_how.as_str() };
+    let Some(o) = c.obs.filter(|o| o.connected || !o.encoder_raw.is_empty()) else {
+        return;
+    };
+    let plugin_seen = o
+        .outputs
+        .iter()
+        .any(|x| x.plugin && x.label.starts_with("Extra stream"));
+    let how = if plugin_seen {
+        "plugin"
+    } else {
+        st.multistream_how.as_str()
+    };
     let fps = o.fps.map(|f| f.round() as u32).unwrap_or(60);
     let base_h = o.base_res.map(|b| b.1).unwrap_or(1080);
     let gpu = c.hw.and_then(|h| h.main_gpu()).cloned();
-    let codecs = gpu.as_ref().map(|g| crate::encoders::codecs_for(g.vendor, &g.name)).unwrap_or_else(|| vec!["H.264".into()]);
-    let chips = if o.encoder_kind.contains("NVENC") { gpu.as_ref().and_then(|g| crate::hardware::nvenc_chips(&g.name)).unwrap_or(1) as usize } else { 1 };
+    let codecs = gpu
+        .as_ref()
+        .map(|g| crate::encoders::codecs_for(g.vendor, &g.name))
+        .unwrap_or_else(|| vec!["H.264".into()]);
+    let chips = if o.encoder_kind.contains("NVENC") {
+        gpu.as_ref()
+            .and_then(|g| crate::hardware::nvenc_chips(&g.name))
+            .unwrap_or(1) as usize
+    } else {
+        1
+    };
     let audio = o.audio_kbps.unwrap_or(160);
     let main_b = o.bitrate_kbps.unwrap_or(6000);
-    let others: Vec<&String> = st.platforms.iter().filter(|p| p.as_str() != st.platform.name()).collect();
+    let others: Vec<&String> = st
+        .platforms
+        .iter()
+        .filter(|p| p.as_str() != st.platform.name())
+        .collect();
     // Encodes besides the extra streams.
     let base_encodes = encode_list(o, 0).len();
     let separate_fits = base_encodes + others.len() <= chips;
-    let separate_upload: u32 = main_b + audio + others.iter().map(|p| platform_target(p, base_h, fps, &codecs).1 + audio).sum::<u32>();
+    let separate_upload: u32 = main_b
+        + audio
+        + others
+            .iter()
+            .map(|p| platform_target(p, base_h, fps, &codecs).1 + audio)
+            .sum::<u32>();
     let shared_upload: u32 = (main_b + audio) * (1 + others.len() as u32);
     let safe = c.net.filter(|n| n.ok).map(|n| n.safe_video_kbps());
     let up_ok = |k: u32| safe.map(|s| s >= k).unwrap_or(true);
     let names = st.platforms.join(", ");
 
     let mut opts = Vec::new();
-    let mut sep = opt("separate", "Give each platform its own encode", "Your multi-stream plugin › each platform's encoder settings", "Each platform gets its best quality", format!("{} encodes on your {chips} encoder chip{} and about {} Mbps of upload", base_encodes + others.len(), if chips == 1 { "" } else { "s" }, (separate_upload as f32 / 1000.0).round()))
-        .with(change(format!("{} (main stream)", st.platform.name()), "OBS › Settings › Output", None, platform_target(st.platform.name(), base_h, fps, &codecs).0));
+    let mut sep = opt(
+        "separate",
+        "Give each platform its own encode",
+        "Your multi-stream plugin › each platform's encoder settings",
+        "Each platform gets its best quality",
+        format!(
+            "{} encodes on your {chips} encoder chip{} and about {} Mbps of upload",
+            base_encodes + others.len(),
+            if chips == 1 { "" } else { "s" },
+            (separate_upload as f32 / 1000.0).round()
+        ),
+    )
+    .with(change(
+        format!("{} (main stream)", st.platform.name()),
+        "OBS › Settings › Output",
+        None,
+        platform_target(st.platform.name(), base_h, fps, &codecs).0,
+    ));
     for p in &others {
-        sep = sep.with(change(p.to_string(), "Your multi-stream plugin › this platform", None, platform_target(p, base_h, fps, &codecs).0));
+        sep = sep.with(change(
+            p.to_string(),
+            "Your multi-stream plugin › this platform",
+            None,
+            platform_target(p, base_h, fps, &codecs).0,
+        ));
     }
     opts.push(sep);
-    opts.push(opt("shared", "Share one encode for every platform", "Your multi-stream plugin › \"use the stream encoder\"", "One encode, so it fits any card", format!("Every platform gets {}'s limits ({} kbps)", st.platform.name(), main_b)));
-    opts.push(opt("service", "Use a restream service", "Restream or similar: OBS streams once to the service", "Only one upload, whatever your connection", "Every platform gets the same stream; the service may need an account"));
+    opts.push(opt(
+        "shared",
+        "Share one encode for every platform",
+        "Your multi-stream plugin › \"use the stream encoder\"",
+        "One encode, so it fits any card",
+        format!(
+            "Every platform gets {}'s limits ({} kbps)",
+            st.platform.name(),
+            main_b
+        ),
+    ));
+    opts.push(opt(
+        "service",
+        "Use a restream service",
+        "Restream or similar: OBS streams once to the service",
+        "Only one upload, whatever your connection",
+        "Every platform gets the same stream; the service may need an account",
+    ));
     let pick = if how == "service" {
         "service"
     } else if separate_fits && up_ok(separate_upload) {
@@ -1658,7 +2672,12 @@ fn multistream(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     };
     suggest(&mut opts, pick);
 
-    let upload_bad = how == "plugin" && !up_ok(if pick == "separate" { separate_upload } else { shared_upload });
+    let upload_bad = how == "plugin"
+        && !up_ok(if pick == "separate" {
+            separate_upload
+        } else {
+            shared_upload
+        });
     a.checks.push(Check {
         name: "Several platforms".into(),
         status: if upload_bad { Status::Warn } else { Status::Ok },
@@ -1703,11 +2722,33 @@ fn audio_settings(c: &Ctx, issues: &mut Vec<Issue>) {
     let pname = plat.name();
     if let Some(k) = o.audio_kbps {
         let advanced = o.output_mode.eq_ignore_ascii_case("advanced");
-        let menu = if advanced { "OBS › Settings › Output › Audio › Track 1 › Audio Bitrate" } else { "OBS › Settings › Output › Audio Bitrate" };
+        let menu = if advanced {
+            "OBS › Settings › Output › Audio › Track 1 › Audio Bitrate"
+        } else {
+            "OBS › Settings › Output › Audio Bitrate"
+        };
         let too_low = k < 128;
         let too_high = plat == crate::config::Platform::Twitch && k > 160;
         if too_low || too_high {
-            let mut opts = vec![opt("a160", "Set it to 160 kbps", menu, if too_low { "Clear voice and game sound" } else { "Matches what Twitch expects" }, "Nothing noticeable").with(change("Audio Bitrate", menu, Some(format!("{k} kbps")), "160 kbps"))];
+            let mut opts = vec![
+                opt(
+                    "a160",
+                    "Set it to 160 kbps",
+                    menu,
+                    if too_low {
+                        "Clear voice and game sound"
+                    } else {
+                        "Matches what Twitch expects"
+                    },
+                    "Nothing noticeable",
+                )
+                .with(change(
+                    "Audio Bitrate",
+                    menu,
+                    Some(format!("{k} kbps")),
+                    "160 kbps",
+                )),
+            ];
             suggest(&mut opts, "a160");
             issues.push(Issue {
                 id: "audio_bitrate".into(),
@@ -1723,7 +2764,21 @@ fn audio_settings(c: &Ctx, issues: &mut Vec<Issue>) {
         }
     }
     if let Some(sr) = o.sample_rate.filter(|r| *r != 48000) {
-        let mut opts = vec![opt("48k", "Use 48 kHz", "OBS › Settings › Audio › Sample Rate", "Matches most mics, headsets and game audio, so nothing is resampled", "Restart OBS once").with(change("Sample Rate", "OBS › Settings › Audio", Some(format!("{:.1} kHz", sr as f32 / 1000.0)), "48 kHz"))];
+        let mut opts = vec![
+            opt(
+                "48k",
+                "Use 48 kHz",
+                "OBS › Settings › Audio › Sample Rate",
+                "Matches most mics, headsets and game audio, so nothing is resampled",
+                "Restart OBS once",
+            )
+            .with(change(
+                "Sample Rate",
+                "OBS › Settings › Audio",
+                Some(format!("{:.1} kHz", sr as f32 / 1000.0)),
+                "48 kHz",
+            )),
+        ];
         suggest(&mut opts, "48k");
         issues.push(Issue {
             id: "sample_rate".into(),
@@ -1744,26 +2799,57 @@ fn audio_settings(c: &Ctx, issues: &mut Vec<Issue>) {
 
 fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     let Some(o) = c.obs else { return };
-    let gpu_name = c.hw.and_then(|h| h.main_gpu()).map(|g| g.name.clone()).unwrap_or_default();
+    let gpu_name =
+        c.hw.and_then(|h| h.main_gpu())
+            .map(|g| g.name.clone())
+            .unwrap_or_default();
     let chips = crate::hardware::nvenc_chips(&gpu_name);
-    let enc_busy = c.test.and_then(|t| t.enc_avg).map(|e| e >= 85.0).unwrap_or(false);
-    let enc_lag = c.test.map(|t| t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.005).unwrap_or(false);
+    let enc_busy = c
+        .test
+        .and_then(|t| t.enc_avg)
+        .map(|e| e >= 85.0)
+        .unwrap_or(false);
+    let enc_lag = c
+        .test
+        .map(|t| t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.005)
+        .unwrap_or(false);
     let separate = !o.rec_encoder_raw.is_empty();
     let advanced = o.output_mode.eq_ignore_ascii_case("advanced");
-    let rec_menu = if advanced { "OBS › Settings › Output › Recording" } else { "OBS › Settings › Output › Recording Quality" };
+    let rec_menu = if advanced {
+        "OBS › Settings › Output › Recording"
+    } else {
+        "OBS › Settings › Output › Recording Quality"
+    };
 
     // A separate recording encoder: advice for each side.
     if separate {
         let rk = &o.rec_encoder_kind;
         let share = opt(
             "share",
-            if advanced { "Record with the stream encoder" } else { "Set recording quality to \"Same as stream\"" },
-            if advanced { format!("{rec_menu} › Video Encoder › (Use stream encoder)") } else { format!("{rec_menu} › Same as stream") },
+            if advanced {
+                "Record with the stream encoder"
+            } else {
+                "Set recording quality to \"Same as stream\""
+            },
+            if advanced {
+                format!("{rec_menu} › Video Encoder › (Use stream encoder)")
+            } else {
+                format!("{rec_menu} › Same as stream")
+            },
             "No extra encoding at all",
             "The recording is capped at your stream bitrate",
         );
         if rk.contains("CPU") && !o.encoder_kind.contains("CPU") {
-            let mut opts = vec![share.clone(), opt("gpu", format!("Record with {}", o.encoder_kind), format!("{rec_menu} › Video Encoder"), "Your CPU stays free for the game", "Slightly bigger files at the same quality")];
+            let mut opts = vec![
+                share.clone(),
+                opt(
+                    "gpu",
+                    format!("Record with {}", o.encoder_kind),
+                    format!("{rec_menu} › Video Encoder"),
+                    "Your CPU stays free for the game",
+                    "Slightly bigger files at the same quality",
+                ),
+            ];
             suggest(&mut opts, "gpu");
             issues.push(Issue {
                 id: "rec_encoder".into(),
@@ -1789,21 +2875,55 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 _ => false,
             };
             if heavy || enc_busy || enc_lag || (one_chip && rec_bigger) {
-                let faster = if rk.contains("NVENC") { "P4" } else if rk.contains("AMD") || rk.contains("Intel") { "Balanced" } else { "a faster preset" };
+                let faster = if rk.contains("NVENC") {
+                    "P4"
+                } else if rk.contains("AMD") || rk.contains("Intel") {
+                    "Balanced"
+                } else {
+                    "a faster preset"
+                };
                 let mut opts = vec![
                     share.clone(),
-                    opt("faster", format!("Keep it separate, use {faster} for recording"), format!("{rec_menu} › Preset"), "The recording barely looks different at its high bitrate", "Slightly bigger files"),
+                    opt(
+                        "faster",
+                        format!("Keep it separate, use {faster} for recording"),
+                        format!("{rec_menu} › Preset"),
+                        "The recording barely looks different at its high bitrate",
+                        "Slightly bigger files",
+                    ),
                 ];
                 if rec_bigger {
-                    opts.push(opt("same_res", "Record at the stream's resolution", format!("{rec_menu} › Rescale Output › off"), "OBS scales once instead of twice", "Recording is no sharper than the stream"));
+                    opts.push(opt(
+                        "same_res",
+                        "Record at the stream's resolution",
+                        format!("{rec_menu} › Rescale Output › off"),
+                        "OBS scales once instead of twice",
+                        "Recording is no sharper than the stream",
+                    ));
                 }
-                suggest(&mut opts, if one_chip && (enc_busy || enc_lag) { "share" } else { "faster" });
+                suggest(
+                    &mut opts,
+                    if one_chip && (enc_busy || enc_lag) {
+                        "share"
+                    } else {
+                        "faster"
+                    },
+                );
                 let chip_text = match chips {
-                    Some(1) => "Your card has one encoder chip, so the stream and recording share it.".to_string(),
-                    Some(n) => format!("Your card has {n} encoder chips, which helps, but the slowest presets still add up."),
+                    Some(1) => {
+                        "Your card has one encoder chip, so the stream and recording share it."
+                            .to_string()
+                    }
+                    Some(n) => format!(
+                        "Your card has {n} encoder chips, which helps, but the slowest presets still add up."
+                    ),
                     None => "Both encoding jobs share your graphics card's encoder.".to_string(),
                 };
-                let measured = c.test.and_then(|t| t.enc_avg).map(|e| format!(" During the test it was {e:.0}% busy.")).unwrap_or_default();
+                let measured = c
+                    .test
+                    .and_then(|t| t.enc_avg)
+                    .map(|e| format!(" During the test it was {e:.0}% busy."))
+                    .unwrap_or_default();
                 issues.push(Issue {
                     id: "rec_encoder".into(),
                     priority: if enc_busy || enc_lag { Priority::Medium } else { Priority::Low },
@@ -1821,7 +2941,13 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
 
     // Replay buffer running with its own encoder all stream long.
     if o.replay_active && separate {
-        let mut opts = vec![opt("off", "Turn the replay buffer off when you don't need it", "OBS › Controls › Stop Replay Buffer", "One less encoding job", "No instant replays")];
+        let mut opts = vec![opt(
+            "off",
+            "Turn the replay buffer off when you don't need it",
+            "OBS › Controls › Stop Replay Buffer",
+            "One less encoding job",
+            "No instant replays",
+        )];
         suggest(&mut opts, "off");
         issues.push(Issue {
             id: "replay_buffer".into(),
@@ -1839,8 +2965,20 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     // Enhanced Broadcasting: several versions of the stream at once.
     if o.multitrack == Some(true) {
         let mut opts = vec![
-            opt("keep", "Keep it on", "OBS › Settings › Stream › Enhanced Broadcasting", "Viewers get quality options (1080p, 720p, ...)", "Your GPU encodes several streams at once"),
-            opt("off", "Turn it off", "OBS › Settings › Stream › Enhanced Broadcasting › off", "Much lighter on your encoder", "Viewers only get the one version you send"),
+            opt(
+                "keep",
+                "Keep it on",
+                "OBS › Settings › Stream › Enhanced Broadcasting",
+                "Viewers get quality options (1080p, 720p, ...)",
+                "Your GPU encodes several streams at once",
+            ),
+            opt(
+                "off",
+                "Turn it off",
+                "OBS › Settings › Stream › Enhanced Broadcasting › off",
+                "Much lighter on your encoder",
+                "Viewers only get the one version you send",
+            ),
         ];
         suggest(&mut opts, if enc_busy || enc_lag { "off" } else { "keep" });
         issues.push(Issue {
@@ -1861,21 +2999,52 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     }
 
     // Measured: how busy the encoder chip was.
-    if let Some(t) = c.test {
-        if let Some(e) = t.enc_avg.filter(|e| *e >= 85.0) {
-            let mut opts = vec![
-                opt("faster", "Use a faster preset", "OBS › Settings › Output › Preset", "Less work per frame", "Slightly softer picture"),
-                opt("lower", "Lower the output resolution or FPS", "OBS › Settings › Video", "Much less work", "Viewers get a smaller picture"),
-            ];
-            if separate {
-                opts.insert(0, opt("share", "Let the recording share the stream encoder", rec_menu, "Removes a whole encoding job", "Recording capped at stream bitrate"));
-            }
-            if o.multitrack == Some(true) {
-                opts.insert(0, opt("eb_off", "Turn off Enhanced Broadcasting", "OBS › Settings › Stream", "Removes several encoding jobs", "No quality options for viewers"));
-            }
-            let first = opts[0].id.clone();
-            suggest(&mut opts, &first);
-            issues.push(Issue {
+    if let Some(t) = c.test
+        && let Some(e) = t.enc_avg.filter(|e| *e >= 85.0)
+    {
+        let mut opts = vec![
+            opt(
+                "faster",
+                "Use a faster preset",
+                "OBS › Settings › Output › Preset",
+                "Less work per frame",
+                "Slightly softer picture",
+            ),
+            opt(
+                "lower",
+                "Lower the output resolution or FPS",
+                "OBS › Settings › Video",
+                "Much less work",
+                "Viewers get a smaller picture",
+            ),
+        ];
+        if separate {
+            opts.insert(
+                0,
+                opt(
+                    "share",
+                    "Let the recording share the stream encoder",
+                    rec_menu,
+                    "Removes a whole encoding job",
+                    "Recording capped at stream bitrate",
+                ),
+            );
+        }
+        if o.multitrack == Some(true) {
+            opts.insert(
+                0,
+                opt(
+                    "eb_off",
+                    "Turn off Enhanced Broadcasting",
+                    "OBS › Settings › Stream",
+                    "Removes several encoding jobs",
+                    "No quality options for viewers",
+                ),
+            );
+        }
+        let first = opts[0].id.clone();
+        suggest(&mut opts, &first);
+        issues.push(Issue {
                 id: "enc_load".into(),
                 priority: if enc_lag { Priority::High } else { Priority::Medium },
                 area: "OBS".into(),
@@ -1886,16 +3055,37 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 measured: true,
                 options: opts,
             });
-        }
     }
 
     // Recording format
     let f = o.rec_format.to_lowercase();
     if f == "mp4" || f == "mov" {
-        let new_obs = o.obs_version.split('.').next().and_then(|m| m.parse::<u32>().ok()).map(|m| m >= 31).unwrap_or(false) || o.obs_version.starts_with("30.2");
-        let mut opts = vec![opt("mkv", "MKV", format!("{rec_menu} › Recording Format › MKV"), "Survives crashes", "Remux to MP4 before editing (File › Remux Recordings)")];
+        let new_obs = o
+            .obs_version
+            .split('.')
+            .next()
+            .and_then(|m| m.parse::<u32>().ok())
+            .map(|m| m >= 31)
+            .unwrap_or(false)
+            || o.obs_version.starts_with("30.2");
+        let mut opts = vec![opt(
+            "mkv",
+            "MKV",
+            format!("{rec_menu} › Recording Format › MKV"),
+            "Survives crashes",
+            "Remux to MP4 before editing (File › Remux Recordings)",
+        )];
         if new_obs {
-            opts.insert(0, opt("hybrid", "Hybrid MP4", format!("{rec_menu} › Recording Format › Hybrid MP4"), "Survives crashes and opens everywhere", "Needs OBS 30.2 or newer (you have it)"));
+            opts.insert(
+                0,
+                opt(
+                    "hybrid",
+                    "Hybrid MP4",
+                    format!("{rec_menu} › Recording Format › Hybrid MP4"),
+                    "Survives crashes and opens everywhere",
+                    "Needs OBS 30.2 or newer (you have it)",
+                ),
+            );
         }
         let first = opts[0].id.clone();
         suggest(&mut opts, &first);
@@ -1914,13 +3104,19 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
 
     // Disk space for recordings
     if let Some(free) = o.disk_free_mb {
-        let (kbps, measured) = match c.test.and_then(|t| t.recording_size.map(|s| (s, t.seconds))) {
+        let (kbps, measured) = match c
+            .test
+            .and_then(|t| t.recording_size.map(|s| (s, t.seconds)))
+        {
             Some((size, secs)) if secs > 30.0 => (size as f32 * 8.0 / 1000.0 / secs, true),
             _ if c.st.rec_kbps_seen.is_some() => (c.st.rec_kbps_seen.unwrap_or(6000.0), true),
             _ => {
                 let est = if !separate {
                     o.bitrate_kbps.map(|b| b as f32)
-                } else if let Some(b) = o.rec_bitrate_kbps.filter(|_| !o.rec_rate_control.to_uppercase().contains("CQ") && !o.rec_rate_control.eq_ignore_ascii_case("CRF")) {
+                } else if let Some(b) = o.rec_bitrate_kbps.filter(|_| {
+                    !o.rec_rate_control.to_uppercase().contains("CQ")
+                        && !o.rec_rate_control.eq_ignore_ascii_case("CRF")
+                }) {
                     Some(b as f32)
                 } else {
                     let (w, h) = o.rec_res.or(o.output_res).unwrap_or((1920, 1080));
@@ -1933,16 +3129,47 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
         let hours = free as f32 * 8.0 / (kbps / 1000.0).max(0.1) / 3600.0;
         a.checks.push(Check {
             name: "Recording space".into(),
-            status: if hours < 1.5 { Status::Bad } else if hours < 3.0 { Status::Warn } else { Status::Ok },
-            label: if hours < 3.0 { "Low".into() } else { "Plenty".into() },
+            status: if hours < 1.5 {
+                Status::Bad
+            } else if hours < 3.0 {
+                Status::Warn
+            } else {
+                Status::Ok
+            },
+            label: if hours < 3.0 {
+                "Low".into()
+            } else {
+                "Plenty".into()
+            },
             metric: format!("About {} of recording", fmt_hours(hours)),
-            note: format!("{} free, recording at about {:.0} Mbps{}.", crate::util::fmt_bytes((free * 1_048_576.0) as u64), kbps / 1000.0, if measured { " (measured from your recordings)" } else { " (estimated)" }),
+            note: format!(
+                "{} free, recording at about {:.0} Mbps{}.",
+                crate::util::fmt_bytes((free * 1_048_576.0) as u64),
+                kbps / 1000.0,
+                if measured {
+                    " (measured from your recordings)"
+                } else {
+                    " (estimated)"
+                }
+            ),
             measured,
         });
         if hours < 3.0 {
             let mut opts = vec![
-                opt("clear", "Free up space or move old recordings", "Your file manager", "Room for long streams", "Time to sort old files"),
-                opt("folder", "Record to a bigger drive", format!("{rec_menu} › Recording Path"), "Lots more room", "Pick a fast drive"),
+                opt(
+                    "clear",
+                    "Free up space or move old recordings",
+                    "Your file manager",
+                    "Room for long streams",
+                    "Time to sort old files",
+                ),
+                opt(
+                    "folder",
+                    "Record to a bigger drive",
+                    format!("{rec_menu} › Recording Path"),
+                    "Lots more room",
+                    "Pick a fast drive",
+                ),
             ];
             suggest(&mut opts, "clear");
             issues.push(Issue {
@@ -1960,12 +3187,25 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     }
 
     // Recording to a hard drive (Linux can tell)
-    if let Some(dir) = rec_folder(o, c.test) {
-        if crate::hardware::drive_is_hdd(&dir) == Some(true) {
-            let same = c.games.iter().filter(|g| g.running || !g.findings.is_empty()).flat_map(|g| g.files.iter()).filter_map(|f| f.real_path.clone()).any(|p| crate::hardware::same_drive(&p, &dir));
-            let mut opts = vec![opt("ssd", "Record to an SSD", format!("{rec_menu} › Recording Path"), "No dropped recording frames", "Needs free SSD space")];
-            suggest(&mut opts, "ssd");
-            issues.push(Issue {
+    if let Some(dir) = rec_folder(o, c.test)
+        && crate::hardware::drive_is_hdd(&dir) == Some(true)
+    {
+        let same = c
+            .games
+            .iter()
+            .filter(|g| g.running || !g.findings.is_empty())
+            .flat_map(|g| g.files.iter())
+            .filter_map(|f| f.real_path.clone())
+            .any(|p| crate::hardware::same_drive(&p, &dir));
+        let mut opts = vec![opt(
+            "ssd",
+            "Record to an SSD",
+            format!("{rec_menu} › Recording Path"),
+            "No dropped recording frames",
+            "Needs free SSD space",
+        )];
+        suggest(&mut opts, "ssd");
+        issues.push(Issue {
                 id: "slow_disk".into(),
                 priority: Priority::Low,
                 area: "PC".into(),
@@ -1980,7 +3220,6 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 measured: false,
                 options: opts,
             });
-        }
     }
 }
 
@@ -2010,7 +3249,9 @@ pub fn preset_name(p: &str) -> String {
         "" => "its default preset".into(),
         other => {
             let mut c = other.chars();
-            c.next().map(|f| format!("{}{}", f.to_uppercase(), c.as_str())).unwrap_or_default()
+            c.next()
+                .map(|f| format!("{}{}", f.to_uppercase(), c.as_str()))
+                .unwrap_or_default()
         }
     }
 }
@@ -2025,76 +3266,225 @@ fn recommended(c: &Ctx, a: &Analysis) -> Vec<RecRow> {
     let out = "OBS › Settings › Output";
     let hw = c.hw.and_then(|h| h.encoders.first().cloned());
     let mut row = |setting: &str, yours: String, suggested: String, menu: String, ok: bool| {
-        v.push(RecRow { setting: setting.into(), yours, suggested, menu, ok });
+        v.push(RecRow {
+            setting: setting.into(),
+            yours,
+            suggested,
+            menu,
+            ok,
+        });
     };
     // Encoder
     let enc_ok = !o.encoder_kind.contains("CPU") || hw.is_none();
-    row("Encoder", o.encoder_kind.clone(), hw.clone().unwrap_or_else(|| o.encoder_kind.clone()), format!("{out} › Video Encoder"), enc_ok);
+    row(
+        "Encoder",
+        o.encoder_kind.clone(),
+        hw.clone().unwrap_or_else(|| o.encoder_kind.clone()),
+        format!("{out} › Video Encoder"),
+        enc_ok,
+    );
     if o.multitrack == Some(true) {
-        row("Bitrate, preset, keyframes", "Set by Enhanced Broadcasting".into(), "Automatic".into(), "OBS › Settings › Stream".into(), true);
+        row(
+            "Bitrate, preset, keyframes",
+            "Set by Enhanced Broadcasting".into(),
+            "Automatic".into(),
+            "OBS › Settings › Stream".into(),
+            true,
+        );
     } else {
         // Bitrate
         let limits = crate::network::limits(c.st.platform);
-        let cap = c.net.filter(|n| n.ok).map(|n| n.safe_video_kbps().min(limits.max_kbps_1080p60)).unwrap_or(limits.max_kbps_1080p60);
+        let cap = c
+            .net
+            .filter(|n| n.ok)
+            .map(|n| n.safe_video_kbps().min(limits.max_kbps_1080p60))
+            .unwrap_or(limits.max_kbps_1080p60);
         let cur = o.bitrate_kbps;
         row(
             "Bitrate",
-            cur.map(|b| format!("{b} kbps")).unwrap_or_else(|| "unknown".into()),
+            cur.map(|b| format!("{b} kbps"))
+                .unwrap_or_else(|| "unknown".into()),
             format!("up to {cap} kbps"),
             format!("{out} › Video Bitrate"),
             cur.map(|b| b <= cap).unwrap_or(false),
         );
         let rc = o.rate_control.to_uppercase();
-        row("Rate control", if rc.is_empty() { "CBR".into() } else { rc.clone() }, "CBR".into(), format!("{out} › Rate Control"), rc.is_empty() || rc == "CBR");
+        row(
+            "Rate control",
+            if rc.is_empty() {
+                "CBR".into()
+            } else {
+                rc.clone()
+            },
+            "CBR".into(),
+            format!("{out} › Rate Control"),
+            rc.is_empty() || rc == "CBR",
+        );
         let k = o.keyint_sec.unwrap_or(2);
-        row("Keyframe interval", if k == 0 { "Auto".into() } else { format!("{k} s") }, "2 s".into(), format!("{out} › Keyframe Interval"), k == 2 || k == 1);
-        let skipped = c.test.map(|t| t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.005).unwrap_or(false);
-        let headroom = c.test.map(|t| t.gpu_avg.map(|g| g < 85.0).unwrap_or(false) && !skipped).unwrap_or(false);
+        row(
+            "Keyframe interval",
+            if k == 0 {
+                "Auto".into()
+            } else {
+                format!("{k} s")
+            },
+            "2 s".into(),
+            format!("{out} › Keyframe Interval"),
+            k == 2 || k == 1,
+        );
+        let skipped = c
+            .test
+            .map(|t| t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.005)
+            .unwrap_or(false);
+        let headroom = c
+            .test
+            .map(|t| t.gpu_avg.map(|g| g < 85.0).unwrap_or(false) && !skipped)
+            .unwrap_or(false);
         let (sug, okp) = if o.encoder_kind.contains("NVENC") {
-            (if headroom { "P6 or P7".to_string() } else { "P5".to_string() }, preset_rank(&o.preset).map(|r| (if headroom { r >= 6 } else { r >= 4 }) && !(r >= 6 && skipped)).unwrap_or(true))
+            (
+                if headroom {
+                    "P6 or P7".to_string()
+                } else {
+                    "P5".to_string()
+                },
+                preset_rank(&o.preset)
+                    .map(|r| (if headroom { r >= 6 } else { r >= 4 }) && !(r >= 6 && skipped))
+                    .unwrap_or(true),
+            )
         } else if o.encoder_kind.contains("x264") {
-            ("veryfast".to_string(), preset_rank(&o.preset).map(|r| (3..=5).contains(&r)).unwrap_or(true))
+            (
+                "veryfast".to_string(),
+                preset_rank(&o.preset)
+                    .map(|r| (3..=5).contains(&r))
+                    .unwrap_or(true),
+            )
         } else {
-            ("Quality".to_string(), preset_rank(&o.preset).map(|r| r >= 4).unwrap_or(true))
+            (
+                "Quality".to_string(),
+                preset_rank(&o.preset).map(|r| r >= 4).unwrap_or(true),
+            )
         };
-        row("Preset", preset_name(&o.preset), sug, format!("{out} › Preset"), okp);
+        row(
+            "Preset",
+            preset_name(&o.preset),
+            sug,
+            format!("{out} › Preset"),
+            okp,
+        );
     }
     row(
         "Output (resolution · FPS)",
-        a.current_output.split(" · ").next().unwrap_or("").to_string(),
-        a.recommended_output.split(" · ").next().unwrap_or("").to_string(),
+        a.current_output
+            .split(" · ")
+            .next()
+            .unwrap_or("")
+            .to_string(),
+        a.recommended_output
+            .split(" · ")
+            .next()
+            .unwrap_or("")
+            .to_string(),
         "OBS › Settings › Video".into(),
         a.recommended_output == a.current_output || a.recommended_output == "—",
     );
-    if let (Some(b), Some(ot)) = (o.base_res, o.output_res) {
-        if b != ot {
-            let f = o.scale_type.to_lowercase();
-            row("Downscale filter", super_cap(&f), "Lanczos (sharpest)".into(), "OBS › Settings › Video › Downscale Filter".into(), f != "bilinear");
-        }
+    if let (Some(b), Some(ot)) = (o.base_res, o.output_res)
+        && b != ot
+    {
+        let f = o.scale_type.to_lowercase();
+        row(
+            "Downscale filter",
+            super_cap(&f),
+            "Lanczos (sharpest)".into(),
+            "OBS › Settings › Video › Downscale Filter".into(),
+            f != "bilinear",
+        );
     }
     if let Some(k) = o.audio_kbps {
         let sr = o.sample_rate.unwrap_or(48000);
         let twitch_high = c.st.platform == crate::config::Platform::Twitch && k > 160;
-        row("Audio", format!("{k} kbps · {:.0} kHz", sr as f32 / 1000.0), "160 kbps · 48 kHz".into(), "OBS › Settings › Output › Audio  ·  Settings › Audio".into(), k >= 128 && !twitch_high && sr == 48000);
+        row(
+            "Audio",
+            format!("{k} kbps · {:.0} kHz", sr as f32 / 1000.0),
+            "160 kbps · 48 kHz".into(),
+            "OBS › Settings › Output › Audio  ·  Settings › Audio".into(),
+            k >= 128 && !twitch_high && sr == 48000,
+        );
     }
     // Recording
     let separate = !o.rec_encoder_raw.is_empty();
-    let chips = crate::hardware::nvenc_chips(&c.hw.and_then(|h| h.main_gpu()).map(|g| g.name.clone()).unwrap_or_default());
+    let chips = crate::hardware::nvenc_chips(
+        &c.hw
+            .and_then(|h| h.main_gpu())
+            .map(|g| g.name.clone())
+            .unwrap_or_default(),
+    );
     let multi = chips.map(|n| n >= 2).unwrap_or(false);
-    let rec_sug = if multi { "Separate is fine on your card" } else { "Same as stream, or separate at P4 or faster" };
-    let rec_yours = if separate { format!("Separate: {} {}", o.rec_encoder_kind, preset_name(&o.rec_preset)) } else { "Same as stream".into() };
-    let rec_ok = !separate || (!o.rec_encoder_kind.contains("CPU") && preset_rank(&o.rec_preset).map(|r| r <= 5 || chips.map(|n| n >= 2).unwrap_or(false)).unwrap_or(true));
-    row("Recording encoder", rec_yours, rec_sug.into(), if advanced { format!("{out} › Recording › Video Encoder") } else { format!("{out} › Recording Quality") }, rec_ok);
+    let rec_sug = if multi {
+        "Separate is fine on your card"
+    } else {
+        "Same as stream, or separate at P4 or faster"
+    };
+    let rec_yours = if separate {
+        format!(
+            "Separate: {} {}",
+            o.rec_encoder_kind,
+            preset_name(&o.rec_preset)
+        )
+    } else {
+        "Same as stream".into()
+    };
+    let rec_ok = !separate
+        || (!o.rec_encoder_kind.contains("CPU")
+            && preset_rank(&o.rec_preset)
+                .map(|r| r <= 5 || chips.map(|n| n >= 2).unwrap_or(false))
+                .unwrap_or(true));
+    row(
+        "Recording encoder",
+        rec_yours,
+        rec_sug.into(),
+        if advanced {
+            format!("{out} › Recording › Video Encoder")
+        } else {
+            format!("{out} › Recording Quality")
+        },
+        rec_ok,
+    );
     let f = o.rec_format.to_lowercase();
     if !f.is_empty() {
-        row("Recording format", format_label(&f), "Hybrid MP4, Hybrid MOV or MKV".into(), format!("{out} › Recording Format"), f != "mp4" && f != "mov");
+        row(
+            "Recording format",
+            format_label(&f),
+            "Hybrid MP4, Hybrid MOV or MKV".into(),
+            format!("{out} › Recording Format"),
+            f != "mp4" && f != "mov",
+        );
     }
     if let Some(a) = o.auto_record {
-        row("Auto-record when streaming", if a { "On".into() } else { "Off".into() }, "Your choice".into(), "OBS › Settings › Advanced › Recording".into(), true);
+        row(
+            "Auto-record when streaming",
+            if a { "On".into() } else { "Off".into() },
+            "Your choice".into(),
+            "OBS › Settings › Advanced › Recording".into(),
+            true,
+        );
     }
     if o.multitrack == Some(true) {
-        let busy = c.test.and_then(|t| t.enc_avg).map(|e| e >= 85.0).unwrap_or(false);
-        row("Enhanced Broadcasting", "On".into(), if busy { "Off (your encoder is busy)".into() } else { "Your choice".into() }, "OBS › Settings › Stream".into(), !busy);
+        let busy = c
+            .test
+            .and_then(|t| t.enc_avg)
+            .map(|e| e >= 85.0)
+            .unwrap_or(false);
+        row(
+            "Enhanced Broadcasting",
+            "On".into(),
+            if busy {
+                "Off (your encoder is busy)".into()
+            } else {
+                "Your choice".into()
+            },
+            "OBS › Settings › Stream".into(),
+            !busy,
+        );
     }
     v
 }
@@ -2111,7 +3501,9 @@ fn format_label(f: &str) -> String {
 
 fn super_cap(s: &str) -> String {
     let mut c = s.chars();
-    c.next().map(|f| format!("{}{}", f.to_uppercase(), c.as_str())).unwrap_or_default()
+    c.next()
+        .map(|f| format!("{}{}", f.to_uppercase(), c.as_str()))
+        .unwrap_or_default()
 }
 
 fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
@@ -2123,12 +3515,18 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
         a.current_output = "Connect OBS to see your stream settings".into();
         a.recommended_output = "—".into();
     }
-    a.current_output = if c.obs.is_none() { a.current_output.clone() } else { format!(
-        "{}{} · {}",
-        res_label(out_res),
-        fps.round() as u32,
-        cur_bitrate.map(|b| format!("{b} kbps")).unwrap_or_else(|| "bitrate unknown".into())
-    ) };
+    a.current_output = if c.obs.is_none() {
+        a.current_output.clone()
+    } else {
+        format!(
+            "{}{} · {}",
+            res_label(out_res),
+            fps.round() as u32,
+            cur_bitrate
+                .map(|b| format!("{b} kbps"))
+                .unwrap_or_else(|| "bitrate unknown".into())
+        )
+    };
     if c.obs.is_some() {
         a.recommended_output = a.current_output.clone();
     }
@@ -2139,7 +3537,10 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             status: Status::Unknown,
             label: "Not tested".into(),
             metric: "—".into(),
-            note: c.net.and_then(|n| n.error.clone()).unwrap_or_else(|| "Run a quick scan to test your upload speed.".into()),
+            note: c
+                .net
+                .and_then(|n| n.error.clone())
+                .unwrap_or_else(|| "Run a quick scan to test your upload speed.".into()),
             measured: false,
         });
         return;
@@ -2148,13 +3549,20 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     let cap = safe.min(limits.max_kbps_1080p60);
     let unsteady = n.unsteady_for(cur_bitrate.unwrap_or(limits.max_kbps_1080p60));
     let mut status = if unsteady { Status::Warn } else { Status::Ok };
-    let mut label = if unsteady { "Unsteady".to_string() } else { "Good".to_string() };
+    let mut label = if unsteady {
+        "Unsteady".to_string()
+    } else {
+        "Good".to_string()
+    };
     let note;
     if let Some(b) = cur_bitrate {
         if b > safe {
             status = Status::Bad;
             label = "Too tight".into();
-            note = format!("Upload dips to {:.1} Mbps. That's too tight for {b} kbps.", n.low_mbps);
+            note = format!(
+                "Upload dips to {:.1} Mbps. That's too tight for {b} kbps.",
+                n.low_mbps
+            );
             let mut opts = Vec::new();
             let at_1080 = out_res.map(|(_, h)| h >= 1080).unwrap_or(true);
             let keep_res_ok = cap >= 6000 || !at_1080;
@@ -2162,8 +3570,16 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 "keep_res",
                 format!("{} kbps at {}", cap, res_label(out_res)),
                 "OBS › Settings › Output › Bitrate",
-                if keep_res_ok { "Keeps your resolution; no dropped frames" } else { "Keeps your resolution" },
-                if keep_res_ok { "Slightly less detail in fast motion" } else { "Blockier image in fast motion" },
+                if keep_res_ok {
+                    "Keeps your resolution; no dropped frames"
+                } else {
+                    "Keeps your resolution"
+                },
+                if keep_res_ok {
+                    "Slightly less detail in fast motion"
+                } else {
+                    "Blockier image in fast motion"
+                },
             ));
             if at_1080 && !c.st.never.lower_below_1080p {
                 opts.push(opt(
@@ -2192,7 +3608,22 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             };
             suggest(&mut opts, pick);
             if let Some(s) = opts.iter().find(|o| o.suggested) {
-                a.recommended_output = format!("{}{} · {} kbps", if s.id == "keep_res" { res_label(out_res) } else { format!("{}p", s.id) }, fps.round() as u32, if s.id == "720" { cap.min(4500) } else if s.id == "936" { cap.min(6000) } else { cap });
+                a.recommended_output = format!(
+                    "{}{} · {} kbps",
+                    if s.id == "keep_res" {
+                        res_label(out_res)
+                    } else {
+                        format!("{}p", s.id)
+                    },
+                    fps.round() as u32,
+                    if s.id == "720" {
+                        cap.min(4500)
+                    } else if s.id == "936" {
+                        cap.min(6000)
+                    } else {
+                        cap
+                    }
+                );
             }
             issues.push(Issue {
                 id: "bitrate_network".into(),
@@ -2211,7 +3642,11 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
         } else if b > limits.max_kbps_1080p60 {
             status = Status::Warn;
             label = "Above limit".into();
-            note = format!("{} kbps is above {}'s usual limit.", b, c.st.platform.name());
+            note = format!(
+                "{} kbps is above {}'s usual limit.",
+                b,
+                c.st.platform.name()
+            );
             let mut opts = vec![opt(
                 "platform_max",
                 format!("Lower to {} kbps", limits.max_kbps_1080p60),
@@ -2233,12 +3668,25 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             });
         } else {
             let need = (b as f32 + 160.0) / 1000.0;
-            note = format!("Your upload is {:.0} Mbps, dipping to {:.0} at worst. That's about {:.0} times what your {} kbps stream needs.", n.avg_mbps, n.low_mbps, n.low_mbps / need, b);
+            note = format!(
+                "Your upload is {:.0} Mbps, dipping to {:.0} at worst. That's about {:.0} times what your {} kbps stream needs.",
+                n.avg_mbps,
+                n.low_mbps,
+                n.low_mbps / need,
+                b
+            );
         }
     } else {
-        note = format!("Upload {:.1} Mbps (low {:.1}). Safe bitrate: about {} kbps.", n.avg_mbps, n.low_mbps, cap);
+        note = format!(
+            "Upload {:.1} Mbps (low {:.1}). Safe bitrate: about {} kbps.",
+            n.avg_mbps, n.low_mbps, cap
+        );
     }
-    let note = if n.stopped_early { format!("{note} Fast connection: the test stopped early to save data.") } else { note };
+    let note = if n.stopped_early {
+        format!("{note} Fast connection: the test stopped early to save data.")
+    } else {
+        note
+    };
     if unsteady && status != Status::Bad {
         issues.push(Issue {
             id: "net_unsteady".into(),
@@ -2274,40 +3722,80 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
 
 fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     let target = target_game(c, true);
-    let unknown_game = target.is_none() && c.test.map(|t| t.game_running.is_none()).unwrap_or(false);
+    let unknown_game =
+        target.is_none() && c.test.map(|t| t.game_running.is_none()).unwrap_or(false);
 
     let gpu_avg = c.test.and_then(|t| t.gpu_avg);
-    let render_drop = c.test.map(|t| t.render_total > 0 && t.render_skipped as f32 / t.render_total as f32 > 0.01).unwrap_or(false);
+    let render_drop = c
+        .test
+        .map(|t| t.render_total > 0 && t.render_skipped as f32 / t.render_total as f32 > 0.01)
+        .unwrap_or(false);
     // How long the GPU was maxed out matters more than the average: a game
     // can sit at 98% for the busy half of the test and still average 84%.
     let maxed_frac = c
         .test
         .map(|t| {
             let v: Vec<f32> = t.samples.iter().filter_map(|s| s.gpu).collect();
-            if v.is_empty() { 0.0 } else { v.iter().filter(|g| **g >= 95.0).count() as f32 / v.len() as f32 }
+            if v.is_empty() {
+                0.0
+            } else {
+                v.iter().filter(|g| **g >= 95.0).count() as f32 / v.len() as f32
+            }
         })
         .unwrap_or(0.0);
     let maxed_secs = c.test.map(|t| t.seconds * maxed_frac).unwrap_or(0.0);
-    let gpu_maxed = gpu_avg.map(|g| g >= 92.0).unwrap_or(false) || maxed_frac >= 0.25 || render_drop;
+    let gpu_maxed =
+        gpu_avg.map(|g| g >= 92.0).unwrap_or(false) || maxed_frac >= 0.25 || render_drop;
     let maxed_text = if maxed_frac >= 0.25 && gpu_avg.map(|g| g < 92.0).unwrap_or(true) {
-        format!("Your GPU was maxed out (95%+) for {:.0}% of the test, about {:.0} seconds.", maxed_frac * 100.0, maxed_secs)
+        format!(
+            "Your GPU was maxed out (95%+) for {:.0}% of the test, about {:.0} seconds.",
+            maxed_frac * 100.0,
+            maxed_secs
+        )
     } else {
-        format!("Your GPU was maxed out, at {:.0}% on average.", gpu_avg.unwrap_or(99.0))
+        format!(
+            "Your GPU was maxed out, at {:.0}% on average.",
+            gpu_avg.unwrap_or(99.0)
+        )
     };
-    let skipped_frac = c.test.map(|t| if t.output_total > 0 { t.output_skipped as f32 / t.output_total as f32 } else { 0.0 }).unwrap_or(0.0);
-    let render_frac = c.test.map(|t| if t.render_total > 0 { t.render_skipped as f32 / t.render_total as f32 } else { 0.0 }).unwrap_or(0.0);
+    let skipped_frac = c
+        .test
+        .map(|t| {
+            if t.output_total > 0 {
+                t.output_skipped as f32 / t.output_total as f32
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+    let render_frac = c
+        .test
+        .map(|t| {
+            if t.render_total > 0 {
+                t.render_skipped as f32 / t.render_total as f32
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
     // OBS kept up in the test even though the GPU was busy.
     let obs_kept_up = skipped_frac < 0.001 && render_frac < 0.001;
     // On very high refresh monitors, capping at the refresh rate rarely lowers
     // the load, so suggest half of it.
     let hz = c.st.monitor_hz.max(30);
     let stream_fps = c.obs.and_then(|o| o.fps);
-    let fps_game = target.map(|g| g.name.clone()).or_else(|| c.test.and_then(|t| t.game_guess.clone())).unwrap_or_default();
+    let fps_game = target
+        .map(|g| g.name.clone())
+        .or_else(|| c.test.and_then(|t| t.game_guess.clone()))
+        .unwrap_or_default();
     let game_fps = c.game_fps(&fps_game);
     let cap_to = cap_target(hz, stream_fps, c.st.style, game_fps);
     let guess = c.test.and_then(|t| t.game_guess.clone());
 
-    let game_label = guess.as_deref().map(|g| format!("The game ({g})")).unwrap_or_else(|| "Your game".into());
+    let game_label = guess
+        .as_deref()
+        .map(|g| format!("The game ({g})"))
+        .unwrap_or_else(|| "Your game".into());
     let (status, label, metric, note) = match (target, gpu_avg) {
         (None, Some(_)) if unknown_game && guess.is_none() => (
             Status::Unknown,
@@ -2339,25 +3827,73 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     };
     // Say plainly when a setting Preflight expects couldn't be read.
     let note = match target.filter(|g| !g.unreadable.is_empty()) {
-        Some(g) => format!("{note} Couldn't read: {}. A game update may have renamed {}.", g.unreadable.join(", "), if g.unreadable.len() == 1 { "it" } else { "them" }),
+        Some(g) => format!(
+            "{note} Couldn't read: {}. A game update may have renamed {}.",
+            g.unreadable.join(", "),
+            if g.unreadable.len() == 1 {
+                "it"
+            } else {
+                "them"
+            }
+        ),
         None => note,
     };
-    let status = if status == Status::Ok && target.map(|g| !g.unreadable.is_empty()).unwrap_or(false) { Status::Warn } else { status };
-    a.checks.push(Check { name: "Game settings".into(), status, label, metric, note, measured: gpu_avg.is_some() });
+    let status =
+        if status == Status::Ok && target.map(|g| !g.unreadable.is_empty()).unwrap_or(false) {
+            Status::Warn
+        } else {
+            status
+        };
+    a.checks.push(Check {
+        name: "Game settings".into(),
+        status,
+        label,
+        metric,
+        note,
+        measured: gpu_avg.is_some(),
+    });
 
     let st = c.st;
     if target.is_none() && unknown_game && gpu_maxed {
         let menu = "Your game › Settings › Video (Frame rate limit / Max FPS), if it has one";
-        let cap_cost = if cap_to < hz { format!("Fewer frames than your {hz} Hz monitor can show") } else { "Nothing visible at your refresh rate".to_string() };
+        let cap_cost = if cap_to < hz {
+            format!("Fewer frames than your {hz} Hz monitor can show")
+        } else {
+            "Nothing visible at your refresh rate".to_string()
+        };
         let vendor = c.hw.and_then(|h| h.gpus.first()).map(|g| g.vendor);
-        let stand_in = GameResult { name: guess.clone().unwrap_or_else(|| "your game".into()), auto: Some("unknown".into()), proton: cfg!(not(windows)), ..Default::default() };
+        let stand_in = GameResult {
+            name: guess.clone().unwrap_or_else(|| "your game".into()),
+            auto: Some("unknown".into()),
+            proton: cfg!(not(windows)),
+            ..Default::default()
+        };
         let mut out = outside_cap(&stand_in, cap_to, vendor, cap_cost.clone());
         out.id = "cap_out".into();
         let mut opts = vec![
-            opt("cap", format!("Cap your FPS at {cap_to}"), menu, "Big drop in GPU load", cap_cost.clone()).with(change("FPS limit", menu, None, cap_to.to_string())),
+            opt(
+                "cap",
+                format!("Cap your FPS at {cap_to}"),
+                menu,
+                "Big drop in GPU load",
+                cap_cost.clone(),
+            )
+            .with(change("FPS limit", menu, None, cap_to.to_string())),
             out,
-            opt("upscale", "Turn on DLSS or FSR (Quality)", "Your game › Settings › Graphics", "Big FPS gain at almost the same sharpness", "Slightly softer image"),
-            opt("preset", "Lower your graphics preset", "Your game › Settings › Graphics", "Reliable GPU headroom", "A small drop in visual quality"),
+            opt(
+                "upscale",
+                "Turn on DLSS or FSR (Quality)",
+                "Your game › Settings › Graphics",
+                "Big FPS gain at almost the same sharpness",
+                "Slightly softer image",
+            ),
+            opt(
+                "preset",
+                "Lower your graphics preset",
+                "Your game › Settings › Graphics",
+                "Reliable GPU headroom",
+                "A small drop in visual quality",
+            ),
         ];
         let pick = style_pick(st, &opts);
         suggest(&mut opts, &pick);
@@ -2379,10 +3915,23 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     }
     let Some(g) = target else { return };
     let mut opts: Vec<Opt> = Vec::new();
-    let fps_menu = g.findings.iter().find(|f| f.effect == "uncapped_fps").map(|f| f.menu.clone())
-        .or_else(|| g.current.iter().find(|c| c.effect == "uncapped_fps").map(|c| c.menu.clone()))
+    let fps_menu = g
+        .findings
+        .iter()
+        .find(|f| f.effect == "uncapped_fps")
+        .map(|f| f.menu.clone())
+        .or_else(|| {
+            g.current
+                .iter()
+                .find(|c| c.effect == "uncapped_fps")
+                .map(|c| c.menu.clone())
+        })
         .unwrap_or_else(|| format!("{} › Settings › Video (Max FPS / Frame rate limit)", g.name));
-    let cap_cost = if cap_to < hz { format!("Fewer frames than your {hz} Hz monitor can show, but steadier") } else { format!("Nothing visible on a {hz} Hz monitor") };
+    let cap_cost = if cap_to < hz {
+        format!("Fewer frames than your {hz} Hz monitor can show, but steadier")
+    } else {
+        format!("Nothing visible on a {hz} Hz monitor")
+    };
     let uncapped = g.findings.iter().any(|f| f.effect == "uncapped_fps");
     if !g.has_fps_limit {
         let vendor = c.hw.and_then(|h| h.gpus.first()).map(|g| g.vendor);
@@ -2390,8 +3939,20 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             // Read automatically and no FPS setting found: the game may still
             // have one. Suggest it first, with a limiter outside the game as
             // the fallback.
-            let menu = format!("{} › Settings › Video or Display (Frame rate limit / Max FPS), if it has one", g.name);
-            opts.push(opt("cap", format!("Cap your FPS at {cap_to}"), menu.clone(), "Big drop in GPU load, smoother frame pacing", cap_cost.clone()).with(change("FPS limit", menu, None, cap_to.to_string())));
+            let menu = format!(
+                "{} › Settings › Video or Display (Frame rate limit / Max FPS), if it has one",
+                g.name
+            );
+            opts.push(
+                opt(
+                    "cap",
+                    format!("Cap your FPS at {cap_to}"),
+                    menu.clone(),
+                    "Big drop in GPU load, smoother frame pacing",
+                    cap_cost.clone(),
+                )
+                .with(change("FPS limit", menu, None, cap_to.to_string())),
+            );
             let mut out = outside_cap(g, cap_to, vendor, cap_cost.clone());
             out.id = "cap_out".into();
             opts.push(out);
@@ -2400,17 +3961,45 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             opts.push(outside_cap(g, cap_to, vendor, cap_cost.clone()));
         }
     } else if uncapped {
-        opts.push(opt("cap", format!("Cap your FPS at {cap_to}"), fps_menu.clone(), "Big drop in GPU load, smoother frame pacing", cap_cost.clone())
-            .with(change("FPS limit", fps_menu.clone(), Some("Off".into()), cap_to.to_string())));
+        opts.push(
+            opt(
+                "cap",
+                format!("Cap your FPS at {cap_to}"),
+                fps_menu.clone(),
+                "Big drop in GPU load, smoother frame pacing",
+                cap_cost.clone(),
+            )
+            .with(change(
+                "FPS limit",
+                fps_menu.clone(),
+                Some("Off".into()),
+                cap_to.to_string(),
+            )),
+        );
     } else if let Some(cur) = g.fps_cap {
         // A cap the game never reaches does nothing: the GPU still runs flat out.
         if gpu_maxed && cur > cap_to {
             opts.push(opt("cap", format!("Lower your FPS limit to {cap_to}"), fps_menu.clone(), format!("At {cur} the limit never kicks in. At {cap_to} it holds and frees GPU for the stream"), cap_cost.clone())
                 .with(change("FPS limit", fps_menu.clone(), Some(cur.to_string()), cap_to.to_string())));
         }
-    } else if g.unreadable.iter().any(|u| u.contains("FPS")) || g.current.iter().all(|c| c.effect != "uncapped_fps") {
-        opts.push(opt("cap", format!("Cap your FPS at {cap_to}"), fps_menu.clone(), "Big drop in GPU load, smoother frame pacing", cap_cost.clone())
-            .with(change("FPS limit", fps_menu.clone(), None, cap_to.to_string())));
+    } else if g.unreadable.iter().any(|u| u.contains("FPS"))
+        || g.current.iter().all(|c| c.effect != "uncapped_fps")
+    {
+        opts.push(
+            opt(
+                "cap",
+                format!("Cap your FPS at {cap_to}"),
+                fps_menu.clone(),
+                "Big drop in GPU load, smoother frame pacing",
+                cap_cost.clone(),
+            )
+            .with(change(
+                "FPS limit",
+                fps_menu.clone(),
+                None,
+                cap_to.to_string(),
+            )),
+        );
     }
     for f in &g.findings {
         match f.effect.as_str() {
@@ -2418,35 +4007,120 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 let name = f.label.replace(" is on", "");
                 let to = f.change_to.clone().unwrap_or_else(|| "Off".into());
                 opts.push(
-                    opt(&format!("rt_{}", f.rule_id), format!("Turn {} {}", name.to_lowercase(), if to.starts_with("Off") { "off".to_string() } else { format!("to {to}") }), f.menu.clone(), f.gain.clone().unwrap_or_else(|| "Large GPU headroom".into()), f.cost.clone().unwrap_or_else(|| "Less realistic lighting".into()))
-                        .with(change(name, f.menu.clone(), Some("On".into()), to)),
+                    opt(
+                        &format!("rt_{}", f.rule_id),
+                        format!(
+                            "Turn {} {}",
+                            name.to_lowercase(),
+                            if to.starts_with("Off") {
+                                "off".to_string()
+                            } else {
+                                format!("to {to}")
+                            }
+                        ),
+                        f.menu.clone(),
+                        f.gain
+                            .clone()
+                            .unwrap_or_else(|| "Large GPU headroom".into()),
+                        f.cost
+                            .clone()
+                            .unwrap_or_else(|| "Less realistic lighting".into()),
+                    )
+                    .with(change(name, f.menu.clone(), Some("On".into()), to)),
                 )
             }
             "upscaler_off" if !st.never.upscaling => opts.push(
-                opt("upscale", "Turn on DLSS or FSR (Quality)", f.menu.clone(), "Big FPS gain at almost the same sharpness", "Slightly softer image")
-                    .with(change("Upscaler", f.menu.clone(), Some("Off".into()), "DLSS or FSR: Quality")),
+                opt(
+                    "upscale",
+                    "Turn on DLSS or FSR (Quality)",
+                    f.menu.clone(),
+                    "Big FPS gain at almost the same sharpness",
+                    "Slightly softer image",
+                )
+                .with(change(
+                    "Upscaler",
+                    f.menu.clone(),
+                    Some("Off".into()),
+                    "DLSS or FSR: Quality",
+                )),
             ),
             "heavy" => opts.push(
-                opt(&format!("h_{}", f.rule_id), format!("{} to {}", f.label, f.change_to.clone().unwrap_or_else(|| "lower".into())), f.menu.clone(), f.gain.clone().unwrap_or_else(|| "More GPU headroom".into()), f.cost.clone().unwrap_or_else(|| "Slightly lower visual quality".into()))
-                    .with(change(f.label.clone(), f.menu.clone(), Some(crate::games::pretty_value(&f.value)), f.change_to.clone().unwrap_or_else(|| "Lower".into()))),
+                opt(
+                    &format!("h_{}", f.rule_id),
+                    format!(
+                        "{} to {}",
+                        f.label,
+                        f.change_to.clone().unwrap_or_else(|| "lower".into())
+                    ),
+                    f.menu.clone(),
+                    f.gain.clone().unwrap_or_else(|| "More GPU headroom".into()),
+                    f.cost
+                        .clone()
+                        .unwrap_or_else(|| "Slightly lower visual quality".into()),
+                )
+                .with(change(
+                    f.label.clone(),
+                    f.menu.clone(),
+                    Some(crate::games::pretty_value(&f.value)),
+                    f.change_to.clone().unwrap_or_else(|| "Lower".into()),
+                )),
             ),
             _ => {}
         }
     }
     // The preset, or (when it's Custom) the heaviest individual settings.
-    let heavy: Vec<&crate::games::TunableState> = g.tunables.iter().filter(|t| t.change_to.is_some()).collect();
+    let heavy: Vec<&crate::games::TunableState> = g
+        .tunables
+        .iter()
+        .filter(|t| t.change_to.is_some())
+        .collect();
     match &g.preset {
         Some(p) if !p.custom && p.lower.is_some() => {
             let lower = p.lower.clone().unwrap_or_default();
-            opts.push(opt("preset", format!("Set {} to {lower}", p.setting), p.menu.clone(), "Reliable GPU headroom", "A small drop in detail")
-                .with(change(p.setting.clone(), p.menu.clone(), Some(p.value.clone()), lower)));
+            opts.push(
+                opt(
+                    "preset",
+                    format!("Set {} to {lower}", p.setting),
+                    p.menu.clone(),
+                    "Reliable GPU headroom",
+                    "A small drop in detail",
+                )
+                .with(change(
+                    p.setting.clone(),
+                    p.menu.clone(),
+                    Some(p.value.clone()),
+                    lower,
+                )),
+            );
         }
         _ if !heavy.is_empty() => {
             let top: Vec<&&crate::games::TunableState> = heavy.iter().take(3).collect();
-            let name = if top.len() == 1 { format!("Set {} to {}", top[0].setting, top[0].change_to.clone().unwrap_or_default()) } else { format!("Lower {} heavy graphics settings", top.len()) };
-            let mut o = opt("tune", name, top[0].menu.clone(), top[0].gain.clone(), top.iter().map(|t| t.cost.to_lowercase()).collect::<Vec<_>>().join("; "));
+            let name = if top.len() == 1 {
+                format!(
+                    "Set {} to {}",
+                    top[0].setting,
+                    top[0].change_to.clone().unwrap_or_default()
+                )
+            } else {
+                format!("Lower {} heavy graphics settings", top.len())
+            };
+            let mut o = opt(
+                "tune",
+                name,
+                top[0].menu.clone(),
+                top[0].gain.clone(),
+                top.iter()
+                    .map(|t| t.cost.to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            );
             for t in &top {
-                o = o.with(change(t.setting.clone(), t.menu.clone(), Some(t.now.clone()), t.change_to.clone().unwrap_or_default()));
+                o = o.with(change(
+                    t.setting.clone(),
+                    t.menu.clone(),
+                    Some(t.now.clone()),
+                    t.change_to.clone().unwrap_or_default(),
+                ));
             }
             opts.push(o);
         }
@@ -2455,8 +4129,26 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     let cpu_game = g.load.starts_with("cpu");
     if opts.is_empty() {
         // Preflight couldn't read anything specific: say so instead of guessing.
-        let menu = g.preset.as_ref().map(|p| p.menu.clone()).unwrap_or_else(|| format!("{} › Settings › Graphics", g.name));
-        opts.push(opt("preset", "Lower your graphics preset", menu.clone(), "Reliable GPU headroom", "A small drop in detail").with(change("Graphics preset", menu, g.preset.as_ref().map(|p| p.value.clone()), "One level lower")));
+        let menu = g
+            .preset
+            .as_ref()
+            .map(|p| p.menu.clone())
+            .unwrap_or_else(|| format!("{} › Settings › Graphics", g.name));
+        opts.push(
+            opt(
+                "preset",
+                "Lower your graphics preset",
+                menu.clone(),
+                "Reliable GPU headroom",
+                "A small drop in detail",
+            )
+            .with(change(
+                "Graphics preset",
+                menu,
+                g.preset.as_ref().map(|p| p.value.clone()),
+                "One level lower",
+            )),
+        );
     }
     if gpu_maxed {
         let pick = style_pick(st, &opts);
@@ -2494,7 +4186,12 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             measured: true,
             options: opts.clone(),
         });
-    } else if c.test.is_none() && g.findings.iter().any(|f| f.effect == "uncapped_fps" || f.effect == "heavy" || f.effect == "rt_on") && !cpu_game {
+    } else if c.test.is_none()
+        && g.findings
+            .iter()
+            .any(|f| f.effect == "uncapped_fps" || f.effect == "heavy" || f.effect == "rt_on")
+        && !cpu_game
+    {
         let pick = style_pick(st, &opts);
         suggest(&mut opts, &pick);
         issues.push(Issue {
@@ -2514,21 +4211,49 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     }
 
     // CPU-heavy games (city builders) and CPU pressure.
-    if let Some(t) = c.test {
-        if t.cpu_avg >= 85.0 {
-            let x264 = c.obs.map(|o| o.encoder_kind.contains("CPU")).unwrap_or(false);
-            let mut o = Vec::new();
-            if x264 {
-                o.push(opt("hw", "Switch OBS to your GPU encoder", "OBS › Settings › Output › Video Encoder", "Biggest CPU saving", "Very little"));
-            }
-            o.push(opt("bg", "Close background programs", "Browser tabs, launchers, cloud sync", "Frees CPU time", "Those programs stop until you reopen them"));
-            if cpu_game {
-                o.push(opt("sim", "Lower simulation-heavy settings or speed", format!("{} › Options", g.name), "Less CPU work per frame", "Slower simulation or less detail"));
-            } else {
-                o.push(opt("cap", format!("Cap FPS at {}", st.monitor_hz), format!("{} › Settings › Video", g.name), "Fewer frames to prepare means less CPU work", "Nothing visible at your refresh rate"));
-            }
-            suggest(&mut o, if x264 { "hw" } else { "bg" });
-            issues.push(Issue {
+    if let Some(t) = c.test
+        && t.cpu_avg >= 85.0
+    {
+        let x264 = c
+            .obs
+            .map(|o| o.encoder_kind.contains("CPU"))
+            .unwrap_or(false);
+        let mut o = Vec::new();
+        if x264 {
+            o.push(opt(
+                "hw",
+                "Switch OBS to your GPU encoder",
+                "OBS › Settings › Output › Video Encoder",
+                "Biggest CPU saving",
+                "Very little",
+            ));
+        }
+        o.push(opt(
+            "bg",
+            "Close background programs",
+            "Browser tabs, launchers, cloud sync",
+            "Frees CPU time",
+            "Those programs stop until you reopen them",
+        ));
+        if cpu_game {
+            o.push(opt(
+                "sim",
+                "Lower simulation-heavy settings or speed",
+                format!("{} › Options", g.name),
+                "Less CPU work per frame",
+                "Slower simulation or less detail",
+            ));
+        } else {
+            o.push(opt(
+                "cap",
+                format!("Cap FPS at {}", st.monitor_hz),
+                format!("{} › Settings › Video", g.name),
+                "Fewer frames to prepare means less CPU work",
+                "Nothing visible at your refresh rate",
+            ));
+        }
+        suggest(&mut o, if x264 { "hw" } else { "bg" });
+        issues.push(Issue {
                 id: "cpu_high".into(),
                 priority: Priority::High,
                 area: "System".into(),
@@ -2539,7 +4264,6 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 measured: true,
                 options: o,
             });
-        }
     }
 }
 
@@ -2557,10 +4281,20 @@ fn audio(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     };
     let mics = o.mics();
     if mics.is_empty() && o.connected {
-        a.checks.push(Check { name: "Audio".into(), status: Status::Warn, label: "No mic".into(), metric: "—".into(), note: "OBS has no microphone input.".into(), measured: true });
+        a.checks.push(Check {
+            name: "Audio".into(),
+            status: Status::Warn,
+            label: "No mic".into(),
+            metric: "—".into(),
+            note: "OBS has no microphone input.".into(),
+            measured: true,
+        });
         return;
     }
-    let (mic, desk) = (c.test.and_then(|t| t.mic_db), c.test.and_then(|t| t.desktop_db));
+    let (mic, desk) = (
+        c.test.and_then(|t| t.mic_db),
+        c.test.and_then(|t| t.desktop_db),
+    );
     if o.connected && o.desktop_audio().is_empty() {
         let linux = !cfg!(windows);
         let mut opts = vec![opt(
@@ -2607,8 +4341,20 @@ fn audio(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     let doubled = o.doubled_desktop_audio();
     if o.connected && doubled >= 2 {
         let mut opts = vec![
-            opt("mute", "Mute or remove one of them", "OBS › Audio Mixer › the extra Desktop Audio › mute (or Settings › Audio › Global Audio Devices › Desktop Audio 2 › Disabled)", "The game is heard once, at the level you set", "None"),
-            opt("keep", "Keep both", "Nothing to change", "Fine if one is only in a scene you don't use while gaming", "If both are live, game sound is louder and can echo"),
+            opt(
+                "mute",
+                "Mute or remove one of them",
+                "OBS › Audio Mixer › the extra Desktop Audio › mute (or Settings › Audio › Global Audio Devices › Desktop Audio 2 › Disabled)",
+                "The game is heard once, at the level you set",
+                "None",
+            ),
+            opt(
+                "keep",
+                "Keep both",
+                "Nothing to change",
+                "Fine if one is only in a scene you don't use while gaming",
+                "If both are live, game sound is louder and can echo",
+            ),
         ];
         suggest(&mut opts, "mute");
         issues.push(Issue {
@@ -2623,14 +4369,27 @@ fn audio(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             options: opts,
         });
     }
-    if let (Some(m), None) = (mic, desk) {
-        if m < -40.0 {
-            let mut opts = vec![
-                opt("gain", "Raise the mic's level", "OBS › Audio Mixer › your mic (or your system's input volume)", "Your voice comes through clearly", "Background noise gets louder too"),
-                opt("filter", "Add a Gain filter", "OBS › Audio Mixer › your mic › ⋮ › Filters › + › Gain", "Boosts only the stream, not other apps", "One more setting to manage"),
-            ];
-            suggest(&mut opts, "gain");
-            issues.push(Issue {
+    if let (Some(m), None) = (mic, desk)
+        && m < -40.0
+    {
+        let mut opts = vec![
+            opt(
+                "gain",
+                "Raise the mic's level",
+                "OBS › Audio Mixer › your mic (or your system's input volume)",
+                "Your voice comes through clearly",
+                "Background noise gets louder too",
+            ),
+            opt(
+                "filter",
+                "Add a Gain filter",
+                "OBS › Audio Mixer › your mic › ⋮ › Filters › + › Gain",
+                "Boosts only the stream, not other apps",
+                "One more setting to manage",
+            ),
+        ];
+        suggest(&mut opts, "gain");
+        issues.push(Issue {
                 id: "mic_quiet".into(),
                 priority: Priority::Low,
                 area: "Audio".into(),
@@ -2641,7 +4400,6 @@ fn audio(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 measured: true,
                 options: opts,
             });
-        }
     }
     match (mic, desk) {
         (Some(m), Some(d)) if m < d - 3.0 => {
@@ -2650,13 +4408,28 @@ fn audio(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 name: "Audio".into(),
                 status: Status::Warn,
                 label: "Mic quiet".into(),
-                metric: format!("Your mic is quieter than the game, by about {:.0} dB.", diff),
+                metric: format!(
+                    "Your mic is quieter than the game, by about {:.0} dB.",
+                    diff
+                ),
                 note: mic_gap_meaning(diff).into(),
                 measured: true,
             });
             let mut opts = vec![
-                opt("mic_up", format!("Raise your mic about {:.0} dB", diff.round()), "OBS › Audio Mixer › your mic", "Voice clearly on top", "Background noise gets louder too"),
-                opt("desk_down", format!("Lower game audio about {:.0} dB", diff.round()), "OBS › Audio Mixer › Desktop Audio", "Voice on top, no extra noise", "Game sounds quieter for viewers"),
+                opt(
+                    "mic_up",
+                    format!("Raise your mic about {:.0} dB", diff.round()),
+                    "OBS › Audio Mixer › your mic",
+                    "Voice clearly on top",
+                    "Background noise gets louder too",
+                ),
+                opt(
+                    "desk_down",
+                    format!("Lower game audio about {:.0} dB", diff.round()),
+                    "OBS › Audio Mixer › Desktop Audio",
+                    "Voice on top, no extra noise",
+                    "Game sounds quieter for viewers",
+                ),
             ];
             suggest(&mut opts, "mic_up");
             issues.push(Issue {
@@ -2671,15 +4444,34 @@ fn audio(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
                 options: opts,
             });
         }
-        (Some(_), Some(_)) => a.checks.push(Check { name: "Audio".into(), status: Status::Ok, label: "Balanced".into(), metric: "Voice on top".into(), note: "Your voice sits above game audio.".into(), measured: true }),
+        (Some(_), Some(_)) => a.checks.push(Check {
+            name: "Audio".into(),
+            status: Status::Ok,
+            label: "Balanced".into(),
+            metric: "Voice on top".into(),
+            note: "Your voice sits above game audio.".into(),
+            measured: true,
+        }),
         _ => {
             let muted = mics.iter().any(|m| m.muted == Some(true));
             a.checks.push(Check {
                 name: "Audio".into(),
                 status: if muted { Status::Warn } else { Status::Ok },
-                label: if muted { "Mic muted".into() } else { "Found".into() },
-                metric: format!("{} mic{}", mics.len(), if mics.len() == 1 { "" } else { "s" }),
-                note: if muted { "Your mic is muted in OBS.".into() } else { "Run a full test to compare mic and game volume.".into() },
+                label: if muted {
+                    "Mic muted".into()
+                } else {
+                    "Found".into()
+                },
+                metric: format!(
+                    "{} mic{}",
+                    mics.len(),
+                    if mics.len() == 1 { "" } else { "s" }
+                ),
+                note: if muted {
+                    "Your mic is muted in OBS.".into()
+                } else {
+                    "Run a full test to compare mic and game volume.".into()
+                },
                 measured: false,
             });
         }
@@ -2688,24 +4480,54 @@ fn audio(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
 
 fn hardware_and_heat(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     if let Some(h) = c.hw {
-        let gpu = h.main_gpu().map(|g| g.name.clone()).unwrap_or_else(|| "No GPU found".into());
+        let gpu = h
+            .main_gpu()
+            .map(|g| g.name.clone())
+            .unwrap_or_else(|| "No GPU found".into());
         let good = h.ram_gb >= 15.0 && h.cpu_threads >= 8 && h.has_hw_encoder();
         a.checks.push(Check {
             name: "Hardware".into(),
             status: if good { Status::Ok } else { Status::Warn },
-            label: if good { "Good".into() } else { "Limited".into() },
+            label: if good {
+                "Good".into()
+            } else {
+                "Limited".into()
+            },
             metric: gpu,
-            note: format!("{} · {} threads · {:.0} GB RAM", h.cpu, h.cpu_threads, h.ram_gb),
+            note: format!(
+                "{} · {} threads · {:.0} GB RAM",
+                h.cpu, h.cpu_threads, h.ram_gb
+            ),
             measured: true,
         });
     }
     if let Some(t) = c.test {
-        let hot = t.gpu_temp_max.map(|x| x >= 87.0).unwrap_or(false) || t.gpu_throttle.is_some() || t.cpu_temp_max.map(|x| x >= 95.0).unwrap_or(false);
+        let hot = t.gpu_temp_max.map(|x| x >= 87.0).unwrap_or(false)
+            || t.gpu_throttle.is_some()
+            || t.cpu_temp_max.map(|x| x >= 95.0).unwrap_or(false);
         if hot {
             let mut opts = vec![
-                opt("air", "Improve airflow and clean dust", "Case fans, filters and the GPU cooler", "Lower temperatures, full speed", "A little time and effort"),
-                opt("cap", format!("Cap FPS at {}", c.st.monitor_hz), "In the game's video settings", "Less heat from less work", "Nothing visible at your refresh rate"),
-                opt("fans", "Use a more aggressive fan curve", "GPU vendor software (e.g. MSI Afterburner, AMD Adrenalin)", "Cooler under load", "Louder fans"),
+                opt(
+                    "air",
+                    "Improve airflow and clean dust",
+                    "Case fans, filters and the GPU cooler",
+                    "Lower temperatures, full speed",
+                    "A little time and effort",
+                ),
+                opt(
+                    "cap",
+                    format!("Cap FPS at {}", c.st.monitor_hz),
+                    "In the game's video settings",
+                    "Less heat from less work",
+                    "Nothing visible at your refresh rate",
+                ),
+                opt(
+                    "fans",
+                    "Use a more aggressive fan curve",
+                    "GPU vendor software (e.g. MSI Afterburner, AMD Adrenalin)",
+                    "Cooler under load",
+                    "Louder fans",
+                ),
             ];
             suggest(&mut opts, "cap");
             issues.push(Issue {
@@ -2733,7 +4555,14 @@ fn hardware_and_heat(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
 
 fn scene(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     let Some(o) = c.obs.filter(|o| o.connected) else {
-        a.checks.push(Check { name: "OBS scene".into(), status: Status::Unknown, label: "Not connected".into(), metric: "—".into(), note: "Connect OBS to check your scene.".into(), measured: false });
+        a.checks.push(Check {
+            name: "OBS scene".into(),
+            status: Status::Unknown,
+            label: "Not connected".into(),
+            metric: "—".into(),
+            note: "Connect OBS to check your scene.".into(),
+            measured: false,
+        });
         return;
     };
     // Only a definite whole-screen capture, and only when the game isn't captured on its own.
@@ -2741,10 +4570,27 @@ fn scene(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     a.checks.push(Check {
         name: "OBS scene".into(),
         status: if display { Status::Warn } else { Status::Ok },
-        label: if display { (if cfg!(windows) { "Privacy risk" } else { "Check capture" }).into() } else { "Good".into() },
-        metric: format!("{} source{}", o.sources.len(), if o.sources.len() == 1 { "" } else { "s" }),
+        label: if display {
+            (if cfg!(windows) {
+                "Privacy risk"
+            } else {
+                "Check capture"
+            })
+            .into()
+        } else {
+            "Good".into()
+        },
+        metric: format!(
+            "{} source{}",
+            o.sources.len(),
+            if o.sources.len() == 1 { "" } else { "s" }
+        ),
         note: if display {
-            if cfg!(windows) { "Display capture can show messages and notifications to viewers.".into() } else { "Screen capture may show your whole screen to viewers.".into() }
+            if cfg!(windows) {
+                "Display capture can show messages and notifications to viewers.".into()
+            } else {
+                "Screen capture may show your whole screen to viewers.".into()
+            }
         } else {
             "Scene sources look fine.".into()
         },
@@ -2778,8 +4624,20 @@ fn scene(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             ]
         } else {
             vec![
-                opt("game_capture", "Use Game Capture (or Window Capture) instead", "OBS › Sources › + › Game Capture", "Only the game is shown", "Need to set it up once per game"),
-                opt("dnd", "Keep Display Capture, turn on Do Not Disturb", "Windows › Settings › System › Notifications › Do not disturb", "Fewer surprises on stream", "Still shows anything you open, like Discord"),
+                opt(
+                    "game_capture",
+                    "Use Game Capture (or Window Capture) instead",
+                    "OBS › Sources › + › Game Capture",
+                    "Only the game is shown",
+                    "Need to set it up once per game",
+                ),
+                opt(
+                    "dnd",
+                    "Keep Display Capture, turn on Do Not Disturb",
+                    "Windows › Settings › System › Notifications › Do not disturb",
+                    "Fewer surprises on stream",
+                    "Still shows anything you open, like Discord",
+                ),
             ]
         };
         suggest(&mut opts, if linux { "pw_window" } else { "game_capture" });
@@ -2809,7 +4667,13 @@ fn background(c: &Ctx, issues: &mut Vec<Issue>) {
     if let Some(t) = c.test {
         let names: Vec<String> = t.hogs.iter().map(|h| h.label.clone()).collect();
         if !names.is_empty() {
-            let mut opts = vec![opt("close", "Pause or close them while you stream", names.join(", "), "More bandwidth and CPU for the stream", "Updates and syncing wait until later")];
+            let mut opts = vec![opt(
+                "close",
+                "Pause or close them while you stream",
+                names.join(", "),
+                "More bandwidth and CPU for the stream",
+                "Updates and syncing wait until later",
+            )];
             suggest(&mut opts, "close");
             issues.push(Issue {
                 id: "hogs".into(),
@@ -2826,8 +4690,20 @@ fn background(c: &Ctx, issues: &mut Vec<Issue>) {
         if t.output_total > 0 && t.output_skipped as f32 / t.output_total as f32 > 0.01 {
             let pct = t.output_skipped as f32 * 100.0 / t.output_total as f32;
             let mut opts = vec![
-                opt("hw", "Use your GPU encoder, or a faster preset", "OBS › Settings › Output", "Encoder keeps up", "Slightly lower quality at the same bitrate"),
-                opt("res", "Lower output resolution or FPS", "OBS › Settings › Video", "Less work per second", "Softer or less smooth video"),
+                opt(
+                    "hw",
+                    "Use your GPU encoder, or a faster preset",
+                    "OBS › Settings › Output",
+                    "Encoder keeps up",
+                    "Slightly lower quality at the same bitrate",
+                ),
+                opt(
+                    "res",
+                    "Lower output resolution or FPS",
+                    "OBS › Settings › Video",
+                    "Less work per second",
+                    "Softer or less smooth video",
+                ),
             ];
             suggest(&mut opts, "hw");
             issues.push(Issue {
@@ -2843,24 +4719,33 @@ fn background(c: &Ctx, issues: &mut Vec<Issue>) {
             });
         }
     }
-    if let Some(o) = c.obs {
-        if let Some(major) = o.obs_version.split('.').next().and_then(|m| m.parse::<u32>().ok()) {
-            if major < 30 {
-                let mut opts = vec![opt("update", "Update OBS", "obsproject.com", "Newer encoders and fixes", "A few minutes to install")];
-                suggest(&mut opts, "update");
-                issues.push(Issue {
-                    id: "obs_old".into(),
-                    priority: Priority::Low,
-                    area: "OBS".into(),
-                    title: format!("OBS {} is out of date.", o.obs_version),
-                    why: "Newer OBS versions include encoder improvements and bug fixes.".into(),
-                    who: "Everyone.".into(),
-                    learn: "Updating OBS keeps your scenes and settings.".into(),
-                    measured: false,
-                    options: opts,
-                });
-            }
-        }
+    if let Some(o) = c.obs
+        && let Some(major) = o
+            .obs_version
+            .split('.')
+            .next()
+            .and_then(|m| m.parse::<u32>().ok())
+        && major < 30
+    {
+        let mut opts = vec![opt(
+            "update",
+            "Update OBS",
+            "obsproject.com",
+            "Newer encoders and fixes",
+            "A few minutes to install",
+        )];
+        suggest(&mut opts, "update");
+        issues.push(Issue {
+            id: "obs_old".into(),
+            priority: Priority::Low,
+            area: "OBS".into(),
+            title: format!("OBS {} is out of date.", o.obs_version),
+            why: "Newer OBS versions include encoder improvements and bug fixes.".into(),
+            who: "Everyone.".into(),
+            learn: "Updating OBS keeps your scenes and settings.".into(),
+            measured: false,
+            options: opts,
+        });
     }
 }
 
@@ -2888,14 +4773,21 @@ mod quality_tests {
 
     pub(super) fn ids(o: &ObsSnapshot) -> Vec<String> {
         let st = Settings::default();
-        analyze(&st, None, &[], Some(o), None, None, false).issues.into_iter().map(|i| i.id).collect()
+        analyze(&st, None, &[], Some(o), None, None, false)
+            .issues
+            .into_iter()
+            .map(|i| i.id)
+            .collect()
     }
 
     #[test]
     fn good_settings_raise_nothing() {
         let i = ids(&snap());
         for id in ["rate_control", "keyframes", "preset", "downscale"] {
-            assert!(!i.contains(&id.to_string()), "{id} flagged on good settings");
+            assert!(
+                !i.contains(&id.to_string()),
+                "{id} flagged on good settings"
+            );
         }
     }
 
@@ -2960,8 +4852,14 @@ mod quality_tests {
         assert_eq!(place_of("keyframes"), Place::Obs);
         assert!(preset_rank("p7") > preset_rank("p4"));
         assert_eq!(preset_rank("veryfast"), Some(3));
-        assert_eq!(crate::hardware::nvenc_chips("NVIDIA GeForce RTX 4090"), Some(2));
-        assert_eq!(crate::hardware::nvenc_chips("NVIDIA GeForce RTX 4070"), Some(1));
+        assert_eq!(
+            crate::hardware::nvenc_chips("NVIDIA GeForce RTX 4090"),
+            Some(2)
+        );
+        assert_eq!(
+            crate::hardware::nvenc_chips("NVIDIA GeForce RTX 4070"),
+            Some(1)
+        );
         assert_eq!(crate::hardware::nvenc_chips("AMD Radeon RX 7800 XT"), None);
     }
 
@@ -2977,19 +4875,49 @@ mod quality_tests {
         o.rec_preset = "p5".into();
         o.rec_format = "hybrid_mov".into();
         o.recording_uses_stream_settings = Some(false);
-        o.audio = vec![crate::obs::AudioInput { name: String::new(), kind: "pulse_input_capture".into(), role: "mic".into(), muted: Some(false), volume_db: Some(0.0), device: String::new() }];
-        let t = TestResult { gpu_avg: Some(97.6), output_total: 8158, output_skipped: 2, render_total: 8158, render_skipped: 2, mic_db: Some(-47.0), cpu_avg: 18.0, seconds: 137.0, ..Default::default() };
-        let st = Settings { monitor_hz: 480, ..Settings::default() };
+        o.audio = vec![crate::obs::AudioInput {
+            name: String::new(),
+            kind: "pulse_input_capture".into(),
+            role: "mic".into(),
+            muted: Some(false),
+            volume_db: Some(0.0),
+            device: String::new(),
+        }];
+        let t = TestResult {
+            gpu_avg: Some(97.6),
+            output_total: 8158,
+            output_skipped: 2,
+            render_total: 8158,
+            render_skipped: 2,
+            mic_db: Some(-47.0),
+            cpu_avg: 18.0,
+            seconds: 137.0,
+            ..Default::default()
+        };
+        let st = Settings {
+            monitor_hz: 480,
+            ..Settings::default()
+        };
         let a = analyze(&st, None, &[], Some(&o), None, Some(&t), true);
         let get = |id: &str| a.issues.iter().find(|i| i.id == id);
         let g = get("gpu_maxed").expect("GPU at 98% must be shown even after a settings change");
         assert_eq!(g.priority, Priority::Medium, "OBS kept up, so not High");
-        assert!(g.options.iter().any(|o| o.name.contains("120")), "60 FPS stream: cap at 120, not half of 480 Hz");
+        assert!(
+            g.options.iter().any(|o| o.name.contains("120")),
+            "60 FPS stream: cap at 120, not half of 480 Hz"
+        );
         assert!(get("no_game_audio").is_some());
         assert!(get("mic_quiet").is_some());
-        assert!(get("recording_mismatch").is_none(), "separate GPU recording is fine; the Test step offers stream + record");
+        assert!(
+            get("recording_mismatch").is_none(),
+            "separate GPU recording is fine; the Test step offers stream + record"
+        );
         assert!(get("rec_format").is_none(), "Hybrid MOV is crash-safe");
-        let kf = a.recommended.iter().find(|r| r.setting == "Keyframe interval").unwrap();
+        let kf = a
+            .recommended
+            .iter()
+            .find(|r| r.setting == "Keyframe interval")
+            .unwrap();
         assert!(!kf.ok, "auto keyframes: row and issue must agree");
     }
 
@@ -2998,7 +4926,10 @@ mod quality_tests {
         assert_eq!(cap_target(480, Some(60.0), Style::Balanced, None), 120);
         assert_eq!(cap_target(480, Some(30.0), Style::Balanced, None), 60);
         assert_eq!(cap_target(144, Some(60.0), Style::Competitive, None), 144);
-        assert_eq!(cap_target(480, Some(60.0), Style::Competitive, Some(150.0)), 120);
+        assert_eq!(
+            cap_target(480, Some(60.0), Style::Competitive, Some(150.0)),
+            120
+        );
         assert_eq!(cap_target(480, Some(60.0), Style::Balanced, Some(95.0)), 72);
     }
 
@@ -3009,33 +4940,114 @@ mod quality_tests {
     fn cyberpunk_custom_cap_too_high() {
         use crate::games::*;
         let g = GameResult {
-            id: "cyberpunk2077".into(), name: "Cyberpunk 2077".into(), load: "gpu".into(), profile_version: 4, verified: String::new(),
-            installed: true, install_hint: String::new(), running: true, platform_note: None, files: vec![], findings: vec![], unmatched_rules: vec![], key_names: vec![],
-            current: vec![CurrentSetting { rule_id: "fps_uncapped".into(), setting: "FPS limit".into(), effect: "uncapped_fps".into(), menu: "Cyberpunk 2077 › Settings › Video › Maximum FPS".into(), value: "240".into(), flagged: false, change_to: None, gain: None, cost: None }],
-            preset: Some(PresetState { setting: "Quick preset".into(), menu: "m".into(), value: "Custom".into(), custom: true, lower: None }),
+            id: "cyberpunk2077".into(),
+            name: "Cyberpunk 2077".into(),
+            load: "gpu".into(),
+            profile_version: 4,
+            verified: String::new(),
+            installed: true,
+            install_hint: String::new(),
+            running: true,
+            platform_note: None,
+            files: vec![],
+            findings: vec![],
+            unmatched_rules: vec![],
+            key_names: vec![],
+            current: vec![CurrentSetting {
+                rule_id: "fps_uncapped".into(),
+                setting: "FPS limit".into(),
+                effect: "uncapped_fps".into(),
+                menu: "Cyberpunk 2077 › Settings › Video › Maximum FPS".into(),
+                value: "240".into(),
+                flagged: false,
+                change_to: None,
+                gain: None,
+                cost: None,
+            }],
+            preset: Some(PresetState {
+                setting: "Quick preset".into(),
+                menu: "m".into(),
+                value: "Custom".into(),
+                custom: true,
+                lower: None,
+            }),
             tunables: vec![
-                TunableState { id: "ssr".into(), setting: "Screen Space Reflections Quality".into(), menu: "m".into(), now: "Ultra".into(), change_to: Some("High".into()), gain: "g".into(), cost: "c".into() },
-                TunableState { id: "fog".into(), setting: "Volumetric Fog Resolution".into(), menu: "m".into(), now: "Ultra".into(), change_to: Some("High".into()), gain: "g".into(), cost: "c".into() },
+                TunableState {
+                    id: "ssr".into(),
+                    setting: "Screen Space Reflections Quality".into(),
+                    menu: "m".into(),
+                    now: "Ultra".into(),
+                    change_to: Some("High".into()),
+                    gain: "g".into(),
+                    cost: "c".into(),
+                },
+                TunableState {
+                    id: "fog".into(),
+                    setting: "Volumetric Fog Resolution".into(),
+                    menu: "m".into(),
+                    now: "Ultra".into(),
+                    change_to: Some("High".into()),
+                    gain: "g".into(),
+                    cost: "c".into(),
+                },
             ],
-            fps_cap: Some(240), unreadable: vec![], has_fps_limit: true, api: Some("dx12".into()), proton: true, display_res: None, display_hz: None, ..Default::default()
+            fps_cap: Some(240),
+            unreadable: vec![],
+            has_fps_limit: true,
+            api: Some("dx12".into()),
+            proton: true,
+            display_res: None,
+            display_hz: None,
+            ..Default::default()
         };
         let mut o = snap();
         o.connected = true;
         o.fps = Some(60.0);
-        let t = TestResult { gpu_avg: Some(97.0), output_total: 8000, output_skipped: 2, render_total: 8000, seconds: 130.0, game_running: Some("Cyberpunk 2077".into()), ..Default::default() };
-        let st = Settings { monitor_hz: 480, ..Settings::default() };
+        let t = TestResult {
+            gpu_avg: Some(97.0),
+            output_total: 8000,
+            output_skipped: 2,
+            render_total: 8000,
+            seconds: 130.0,
+            game_running: Some("Cyberpunk 2077".into()),
+            ..Default::default()
+        };
+        let st = Settings {
+            monitor_hz: 480,
+            ..Settings::default()
+        };
         let a = analyze(&st, None, &[g], Some(&o), None, Some(&t), false);
-        let i = a.issues.iter().find(|i| i.id == "gpu_maxed").expect("GPU maxed");
-        let cap = i.options.iter().find(|o| o.id == "cap").expect("lower the cap");
+        let i = a
+            .issues
+            .iter()
+            .find(|i| i.id == "gpu_maxed")
+            .expect("GPU maxed");
+        let cap = i
+            .options
+            .iter()
+            .find(|o| o.id == "cap")
+            .expect("lower the cap");
         assert!(cap.suggested);
         assert_eq!(cap.changes[0].now.as_deref(), Some("240"));
         assert_eq!(cap.changes[0].to, "120");
-        let tune = i.options.iter().find(|o| o.id == "tune").expect("heavy settings for Custom");
+        let tune = i
+            .options
+            .iter()
+            .find(|o| o.id == "tune")
+            .expect("heavy settings for Custom");
         assert_eq!(tune.changes.len(), 2);
         assert!(!i.options.iter().any(|o| o.name.contains("one step")));
         // Your setup shows the same change, from the same list.
-        let row = a.setup.game.iter().find(|r| r.setting == "FPS limit").unwrap();
-        assert_eq!((row.now.as_str(), row.suggested.as_str(), row.tag), ("240", "120", Tag::Change));
+        let row = a
+            .setup
+            .game
+            .iter()
+            .find(|r| r.setting == "FPS limit")
+            .unwrap();
+        assert_eq!(
+            (row.now.as_str(), row.suggested.as_str(), row.tag),
+            ("240", "120", Tag::Change)
+        );
         assert!(a.smoothness.is_some());
     }
 
@@ -3045,11 +5057,37 @@ mod quality_tests {
         let o = snap();
         let mut samples = Vec::new();
         for i in 0..136 {
-            samples.push(crate::hardware::Sample { t: i as f32, cpu: 30.0, gpu: Some(if i < 90 { 72.0 } else { 97.0 }), ..Default::default() });
+            samples.push(crate::hardware::Sample {
+                t: i as f32,
+                cpu: 30.0,
+                gpu: Some(if i < 90 { 72.0 } else { 97.0 }),
+                ..Default::default()
+            });
         }
-        let t = TestResult { samples, gpu_avg: Some(84.0), output_total: 8068, output_skipped: 2, render_total: 8068, render_skipped: 2, seconds: 136.0, ..Default::default() };
-        let a = analyze(&Settings::default(), None, &[], Some(&o), None, Some(&t), false);
-        let g = a.issues.iter().find(|i| i.id == "gpu_maxed").expect("maxed for a third of the test must be flagged");
+        let t = TestResult {
+            samples,
+            gpu_avg: Some(84.0),
+            output_total: 8068,
+            output_skipped: 2,
+            render_total: 8068,
+            render_skipped: 2,
+            seconds: 136.0,
+            ..Default::default()
+        };
+        let a = analyze(
+            &Settings::default(),
+            None,
+            &[],
+            Some(&o),
+            None,
+            Some(&t),
+            false,
+        );
+        let g = a
+            .issues
+            .iter()
+            .find(|i| i.id == "gpu_maxed")
+            .expect("maxed for a third of the test must be flagged");
         assert!(g.title.contains("% of the test"), "{}", g.title);
     }
 
@@ -3057,16 +5095,50 @@ mod quality_tests {
     fn setup_view_covers_every_issue() {
         let mut o = snap();
         o.rate_control = "VBR".into();
-        o.audio = vec![crate::obs::AudioInput { name: String::new(), kind: "pulse_input_capture".into(), role: "mic".into(), muted: Some(false), volume_db: None, device: String::new() }];
-        let t = TestResult { gpu_avg: Some(97.0), output_total: 1000, output_skipped: 20, render_total: 1000, seconds: 120.0, hogs: vec![crate::hardware::Hog { label: "Dropbox".into(), cpu: 30.0 }], ..Default::default() };
+        o.audio = vec![crate::obs::AudioInput {
+            name: String::new(),
+            kind: "pulse_input_capture".into(),
+            role: "mic".into(),
+            muted: Some(false),
+            volume_db: None,
+            device: String::new(),
+        }];
+        let t = TestResult {
+            gpu_avg: Some(97.0),
+            output_total: 1000,
+            output_skipped: 20,
+            render_total: 1000,
+            seconds: 120.0,
+            hogs: vec![crate::hardware::Hog {
+                label: "Dropbox".into(),
+                cpu: 30.0,
+            }],
+            ..Default::default()
+        };
         let mut st = Settings::default();
         st.kept_issues.push("rate_control".into());
         let a = analyze(&st, None, &[], Some(&o), None, Some(&t), false);
-        let rows: Vec<&SetupRow> = a.setup.obs.iter().chain(a.setup.game.iter()).chain(a.setup.pc.iter()).collect();
+        let rows: Vec<&SetupRow> = a
+            .setup
+            .obs
+            .iter()
+            .chain(a.setup.game.iter())
+            .chain(a.setup.pc.iter())
+            .collect();
         for i in &a.issues {
-            assert!(rows.iter().any(|r| r.issue_id.as_deref() == Some(i.id.as_str())), "issue {} has no row", i.id);
+            assert!(
+                rows.iter()
+                    .any(|r| r.issue_id.as_deref() == Some(i.id.as_str())),
+                "issue {} has no row",
+                i.id
+            );
         }
-        let rc = a.setup.obs.iter().find(|r| r.setting == "Rate control").unwrap();
+        let rc = a
+            .setup
+            .obs
+            .iter()
+            .find(|r| r.setting == "Rate control")
+            .unwrap();
         assert_eq!(rc.tag, Tag::Kept);
         assert!(a.setup.summary.contains("change"), "{}", a.setup.summary);
         assert!(!a.verdict.is_empty());
@@ -3083,8 +5155,8 @@ mod quality_tests {
 
 #[cfg(test)]
 mod cities_advice_tests {
-    use super::*;
     use super::quality_tests::snap;
+    use super::*;
     use crate::games::*;
 
     /// Cities: Skylines II with the GPU maxed: no in-game FPS cap is ever
@@ -3094,26 +5166,79 @@ mod cities_advice_tests {
         let m = crate::games::parse("coc", include_str!("testdata/cities2_settings.coc")).unwrap();
         let _ = m;
         let g = GameResult {
-            id: "cities_skylines_2".into(), name: "Cities: Skylines II".into(), load: "cpu_gpu".into(), profile_version: 2, verified: String::new(),
-            installed: true, install_hint: String::new(), running: true, platform_note: None, files: vec![], findings: vec![], unmatched_rules: vec![], key_names: vec![],
-            current: vec![], preset: None,
-            tunables: vec![TunableState { id: "dof".into(), setting: "Depth of field".into(), menu: "m".into(), now: "On".into(), change_to: Some("Off".into()), gain: "g".into(), cost: "c".into() }],
-            fps_cap: None, unreadable: vec![], has_fps_limit: false, api: Some("dx11".into()), proton: true, display_res: None, display_hz: Some(60.0), ..Default::default()
+            id: "cities_skylines_2".into(),
+            name: "Cities: Skylines II".into(),
+            load: "cpu_gpu".into(),
+            profile_version: 2,
+            verified: String::new(),
+            installed: true,
+            install_hint: String::new(),
+            running: true,
+            platform_note: None,
+            files: vec![],
+            findings: vec![],
+            unmatched_rules: vec![],
+            key_names: vec![],
+            current: vec![],
+            preset: None,
+            tunables: vec![TunableState {
+                id: "dof".into(),
+                setting: "Depth of field".into(),
+                menu: "m".into(),
+                now: "On".into(),
+                change_to: Some("Off".into()),
+                gain: "g".into(),
+                cost: "c".into(),
+            }],
+            fps_cap: None,
+            unreadable: vec![],
+            has_fps_limit: false,
+            api: Some("dx11".into()),
+            proton: true,
+            display_res: None,
+            display_hz: Some(60.0),
+            ..Default::default()
         };
         let mut o = snap();
         o.connected = true;
         o.fps = Some(60.0);
-        let t = TestResult { gpu_avg: Some(97.0), output_total: 8000, render_total: 8000, seconds: 130.0, game_running: Some("Cities: Skylines II".into()), ..Default::default() };
-        let st = Settings { monitor_hz: 480, ..Settings::default() };
+        let t = TestResult {
+            gpu_avg: Some(97.0),
+            output_total: 8000,
+            render_total: 8000,
+            seconds: 130.0,
+            game_running: Some("Cities: Skylines II".into()),
+            ..Default::default()
+        };
+        let st = Settings {
+            monitor_hz: 480,
+            ..Settings::default()
+        };
         let a = analyze(&st, None, &[g], Some(&o), None, Some(&t), false);
-        let i = a.issues.iter().find(|i| i.id == "gpu_maxed").expect("GPU maxed");
-        assert!(!i.options.iter().any(|o| o.menu.contains("Video (Max FPS")), "no in-game cap for Cities");
-        let cap = i.options.iter().find(|o| o.id == "cap").expect("outside cap");
+        let i = a
+            .issues
+            .iter()
+            .find(|i| i.id == "gpu_maxed")
+            .expect("GPU maxed");
+        assert!(
+            !i.options.iter().any(|o| o.menu.contains("Video (Max FPS")),
+            "no in-game cap for Cities"
+        );
+        let cap = i
+            .options
+            .iter()
+            .find(|o| o.id == "cap")
+            .expect("outside cap");
         if cfg!(not(windows)) {
             assert!(cap.changes[0].to.contains("DXVK_FRAME_RATE=120"));
         }
         assert!(i.options.iter().any(|o| o.id == "tune"));
-        assert!(a.setup.game.iter().any(|r| r.setting == "Game display mode" && r.why.contains("480")));
+        assert!(
+            a.setup
+                .game
+                .iter()
+                .any(|r| r.setting == "Game display mode" && r.why.contains("480"))
+        );
     }
 
     #[test]
@@ -3122,7 +5247,11 @@ mod cities_advice_tests {
         let opts = vec![o("cap"), o("upscale"), o("tune")];
         let mut st = Settings::default();
         st.apply_style(Style::Competitive);
-        assert_eq!(style_pick(&st, &opts), "tune", "Competitive lowers graphics first");
+        assert_eq!(
+            style_pick(&st, &opts),
+            "tune",
+            "Competitive lowers graphics first"
+        );
         st.apply_style(Style::Balanced);
         assert_eq!(style_pick(&st, &opts), "upscale");
         st.apply_style(Style::Cinematic);
@@ -3137,40 +5266,92 @@ mod cities_advice_tests {
     #[test]
     fn picture_for_bitrate() {
         assert_eq!(needed_kbps(1920, 1080, 60.0, "high", "H.264"), 6000);
-        assert_eq!(best_height((2560, 1440), 6000, 60.0, "high", "H.264", 2160), (1920, 1080));
-        assert_eq!(best_height((2560, 1440), 6000, 60.0, "high", "H.264", 2160).1, 1080);
-        assert_eq!(best_height((2560, 1440), 12000, 60.0, "high", "H.264", 2160).1, 1440, "1440p60 is fine at 12 Mbps");
-        assert_eq!(best_height((1920, 1080), 3500, 60.0, "high", "H.264", 2160).1, 720);
+        assert_eq!(
+            best_height((2560, 1440), 6000, 60.0, "high", "H.264", 2160),
+            (1920, 1080)
+        );
+        assert_eq!(
+            best_height((2560, 1440), 6000, 60.0, "high", "H.264", 2160).1,
+            1080
+        );
+        assert_eq!(
+            best_height((2560, 1440), 12000, 60.0, "high", "H.264", 2160).1,
+            1440,
+            "1440p60 is fine at 12 Mbps"
+        );
+        assert_eq!(
+            best_height((1920, 1080), 3500, 60.0, "high", "H.264", 2160).1,
+            720
+        );
         // Twitch, 1440p60 at 6000 kbps: suggest 1080p with Lanczos, never 30 FPS.
         let mut o = snap();
         o.output_res = Some((2560, 1440));
         let st = Settings::default();
         let a = analyze(&st, None, &[], Some(&o), None, None, false);
-        let i = a.issues.iter().find(|i| i.id == "resolution_bitrate").expect("1440p at 6000 flagged");
+        let i = a
+            .issues
+            .iter()
+            .find(|i| i.id == "resolution_bitrate")
+            .expect("1440p at 6000 flagged");
         let d = i.options.iter().find(|o| o.suggested).unwrap();
         assert_eq!(d.id, "res_down");
         assert_eq!(d.changes[0].to, "1920x1080");
         assert!(d.changes.iter().any(|c| c.to.starts_with("Lanczos")));
         assert!(!i.options.iter().any(|o| o.name.contains("30")));
-        assert!(i.options.iter().any(|o| o.id == "eb"), "Twitch: Enhanced Broadcasting offered");
+        assert!(
+            i.options.iter().any(|o| o.id == "eb"),
+            "Twitch: Enhanced Broadcasting offered"
+        );
         assert_eq!(a.recommended_output, "1080p60 · 6000 kbps");
-        let row = a.setup.obs.iter().find(|r| r.setting.starts_with("Output")).unwrap();
-        assert_ne!(row.tag, Tag::Keep, "the output row isn't 'Keep' while it's too big");
+        let row = a
+            .setup
+            .obs
+            .iter()
+            .find(|r| r.setting.starts_with("Output"))
+            .unwrap();
+        assert_ne!(
+            row.tag,
+            Tag::Keep,
+            "the output row isn't 'Keep' while it's too big"
+        );
         // 1080p60 at 6000 is fine.
         assert!(!quality_tests::ids(&snap()).contains(&"resolution_bitrate".to_string()));
         // NVENC options: with GPU headroom in the test, the slowest preset and full two-pass.
         let mut o = snap();
         o.enc_multipass = "qres".into();
         o.enc_tune = "ll".into();
-        let t = TestResult { gpu_avg: Some(49.0), output_total: 8000, seconds: 130.0, ..Default::default() };
+        let t = TestResult {
+            gpu_avg: Some(49.0),
+            output_total: 8000,
+            seconds: 130.0,
+            ..Default::default()
+        };
         let a = analyze(&st, None, &[], Some(&o), None, Some(&t), false);
-        let q = a.issues.iter().find(|i| i.id == "enc_quality").expect("quality options");
+        let q = a
+            .issues
+            .iter()
+            .find(|i| i.id == "enc_quality")
+            .expect("quality options");
         let ch = &q.options[0].changes;
-        assert!(ch.iter().any(|c| c.setting == "Preset" && c.to.starts_with("P7")));
-        assert!(ch.iter().any(|c| c.setting == "Multipass Mode" && c.to.contains("Full")));
-        assert!(ch.iter().any(|c| c.setting == "Tuning" && c.to == "High Quality"));
+        assert!(
+            ch.iter()
+                .any(|c| c.setting == "Preset" && c.to.starts_with("P7"))
+        );
+        assert!(
+            ch.iter()
+                .any(|c| c.setting == "Multipass Mode" && c.to.contains("Full"))
+        );
+        assert!(
+            ch.iter()
+                .any(|c| c.setting == "Tuning" && c.to == "High Quality")
+        );
         // A busy GPU gets the lighter options.
-        let t = TestResult { gpu_avg: Some(97.0), output_total: 8000, seconds: 130.0, ..Default::default() };
+        let t = TestResult {
+            gpu_avg: Some(97.0),
+            output_total: 8000,
+            seconds: 130.0,
+            ..Default::default()
+        };
         let a = analyze(&st, None, &[], Some(&o), None, Some(&t), false);
         let q = a.issues.iter().find(|i| i.id == "enc_quality").unwrap();
         assert!(!q.options[0].changes.iter().any(|c| c.to.starts_with("P7")));
@@ -3187,9 +5368,25 @@ mod cities_advice_tests {
         let mut o = snap();
         o.preset = "p6".into();
         o.enc_multipass = "fullres".into();
-        let t = TestResult { gpu_avg: Some(43.0), output_total: 8000, seconds: 130.0, ..Default::default() };
-        let a = analyze(&Settings::default(), None, &[], Some(&o), None, Some(&t), false);
-        assert!(!a.issues.iter().any(|i| i.id == "enc_quality"), "P6 with full two-pass needs nothing");
+        let t = TestResult {
+            gpu_avg: Some(43.0),
+            output_total: 8000,
+            seconds: 130.0,
+            ..Default::default()
+        };
+        let a = analyze(
+            &Settings::default(),
+            None,
+            &[],
+            Some(&o),
+            None,
+            Some(&t),
+            false,
+        );
+        assert!(
+            !a.issues.iter().any(|i| i.id == "enc_quality"),
+            "P6 with full two-pass needs nothing"
+        );
         let row = a.setup.obs.iter().find(|r| r.setting == "Preset").unwrap();
         assert_eq!(row.tag, Tag::Keep);
         let mut n = o.clone();
@@ -3197,37 +5394,114 @@ mod cities_advice_tests {
         n.bitrate_kbps = Some(8000);
         let d = o.enc_settings().changes_to(&n.enc_settings());
         assert!(d.contains(&"Preset P6 → P7".to_string()), "{d:?}");
-        assert!(d.iter().any(|x| x.starts_with("Bitrate (kbps) 6000 → 8000")));
+        assert!(
+            d.iter()
+                .any(|x| x.starts_with("Bitrate (kbps) 6000 → 8000"))
+        );
     }
 
     #[test]
     fn plugin_outputs_and_encode_budget() {
-        use crate::obs::{classify_output, OutputInfo, SourceRecordInfo};
+        use crate::obs::{OutputInfo, SourceRecordInfo, classify_output};
         assert_eq!(classify_output("rtmp_output", "adv_stream").0, "Stream");
-        assert_eq!(classify_output("rtmp_output", "multi-rtmp YouTube 1"), ("Extra stream (YouTube)".to_string(), true, Some("YouTube".to_string())));
-        assert_eq!(classify_output("rtmp_output", "vertical_canvas_stream").0, "Vertical canvas stream");
-        assert_eq!(classify_output("ffmpeg_muxer", "Source Record 3").0, "Source Record");
+        assert_eq!(
+            classify_output("rtmp_output", "multi-rtmp YouTube 1"),
+            (
+                "Extra stream (YouTube)".to_string(),
+                true,
+                Some("YouTube".to_string())
+            )
+        );
+        assert_eq!(
+            classify_output("rtmp_output", "vertical_canvas_stream").0,
+            "Vertical canvas stream"
+        );
+        assert_eq!(
+            classify_output("ffmpeg_muxer", "Source Record 3").0,
+            "Source Record"
+        );
         // A 1-chip card running stream + separate recording + vertical stream + a Source Record.
         let mut o = snap();
         o.recording_uses_stream_settings = Some(false);
         o.rec_encoder_kind = "NVIDIA NVENC".into();
-        o.outputs = vec![OutputInfo { kind: "rtmp_output".into(), label: "Vertical canvas stream".into(), plugin: true, ..Default::default() }];
-        o.source_records = vec![SourceRecordInfo { mode: "Always".into(), encoder: "CPU (x264)".into(), enabled: true, bitrate_kbps: None }];
+        o.outputs = vec![OutputInfo {
+            kind: "rtmp_output".into(),
+            label: "Vertical canvas stream".into(),
+            plugin: true,
+            ..Default::default()
+        }];
+        o.source_records = vec![SourceRecordInfo {
+            mode: "Always".into(),
+            encoder: "CPU (x264)".into(),
+            enabled: true,
+            bitrate_kbps: None,
+        }];
         let list = encode_list(&o, 0);
         assert_eq!(list.len(), 4, "{list:?}");
-        let hw = crate::hardware::HardwareInfo { os: String::new(), os_family: "Linux", kernel: String::new(), session: String::new(), cpu: String::new(), cpu_physical_cores: None, cpu_threads: 16, ram_gb: 32.0, gpus: vec![crate::hardware::Gpu { name: "NVIDIA GeForce RTX 3060".into(), vendor: crate::hardware::Vendor::Nvidia, vram_mb: None, driver: None }], encoders: vec!["NVIDIA NVENC".into()], notes: vec![] };
-        let a = analyze(&Settings::default(), Some(&hw), &[], Some(&o), None, None, false);
-        let i = a.issues.iter().find(|i| i.id == "encode_budget").expect("3 GPU encodes on 1 chip");
+        let hw = crate::hardware::HardwareInfo {
+            os: String::new(),
+            os_family: "Linux",
+            kernel: String::new(),
+            session: String::new(),
+            cpu: String::new(),
+            cpu_physical_cores: None,
+            cpu_threads: 16,
+            ram_gb: 32.0,
+            gpus: vec![crate::hardware::Gpu {
+                name: "NVIDIA GeForce RTX 3060".into(),
+                vendor: crate::hardware::Vendor::Nvidia,
+                vram_mb: None,
+                driver: None,
+            }],
+            encoders: vec!["NVIDIA NVENC".into()],
+            notes: vec![],
+        };
+        let a = analyze(
+            &Settings::default(),
+            Some(&hw),
+            &[],
+            Some(&o),
+            None,
+            None,
+            false,
+        );
+        let i = a
+            .issues
+            .iter()
+            .find(|i| i.id == "encode_budget")
+            .expect("3 GPU encodes on 1 chip");
         assert!(i.title.contains("3 GPU encodes"));
-        assert!(a.issues.iter().any(|i| i.id == "cpu_encodes"), "Source Record on x264 flagged");
+        assert!(
+            a.issues.iter().any(|i| i.id == "cpu_encodes"),
+            "Source Record on x264 flagged"
+        );
     }
 
     #[test]
     fn several_platforms() {
-        let hw = |gpu: &str| crate::hardware::HardwareInfo { os: String::new(), os_family: "Linux", kernel: String::new(), session: String::new(), cpu: String::new(), cpu_physical_cores: None, cpu_threads: 16, ram_gb: 32.0, gpus: vec![crate::hardware::Gpu { name: gpu.into(), vendor: crate::hardware::Vendor::Nvidia, vram_mb: None, driver: None }], encoders: vec!["NVIDIA NVENC".into()], notes: vec![] };
-        let mut st = Settings::default();
-        st.platforms = vec!["Twitch".into(), "YouTube".into()];
-        st.multistream_how = "plugin".into();
+        let hw = |gpu: &str| crate::hardware::HardwareInfo {
+            os: String::new(),
+            os_family: "Linux",
+            kernel: String::new(),
+            session: String::new(),
+            cpu: String::new(),
+            cpu_physical_cores: None,
+            cpu_threads: 16,
+            ram_gb: 32.0,
+            gpus: vec![crate::hardware::Gpu {
+                name: gpu.into(),
+                vendor: crate::hardware::Vendor::Nvidia,
+                vram_mb: None,
+                driver: None,
+            }],
+            encoders: vec!["NVIDIA NVENC".into()],
+            notes: vec![],
+        };
+        let st = Settings {
+            platforms: vec!["Twitch".into(), "YouTube".into()],
+            multistream_how: "plugin".into(),
+            ..Default::default()
+        };
         let mut o = snap();
         o.base_res = Some((2560, 1440));
         o.output_res = Some((1920, 1080));
@@ -3239,17 +5513,59 @@ mod cities_advice_tests {
         let i = a.issues.iter().find(|i| i.id == "multistream").unwrap();
         let s = i.options.iter().find(|o| o.suggested).unwrap();
         assert_eq!(s.id, "separate");
-        assert!(s.changes.iter().any(|c| c.setting == "YouTube" && c.to.starts_with("1440p60") && c.to.contains("AV1")), "{:?}", s.changes);
+        assert!(
+            s.changes.iter().any(|c| c.setting == "YouTube"
+                && c.to.starts_with("1440p60")
+                && c.to.contains("AV1")),
+            "{:?}",
+            s.changes
+        );
         // RTX 3060: one chip already busy with stream + recording: share.
-        let a = analyze(&st, Some(&hw("NVIDIA GeForce RTX 3060")), &[], Some(&o), None, None, false);
-        assert_eq!(a.issues.iter().find(|i| i.id == "multistream").unwrap().options.iter().find(|o| o.suggested).unwrap().id, "shared");
+        let a = analyze(
+            &st,
+            Some(&hw("NVIDIA GeForce RTX 3060")),
+            &[],
+            Some(&o),
+            None,
+            None,
+            false,
+        );
+        assert_eq!(
+            a.issues
+                .iter()
+                .find(|i| i.id == "multistream")
+                .unwrap()
+                .options
+                .iter()
+                .find(|o| o.suggested)
+                .unwrap()
+                .id,
+            "shared"
+        );
         // A slow connection: a restream service.
-        let net = crate::network::NetResult { ok: true, avg_mbps: 9.0, low_mbps: 8.0, high_mbps: 10.0, steadiness: 0.9, ..Default::default() };
+        let net = crate::network::NetResult {
+            ok: true,
+            avg_mbps: 9.0,
+            low_mbps: 8.0,
+            high_mbps: 10.0,
+            steadiness: 0.9,
+            ..Default::default()
+        };
         let a = analyze(&st, Some(&big), &[], Some(&o), Some(&net), None, false);
-        assert_eq!(a.issues.iter().find(|i| i.id == "multistream").unwrap().options.iter().find(|o| o.suggested).unwrap().id, "service");
+        assert_eq!(
+            a.issues
+                .iter()
+                .find(|i| i.id == "multistream")
+                .unwrap()
+                .options
+                .iter()
+                .find(|o| o.suggested)
+                .unwrap()
+                .id,
+            "service"
+        );
     }
 }
-
 
 /// Two-PC checks, from what OBS reports about its capture sources.
 fn two_pc(c: &Ctx, issues: &mut Vec<Issue>) {
@@ -3258,7 +5574,9 @@ fn two_pc(c: &Ctx, issues: &mut Vec<Issue>) {
     if role == Role::One {
         return;
     }
-    let Some(o) = c.obs.filter(|o| o.connected) else { return };
+    let Some(o) = c.obs.filter(|o| o.connected) else {
+        return;
+    };
     let out_fps = o.fps.unwrap_or(60.0);
     let out_h = o.output_res.map(|r| r.1).unwrap_or(1080);
     let obs_range = o.color_range.to_lowercase();
@@ -3278,12 +5596,24 @@ fn two_pc(c: &Ctx, issues: &mut Vec<Issue>) {
             });
             continue;
         }
-        if let Some(f) = cap.fps {
-            if f + 1.0 < out_fps {
-                let mut o1 = opt("cap_fps", format!("Capture at {out_fps:.0} fps"), source_menu, "Smooth motion on stream", "None if the card supports it at this resolution")
-                    .with(change("FPS", source_menu, Some(format!("{f:.0}")), format!("{out_fps:.0}")));
-                o1.suggested = true;
-                issues.push(Issue {
+        if let Some(f) = cap.fps
+            && f + 1.0 < out_fps
+        {
+            let mut o1 = opt(
+                "cap_fps",
+                format!("Capture at {out_fps:.0} fps"),
+                source_menu,
+                "Smooth motion on stream",
+                "None if the card supports it at this resolution",
+            )
+            .with(change(
+                "FPS",
+                source_menu,
+                Some(format!("{f:.0}")),
+                format!("{out_fps:.0}"),
+            ));
+            o1.suggested = true;
+            issues.push(Issue {
                     id: "capture_fps".into(),
                     priority: Priority::High,
                     area: "Capture card".into(),
@@ -3294,14 +5624,25 @@ fn two_pc(c: &Ctx, issues: &mut Vec<Issue>) {
                     measured: false,
                     options: vec![o1],
                 });
-            }
         }
-        if let Some((w, h)) = cap.res {
-            if h < out_h {
-                let mut o1 = opt("cap_res", format!("Capture at {}p or more", out_h), source_menu, "A sharper stream", "Some cards can't do the higher resolution at 60 fps")
-                    .with(change("Resolution", source_menu, Some(format!("{w}x{h}")), format!("{}p or higher", out_h)));
-                o1.suggested = true;
-                issues.push(Issue {
+        if let Some((w, h)) = cap.res
+            && h < out_h
+        {
+            let mut o1 = opt(
+                "cap_res",
+                format!("Capture at {}p or more", out_h),
+                source_menu,
+                "A sharper stream",
+                "Some cards can't do the higher resolution at 60 fps",
+            )
+            .with(change(
+                "Resolution",
+                source_menu,
+                Some(format!("{w}x{h}")),
+                format!("{}p or higher", out_h),
+            ));
+            o1.suggested = true;
+            issues.push(Issue {
                     id: "capture_res".into(),
                     priority: Priority::Medium,
                     area: "Capture card".into(),
@@ -3312,12 +5653,26 @@ fn two_pc(c: &Ctx, issues: &mut Vec<Issue>) {
                     measured: false,
                     options: vec![o1],
                 });
-            }
         }
         if !cap.range.is_empty() && !obs_range.is_empty() && cap.range != obs_range {
-            let to = if obs_range.contains("full") { "Full" } else { "Partial (limited)" };
-            let mut o1 = opt("cap_range", format!("Set the capture colour range to {to}"), format!("{source_menu} › Color Range"), "Correct blacks and colours", "None")
-                .with(change("Color Range", format!("{source_menu} › Color Range"), Some(cap.range.clone()), to));
+            let to = if obs_range.contains("full") {
+                "Full"
+            } else {
+                "Partial (limited)"
+            };
+            let mut o1 = opt(
+                "cap_range",
+                format!("Set the capture colour range to {to}"),
+                format!("{source_menu} › Color Range"),
+                "Correct blacks and colours",
+                "None",
+            )
+            .with(change(
+                "Color Range",
+                format!("{source_menu} › Color Range"),
+                Some(cap.range.clone()),
+                to,
+            ));
             o1.suggested = true;
             issues.push(Issue {
                 id: "capture_range".into(),
@@ -3331,7 +5686,8 @@ fn two_pc(c: &Ctx, issues: &mut Vec<Issue>) {
                 options: vec![o1],
             });
         }
-        if cap.format.eq_ignore_ascii_case("MJPEG") && cap.res.map(|r| r.1 >= 1080).unwrap_or(false) {
+        if cap.format.eq_ignore_ascii_case("MJPEG") && cap.res.map(|r| r.1 >= 1080).unwrap_or(false)
+        {
             issues.push(Issue {
                 id: "capture_mjpeg".into(),
                 priority: Priority::Low,
@@ -3344,7 +5700,11 @@ fn two_pc(c: &Ctx, issues: &mut Vec<Issue>) {
                 options: vec![opt("cap_fmt", "Pick NV12 or YUY2", format!("{source_menu} › Video Format"), "Cleaner picture, less CPU", "Only if the card offers it at this resolution").with(change("Video Format", format!("{source_menu} › Video Format"), Some("MJPEG".into()), "NV12 or YUY2"))],
             });
         }
-        let monitor = if role == Role::Gaming { c.st.monitor_hz } else { c.st.other_monitor_hz };
+        let monitor = if role == Role::Gaming {
+            c.st.monitor_hz
+        } else {
+            c.st.other_monitor_hz
+        };
         if let Some(f) = cap.fps {
             let f = f.round() as u32;
             if monitor > 0 && f > 0 && monitor % f != 0 && monitor > f {
@@ -3362,7 +5722,9 @@ fn two_pc(c: &Ctx, issues: &mut Vec<Issue>) {
             }
         }
     }
-    let h264 = o.encoder_kind.to_lowercase().contains("h.264") || o.encoder_raw.to_lowercase().contains("h264") || o.encoder_raw.to_lowercase().contains("x264");
+    let h264 = o.encoder_kind.to_lowercase().contains("h.264")
+        || o.encoder_raw.to_lowercase().contains("h264")
+        || o.encoder_raw.to_lowercase().contains("x264");
     if o.color_space.contains("2100") && h264 {
         issues.push(Issue {
             id: "capture_hdr".into(),

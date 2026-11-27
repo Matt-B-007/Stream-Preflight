@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.0-beta.7
+
+The first clippy cleanup and a single check script, on their own so anything they break is easy to trace. Nothing looks or works differently.
+
+- **Clippy now passes with warnings as errors**: 157 warnings fixed, mostly nested `if`s joined into one, plus type names for long tuple types and a few small tidy-ups. Each fix keeps the same behaviour; every screen was compared pixel by pixel against beta.6.
+- **One check script, `scripts/check.sh`**: formatting, clippy, build, tests, shell scripts (`sh -n`/`bash -n` and shellcheck at default severity) and workflow files, in that order. CI runs only this script, so a local pass means a CI pass. It checks for every tool first and lists any missing ones with the Arch command (`sudo pacman -S --needed …`); exit code 0 = passed, 1 = a check failed, 3 = only tools missing. A shellcheck version other than CI's still runs, with a note.
+- **Pinned tools**: Rust 1.97.0 in `rust-toolchain.toml`, shellcheck 0.11.0 and PyYAML 6.0.3 in CI, so a new tool release can't break CI overnight.
+- **CI steps say what they run**, and use the current major versions of GitHub's actions.
+
+## v0.1.0-beta.6
+
+A behind-the-scenes release: the code is reorganised so the next updates are safer to make. Nothing looks or works differently.
+
+- **The window code is split by screen**: the 8,200-line `app.rs` is now `src/app/` with one file per screen (Home, Test, Fixes, Your setup, Live, History, Settings, Help) plus shared state, the frame around every screen, the tray, two-PC support and small drawing helpers. This makes each screen easier to change without touching the others.
+- **The code is formatted with `cargo fmt`**, ready for the formatting check that CI gains in the next release.
+- **Checked unchanged**: every screen was compared pixel by pixel against beta.5 (only the clock differed), and all 75 tests pass.
+
 ## v0.1.0-beta.5
 
 **Easier to find your way**

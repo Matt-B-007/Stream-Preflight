@@ -1,22 +1,30 @@
+# Runs on every push. The checks themselves are all in scripts/check.sh, so
+# running that script locally gives the same result as this workflow.
 name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
-  workflow_dispatch:
 
 jobs:
-  linux:
-    name: Build and test (Linux)
-    runs-on: ubuntu-latest
+  check:
+    name: Checks (scripts/check.sh)
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cargo build --locked
-      - name: Test
-        run: cargo test --locked
-      - name: Check the install script
-        run: sh -n install.sh && sh -n scripts/make-download.sh && sh -n scripts/check-release.sh
+      - name: Get the code
+        uses: actions/checkout@v6
+
+      - name: Install the pinned Rust (rust-toolchain.toml, with rustfmt and clippy)
+        run: rustup toolchain install
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install pinned check tools (shellcheck 0.11.0, PyYAML 6.0.3)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/tools"
+          "$RUNNER_TEMP/tools/bin/pip" install --quiet shellcheck-py==0.11.0.1 pyyaml==6.0.3
+          echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+
+      - name: Run all checks (fmt, clippy, build, tests, shell scripts, workflow files)
+        run: sh scripts/check.sh

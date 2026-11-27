@@ -59,19 +59,26 @@ impl Client {
             .map_err(|e| ObsError::Other(e.to_string()))?
             .next()
             .ok_or_else(|| ObsError::Other("bad address".into()))?;
-        let stream = TcpStream::connect_timeout(&sock_addr, Duration::from_secs(2)).map_err(|_| ObsError::NotRunning)?;
+        let stream = TcpStream::connect_timeout(&sock_addr, Duration::from_secs(2))
+            .map_err(|_| ObsError::NotRunning)?;
         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
         let url = format!("ws://{addr}");
-        let (mut ws, _) = tungstenite::client(url.as_str(), stream).map_err(|e| ObsError::Other(e.to_string()))?;
+        let (mut ws, _) = tungstenite::client(url.as_str(), stream)
+            .map_err(|e| ObsError::Other(e.to_string()))?;
 
         let hello = read_json(&mut ws).map_err(|e| ObsError::Other(format!("no hello: {e}")))?;
         if hello["op"] != 0 {
             return Err(ObsError::Other("unexpected first message".into()));
         }
-        let ws_version = hello["d"]["obsWebSocketVersion"].as_str().unwrap_or("?").to_string();
+        let ws_version = hello["d"]["obsWebSocketVersion"]
+            .as_str()
+            .unwrap_or("?")
+            .to_string();
         let mut identify = json!({"rpcVersion": 1, "eventSubscriptions": SUB_OUTPUTS});
         if let Some(auth) = hello["d"].get("authentication") {
-            let pw = password.filter(|p| !p.is_empty()).ok_or(ObsError::AuthNeeded)?;
+            let pw = password
+                .filter(|p| !p.is_empty())
+                .ok_or(ObsError::AuthNeeded)?;
             let salt = auth["salt"].as_str().unwrap_or("");
             let challenge = auth["challenge"].as_str().unwrap_or("");
             let b64 = base64::engine::general_purpose::STANDARD;
@@ -79,7 +86,8 @@ impl Client {
             let resp = b64.encode(Sha256::digest(format!("{secret}{challenge}").as_bytes()));
             identify["authentication"] = json!(resp);
         }
-        send_json(&mut ws, &json!({"op": 1, "d": identify})).map_err(|e| ObsError::Other(e.to_string()))?;
+        send_json(&mut ws, &json!({"op": 1, "d": identify}))
+            .map_err(|e| ObsError::Other(e.to_string()))?;
         match read_json(&mut ws) {
             Ok(v) if v["op"] == 2 => {}
             Ok(_) => return Err(ObsError::Other("unexpected reply to identify".into())),
@@ -92,13 +100,19 @@ impl Client {
             }
         }
         log::info!("Connected to OBS WebSocket {ws_version}");
-        Ok(Self { ws, next_id: 1, events: VecDeque::new(), ws_version })
+        Ok(Self {
+            ws,
+            next_id: 1,
+            events: VecDeque::new(),
+            ws_version,
+        })
     }
 
     pub fn request(&mut self, kind: &str, data: Value) -> Result<Value, String> {
         let id = self.next_id.to_string();
         self.next_id += 1;
-        let msg = json!({"op": 6, "d": {"requestType": kind, "requestId": id, "requestData": data}});
+        let msg =
+            json!({"op": 6, "d": {"requestType": kind, "requestId": id, "requestData": data}});
         send_json(&mut self.ws, &msg).map_err(|e| e.to_string())?;
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -110,7 +124,10 @@ impl Client {
                 Some(7) if v["d"]["requestId"] == json!(id) => {
                     let ok = v["d"]["requestStatus"]["result"].as_bool().unwrap_or(false);
                     if !ok {
-                        let c = v["d"]["requestStatus"]["comment"].as_str().unwrap_or("").to_string();
+                        let c = v["d"]["requestStatus"]["comment"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string();
                         return Err(format!("{kind} failed: {c}"));
                     }
                     return Ok(v["d"]["responseData"].clone());
@@ -129,14 +146,25 @@ impl Client {
     /// Changes which events OBS sends (used to get volume meters only
     /// during a test).
     pub fn subscribe_volume(&mut self, on: bool) -> Result<(), String> {
-        let mask = if on { SUB_OUTPUTS | SUB_VOLUME } else { SUB_OUTPUTS };
-        send_json(&mut self.ws, &json!({"op": 3, "d": {"eventSubscriptions": mask}})).map_err(|e| e.to_string())?;
+        let mask = if on {
+            SUB_OUTPUTS | SUB_VOLUME
+        } else {
+            SUB_OUTPUTS
+        };
+        send_json(
+            &mut self.ws,
+            &json!({"op": 3, "d": {"eventSubscriptions": mask}}),
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// Reads any events waiting, without blocking for long.
     pub fn pump_events(&mut self, max_wait: Duration) {
-        let _ = self.ws.get_mut().set_read_timeout(Some(max_wait.max(Duration::from_millis(1))));
+        let _ = self
+            .ws
+            .get_mut()
+            .set_read_timeout(Some(max_wait.max(Duration::from_millis(1))));
         let start = Instant::now();
         while start.elapsed() < max_wait {
             match read_json(&mut self.ws) {
@@ -151,16 +179,22 @@ impl Client {
                 Err(_) => break,
             }
         }
-        let _ = self.ws.get_mut().set_read_timeout(Some(Duration::from_secs(5)));
+        let _ = self
+            .ws
+            .get_mut()
+            .set_read_timeout(Some(Duration::from_secs(5)));
     }
 
     fn param(&mut self, cat: &str, name: &str) -> Option<String> {
-        self.request("GetProfileParameter", json!({"parameterCategory": cat, "parameterName": name}))
-            .ok()
-            .and_then(|v| {
-                let pv = v["parameterValue"].as_str().map(|s| s.to_string());
-                pv.or_else(|| v["defaultParameterValue"].as_str().map(|s| s.to_string()))
-            })
+        self.request(
+            "GetProfileParameter",
+            json!({"parameterCategory": cat, "parameterName": name}),
+        )
+        .ok()
+        .and_then(|v| {
+            let pv = v["parameterValue"].as_str().map(|s| s.to_string());
+            pv.or_else(|| v["defaultParameterValue"].as_str().map(|s| s.to_string()))
+        })
     }
 }
 
@@ -171,9 +205,15 @@ fn send_json(ws: &mut WebSocket<TcpStream>, v: &Value) -> Result<(), tungstenite
 fn read_json(ws: &mut WebSocket<TcpStream>) -> Result<Value, String> {
     loop {
         match ws.read() {
-            Ok(Message::Text(t)) => return serde_json::from_str(t.as_str()).map_err(|e| e.to_string()),
+            Ok(Message::Text(t)) => {
+                return serde_json::from_str(t.as_str()).map_err(|e| e.to_string());
+            }
             Ok(Message::Close(c)) => {
-                return Err(format!("closed {}", c.map(|f| format!("{} {}", u16::from(f.code), f.reason)).unwrap_or_default()));
+                return Err(format!(
+                    "closed {}",
+                    c.map(|f| format!("{} {}", u16::from(f.code), f.reason))
+                        .unwrap_or_default()
+                ));
             }
             Ok(_) => continue,
             Err(e) => return Err(e.to_string()),
@@ -224,44 +264,69 @@ pub struct OutputInfo {
 }
 
 /// OBS's own output names; anything else comes from a plugin.
-const OBS_OUTPUTS: [&str; 10] = ["simple_stream", "adv_stream", "simple_file_output", "adv_file_output", "adv_ffmpeg_output", "replay buffer", "replay_buffer", "virtualcam_output", "multitrack_video", "simple_replay_buffer"];
+const OBS_OUTPUTS: [&str; 10] = [
+    "simple_stream",
+    "adv_stream",
+    "simple_file_output",
+    "adv_file_output",
+    "adv_ffmpeg_output",
+    "replay buffer",
+    "replay_buffer",
+    "virtualcam_output",
+    "multitrack_video",
+    "simple_replay_buffer",
+];
 
 /// A plain label for an output. Plugin outputs are told apart by their kind
 /// and a few words in their name; the name itself is never shown or saved.
 pub fn classify_output(kind: &str, name: &str) -> (String, bool, Option<String>) {
     let n = name.to_lowercase();
-    let own = OBS_OUTPUTS.iter().any(|o| n == *o) || n.starts_with("simple_") || n.starts_with("adv_");
+    let own =
+        OBS_OUTPUTS.iter().any(|o| n == *o) || n.starts_with("simple_") || n.starts_with("adv_");
     let base = output_label(kind);
     if own || kind == "virtualcam_output" || kind == "replay_buffer" {
         return (base.into(), false, None);
     }
-    let platform = ["twitch", "youtube", "kick", "facebook", "tiktok", "x.com", "trovo"].iter().find(|p| n.contains(*p)).map(|p| match *p {
+    let platform = [
+        "twitch", "youtube", "kick", "facebook", "tiktok", "x.com", "trovo",
+    ]
+    .iter()
+    .find(|p| n.contains(*p))
+    .map(|p| match *p {
         "youtube" => "YouTube".to_string(),
         "tiktok" => "TikTok".to_string(),
         "x.com" => "X".to_string(),
-        x => { let mut c = x.chars(); c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default() }
-    });
-    let label = if n.contains("source record") || n.contains("source_record") || n.contains("sourcerecord") {
-        "Source Record".to_string()
-    } else if n.contains("vertical") || n.contains("aitum") || n.contains("canvas") {
-        format!("Vertical canvas {}", base.to_lowercase())
-    } else if base == "Stream" {
-        match &platform {
-            Some(p) => format!("Extra stream ({p})"),
-            None => "Extra stream".into(),
+        x => {
+            let mut c = x.chars();
+            c.next()
+                .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                .unwrap_or_default()
         }
-    } else if base == "Recording" {
-        "Extra recording".into()
-    } else {
-        "Plugin output".into()
-    };
+    });
+    let label =
+        if n.contains("source record") || n.contains("source_record") || n.contains("sourcerecord")
+        {
+            "Source Record".to_string()
+        } else if n.contains("vertical") || n.contains("aitum") || n.contains("canvas") {
+            format!("Vertical canvas {}", base.to_lowercase())
+        } else if base == "Stream" {
+            match &platform {
+                Some(p) => format!("Extra stream ({p})"),
+                None => "Extra stream".into(),
+            }
+        } else if base == "Recording" {
+            "Extra recording".into()
+        } else {
+            "Plugin output".into()
+        };
     (label, true, platform)
 }
 
 pub fn output_label(kind: &str) -> &'static str {
     match kind {
         "rtmp_output" | "ffmpeg_output" | "whip_output" | "ftl_output" => "Stream",
-        "ffmpeg_muxer" | "mp4_output" | "mkv_output" | "mov_output" | "flv_output" | "ffmpeg_hls_muxer" => "Recording",
+        "ffmpeg_muxer" | "mp4_output" | "mkv_output" | "mov_output" | "flv_output"
+        | "ffmpeg_hls_muxer" => "Recording",
         "replay_buffer" => "Replay buffer",
         "virtualcam_output" => "Virtual camera",
         _ => "Other output",
@@ -282,14 +347,28 @@ pub struct SourceRecordInfo {
 pub fn read_source_record(c: &mut Client) -> Vec<SourceRecordInfo> {
     let mut names: Vec<String> = Vec::new();
     if let Ok(r) = c.request("GetInputList", json!({})) {
-        names.extend(r["inputs"].as_array().into_iter().flatten().filter_map(|i| i["inputName"].as_str().map(|s| s.to_string())));
+        names.extend(
+            r["inputs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|i| i["inputName"].as_str().map(|s| s.to_string())),
+        );
     }
     if let Ok(r) = c.request("GetSceneList", json!({})) {
-        names.extend(r["scenes"].as_array().into_iter().flatten().filter_map(|i| i["sceneName"].as_str().map(|s| s.to_string())));
+        names.extend(
+            r["scenes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|i| i["sceneName"].as_str().map(|s| s.to_string())),
+        );
     }
     let mut out = Vec::new();
     for n in names.iter().take(200) {
-        let Ok(r) = c.request("GetSourceFilterList", json!({"sourceName": n})) else { continue };
+        let Ok(r) = c.request("GetSourceFilterList", json!({"sourceName": n})) else {
+            continue;
+        };
         for f in r["filters"].as_array().into_iter().flatten() {
             if f["filterKind"].as_str() != Some("source_record_filter") {
                 continue;
@@ -341,7 +420,12 @@ pub fn installed_plugins() -> Vec<String> {
             dirs.push(h.join(".config/obs-studio/plugins"));
             dirs.push(h.join(".var/app/com.obsproject.Studio/config/obs-studio/plugins"));
         }
-        for d in ["/usr/lib/obs-plugins", "/usr/lib64/obs-plugins", "/usr/lib/x86_64-linux-gnu/obs-plugins", "/usr/local/lib/obs-plugins"] {
+        for d in [
+            "/usr/lib/obs-plugins",
+            "/usr/lib64/obs-plugins",
+            "/usr/lib/x86_64-linux-gnu/obs-plugins",
+            "/usr/local/lib/obs-plugins",
+        ] {
             dirs.push(d.into());
         }
     }
@@ -359,13 +443,15 @@ pub fn installed_plugins() -> Vec<String> {
     }
     let mut out: Vec<String> = Vec::new();
     for d in dirs {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_lowercase();
-            if let Some((_, label)) = KNOWN.iter().find(|(k, _)| n.contains(k)) {
-                if !out.iter().any(|x| x == label) {
-                    out.push(label.to_string());
-                }
+            if let Some((_, label)) = KNOWN.iter().find(|(k, _)| n.contains(k))
+                && !out.iter().any(|x| x == label)
+            {
+                out.push(label.to_string());
             }
         }
     }
@@ -375,22 +461,29 @@ pub fn installed_plugins() -> Vec<String> {
 /// Every output OBS has, with skipped frames for the active ones.
 pub fn read_outputs(c: &mut Client) -> Vec<OutputInfo> {
     let mut v = Vec::new();
-    if let Ok(r) = c.request("GetOutputList", json!({})) {
-        if let Some(list) = r["outputs"].as_array() {
-            for o in list {
-                let kind = o["outputKind"].as_str().unwrap_or("").to_string();
-                let name = o["outputName"].as_str().unwrap_or("").to_string();
-                let active = o["outputActive"].as_bool().unwrap_or(false);
-                let (mut skipped, mut total) = (None, None);
-                if active {
-                    if let Ok(st) = c.request("GetOutputStatus", json!({"outputName": name})) {
-                        skipped = st["outputSkippedFrames"].as_u64();
-                        total = st["outputTotalFrames"].as_u64();
-                    }
-                }
-                let (label, plugin, platform_hint) = classify_output(&kind, &name);
-                v.push(OutputInfo { label, kind, active, name, skipped, total, plugin, platform_hint });
+    if let Ok(r) = c.request("GetOutputList", json!({}))
+        && let Some(list) = r["outputs"].as_array()
+    {
+        for o in list {
+            let kind = o["outputKind"].as_str().unwrap_or("").to_string();
+            let name = o["outputName"].as_str().unwrap_or("").to_string();
+            let active = o["outputActive"].as_bool().unwrap_or(false);
+            let (mut skipped, mut total) = (None, None);
+            if active && let Ok(st) = c.request("GetOutputStatus", json!({"outputName": name})) {
+                skipped = st["outputSkippedFrames"].as_u64();
+                total = st["outputTotalFrames"].as_u64();
             }
+            let (label, plugin, platform_hint) = classify_output(&kind, &name);
+            v.push(OutputInfo {
+                label,
+                kind,
+                active,
+                name,
+                skipped,
+                total,
+                plugin,
+                platform_hint,
+            });
         }
     }
     v
@@ -484,14 +577,20 @@ impl ObsSnapshot {
         self.sources.iter().find(|s| s.kind_label == "Webcam")
     }
     pub fn uses_display_capture(&self) -> bool {
-        self.sources.iter().any(|s| s.kind_label == "Display capture" && s.enabled)
+        self.sources
+            .iter()
+            .any(|s| s.kind_label == "Display capture" && s.enabled)
     }
     /// A PipeWire portal capture: could be a window or a whole screen.
     pub fn uses_portal_capture(&self) -> bool {
-        self.sources.iter().any(|s| s.kind_label == "Screen or window (PipeWire)" && s.enabled)
+        self.sources
+            .iter()
+            .any(|s| s.kind_label == "Screen or window (PipeWire)" && s.enabled)
     }
     pub fn uses_game_capture(&self) -> bool {
-        self.sources.iter().any(|s| (s.kind_label == "Game capture" || s.kind_label == "Window capture") && s.enabled)
+        self.sources.iter().any(|s| {
+            (s.kind_label == "Game capture" || s.kind_label == "Window capture") && s.enabled
+        })
     }
     /// A short fingerprint of the stream setup, to notice changes.
     pub fn signature(&self) -> String {
@@ -506,26 +605,46 @@ impl ObsSnapshot {
             self.bitrate_kbps,
             self.output_res,
             self.fps.map(|f| f.round() as u32),
-            self.sources.iter().map(|s| format!("{}:{}", s.kind, s.enabled)).collect::<Vec<_>>().join(",")
+            self.sources
+                .iter()
+                .map(|s| format!("{}:{}", s.kind, s.enabled))
+                .collect::<Vec<_>>()
+                .join(",")
         )
     }
     pub fn mic_volume_db(&self) -> Option<f32> {
-        self.audio.iter().find(|a| a.role == "mic").and_then(|a| a.volume_db)
+        self.audio
+            .iter()
+            .find(|a| a.role == "mic")
+            .and_then(|a| a.volume_db)
     }
     pub fn desktop_volume_db(&self) -> Option<f32> {
-        self.audio.iter().find(|a| a.role == "desktop" || a.role == "app").and_then(|a| a.volume_db)
+        self.audio
+            .iter()
+            .find(|a| a.role == "desktop" || a.role == "app")
+            .and_then(|a| a.volume_db)
     }
     pub fn mics(&self) -> Vec<&AudioInput> {
         self.audio.iter().filter(|a| a.role == "mic").collect()
     }
     /// Two or more unmuted Desktop Audio sources capturing the same device: the game is heard twice.
     pub fn doubled_desktop_audio(&self) -> usize {
-        let on: Vec<&AudioInput> = self.audio.iter().filter(|a| a.role == "desktop" && a.muted != Some(true)).collect();
-        on.iter().map(|a| on.iter().filter(|b| b.device == a.device).count()).max().unwrap_or(0)
+        let on: Vec<&AudioInput> = self
+            .audio
+            .iter()
+            .filter(|a| a.role == "desktop" && a.muted != Some(true))
+            .collect();
+        on.iter()
+            .map(|a| on.iter().filter(|b| b.device == a.device).count())
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn desktop_audio(&self) -> Vec<&AudioInput> {
-        self.audio.iter().filter(|a| a.role == "desktop" || a.role == "app").collect()
+        self.audio
+            .iter()
+            .filter(|a| a.role == "desktop" || a.role == "app")
+            .collect()
     }
 }
 
@@ -566,15 +685,26 @@ fn source_label(kind: &str) -> &'static str {
     if k.contains("game_capture") || k.contains("vkcapture") || k.contains("gamecapture") {
         // Windows Game Capture, and obs-vkcapture (Linux Vulkan/OpenGL game capture).
         "Game capture"
-    } else if k.contains("pipewire-window") || k.contains("window_capture") || k.contains("xcomposite") {
+    } else if k.contains("pipewire-window")
+        || k.contains("window_capture")
+        || k.contains("xcomposite")
+    {
         "Window capture"
     } else if k.contains("pipewire") {
         // KDE/GNOME portal capture: the player picks a screen OR a window, and
         // OBS doesn't say which. Never assume a whole screen.
         "Screen or window (PipeWire)"
-    } else if k.contains("monitor_capture") || k.contains("xshm") || k.contains("screen") || k.contains("display") {
+    } else if k.contains("monitor_capture")
+        || k.contains("xshm")
+        || k.contains("screen")
+        || k.contains("display")
+    {
         "Display capture"
-    } else if k.contains("dshow") || k.contains("v4l2") || k.contains("av_capture") || k.contains("camera") {
+    } else if k.contains("dshow")
+        || k.contains("v4l2")
+        || k.contains("av_capture")
+        || k.contains("camera")
+    {
         "Webcam"
     } else if k.contains("browser") {
         "Browser source"
@@ -609,7 +739,12 @@ fn audio_role(kind: &str) -> Option<&'static str> {
 /// Reads everything we need from a connected OBS.
 pub fn snapshot_live(c: &mut Client) -> ObsSnapshot {
     crate::logger::activity("reading OBS settings");
-    let mut s = ObsSnapshot { source: "live connection".into(), connected: true, ws_version: c.ws_version.clone(), ..Default::default() };
+    let mut s = ObsSnapshot {
+        source: "live connection".into(),
+        connected: true,
+        ws_version: c.ws_version.clone(),
+        ..Default::default()
+    };
     if let Ok(v) = c.request("GetVersion", json!({})) {
         s.obs_version = v["obsVersion"].as_str().unwrap_or("").to_string();
     }
@@ -621,10 +756,10 @@ pub fn snapshot_live(c: &mut Client) -> ObsSnapshot {
         if let (Some(a), Some(b)) = (g("outputWidth"), g("outputHeight")) {
             s.output_res = Some((a, b));
         }
-        if let (Some(n), Some(d)) = (v["fpsNumerator"].as_f64(), v["fpsDenominator"].as_f64()) {
-            if d > 0.0 {
-                s.fps = Some((n / d) as f32);
-            }
+        if let (Some(n), Some(d)) = (v["fpsNumerator"].as_f64(), v["fpsDenominator"].as_f64())
+            && d > 0.0
+        {
+            s.fps = Some((n / d) as f32);
         }
     }
     s.output_mode = c.param("Output", "Mode").unwrap_or_else(|| "Simple".into());
@@ -635,37 +770,59 @@ pub fn snapshot_live(c: &mut Client) -> ObsSnapshot {
         let rec_type = c.param("AdvOut", "RecType").unwrap_or_default();
         if rec_type.eq_ignore_ascii_case("ffmpeg") {
             s.recording_uses_stream_settings = Some(false);
-            s.recording_note = "Recording uses Custom Output (FFmpeg), not the stream encoder.".into();
+            s.recording_note =
+                "Recording uses Custom Output (FFmpeg), not the stream encoder.".into();
         } else {
             let same = rec_enc.is_empty() || rec_enc.eq_ignore_ascii_case("none");
             s.recording_uses_stream_settings = Some(same);
             if !same {
-                s.recording_note = format!("Recording uses its own encoder ({}).", encoder_kind(&rec_enc));
+                s.recording_note = format!(
+                    "Recording uses its own encoder ({}).",
+                    encoder_kind(&rec_enc)
+                );
                 s.rec_encoder_raw = rec_enc.clone();
-                if c.param("AdvOut", "RecRescale").map(|x| x.eq_ignore_ascii_case("true")).unwrap_or(false) {
-                    s.rec_res = c.param("AdvOut", "RecRescaleRes").and_then(|r| parse_res(&r));
+                if c.param("AdvOut", "RecRescale")
+                    .map(|x| x.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false)
+                {
+                    s.rec_res = c
+                        .param("AdvOut", "RecRescaleRes")
+                        .and_then(|r| parse_res(&r));
                 }
             }
         }
-        s.rec_format = c.param("AdvOut", "RecFormat2").or_else(|| c.param("AdvOut", "RecFormat")).unwrap_or_default();
+        s.rec_format = c
+            .param("AdvOut", "RecFormat2")
+            .or_else(|| c.param("AdvOut", "RecFormat"))
+            .unwrap_or_default();
         s.rec_dir = c.param("AdvOut", "RecFilePath").unwrap_or_default();
-        s.replay_buffer = c.param("AdvOut", "RecRB").map(|x| x.eq_ignore_ascii_case("true"));
+        s.replay_buffer = c
+            .param("AdvOut", "RecRB")
+            .map(|x| x.eq_ignore_ascii_case("true"));
     } else {
         s.encoder_raw = c.param("SimpleOutput", "StreamEncoder").unwrap_or_default();
-        s.bitrate_kbps = c.param("SimpleOutput", "VBitrate").and_then(|b| b.trim().parse().ok());
+        s.bitrate_kbps = c
+            .param("SimpleOutput", "VBitrate")
+            .and_then(|b| b.trim().parse().ok());
         let enc = s.encoder_raw.clone();
         simple_quality(&mut s, &enc, |k| c.param("SimpleOutput", k));
         let rq = c.param("SimpleOutput", "RecQuality").unwrap_or_default();
         let same = rq.eq_ignore_ascii_case("stream");
         s.recording_uses_stream_settings = Some(same);
         if !same {
-            s.recording_note = format!("Recording quality is set to \"{rq}\" instead of \"Same as stream\".");
+            s.recording_note =
+                format!("Recording quality is set to \"{rq}\" instead of \"Same as stream\".");
             s.rec_encoder_raw = c.param("SimpleOutput", "RecEncoder").unwrap_or_default();
             s.rec_quality = rq.clone();
         }
-        s.rec_format = c.param("SimpleOutput", "RecFormat2").or_else(|| c.param("SimpleOutput", "RecFormat")).unwrap_or_default();
+        s.rec_format = c
+            .param("SimpleOutput", "RecFormat2")
+            .or_else(|| c.param("SimpleOutput", "RecFormat"))
+            .unwrap_or_default();
         s.rec_dir = c.param("SimpleOutput", "FilePath").unwrap_or_default();
-        s.replay_buffer = c.param("SimpleOutput", "RecRB").map(|x| x.eq_ignore_ascii_case("true"));
+        s.replay_buffer = c
+            .param("SimpleOutput", "RecRB")
+            .map(|x| x.eq_ignore_ascii_case("true"));
     }
     // Profile folder files for the advanced encoder settings.
     if let Ok(v) = c.request("GetProfileList", json!({})) {
@@ -677,16 +834,35 @@ pub fn snapshot_live(c: &mut Client) -> ObsSnapshot {
             }
         }
     }
-    s.scale_type = c.param("Video", "ScaleType").filter(|x| !x.is_empty()).unwrap_or_else(|| "bicubic".into());
-    s.sample_rate = Some(c.param("Audio", "SampleRate").and_then(|x| x.parse().ok()).unwrap_or(48000));
+    s.scale_type = c
+        .param("Video", "ScaleType")
+        .filter(|x| !x.is_empty())
+        .unwrap_or_else(|| "bicubic".into());
+    s.sample_rate = Some(
+        c.param("Audio", "SampleRate")
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(48000),
+    );
     s.audio_kbps = Some(if advanced {
-        let track = c.param("AdvOut", "TrackIndex").and_then(|x| x.parse::<u32>().ok()).unwrap_or(1).clamp(1, 6);
-        c.param("AdvOut", &format!("Track{track}Bitrate")).and_then(|x| x.parse().ok()).unwrap_or(160)
+        let track = c
+            .param("AdvOut", "TrackIndex")
+            .and_then(|x| x.parse::<u32>().ok())
+            .unwrap_or(1)
+            .clamp(1, 6);
+        c.param("AdvOut", &format!("Track{track}Bitrate"))
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(160)
     } else {
-        c.param("SimpleOutput", "ABitrate").and_then(|x| x.parse().ok()).unwrap_or(160)
+        c.param("SimpleOutput", "ABitrate")
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(160)
     });
-    s.ignore_recommended = c.param("Stream1", "IgnoreRecommended").map(|x| x.eq_ignore_ascii_case("true"));
-    s.multitrack = c.param("Stream1", "EnableMultitrackVideo").map(|x| x.eq_ignore_ascii_case("true"));
+    s.ignore_recommended = c
+        .param("Stream1", "IgnoreRecommended")
+        .map(|x| x.eq_ignore_ascii_case("true"));
+    s.multitrack = c
+        .param("Stream1", "EnableMultitrackVideo")
+        .map(|x| x.eq_ignore_ascii_case("true"));
     if let Ok(v) = c.request("GetReplayBufferStatus", json!({})) {
         s.replay_active = v["outputActive"].as_bool().unwrap_or(false);
     }
@@ -722,60 +898,98 @@ pub fn snapshot_live(c: &mut Client) -> ObsSnapshot {
             .unwrap_or("")
             .to_string();
     }
-    if !s.current_scene.is_empty() {
-        if let Ok(v) = c.request("GetSceneItemList", json!({"sceneName": s.current_scene})) {
-            if let Some(items) = v["sceneItems"].as_array() {
-                for it in items {
-                    let kind = it["inputKind"].as_str().unwrap_or(if it["isGroup"].as_bool() == Some(true) { "group" } else { "scene" }).to_string();
-                    s.sources.push(SourceInfo {
-                        name: it["sourceName"].as_str().unwrap_or("").to_string(),
-                        kind_label: source_label(&kind).to_string(),
-                        kind,
-                        enabled: it["sceneItemEnabled"].as_bool().unwrap_or(true),
-                    });
-                }
-            }
+    if !s.current_scene.is_empty()
+        && let Ok(v) = c.request("GetSceneItemList", json!({"sceneName": s.current_scene}))
+        && let Some(items) = v["sceneItems"].as_array()
+    {
+        for it in items {
+            let kind = it["inputKind"]
+                .as_str()
+                .unwrap_or(if it["isGroup"].as_bool() == Some(true) {
+                    "group"
+                } else {
+                    "scene"
+                })
+                .to_string();
+            s.sources.push(SourceInfo {
+                name: it["sourceName"].as_str().unwrap_or("").to_string(),
+                kind_label: source_label(&kind).to_string(),
+                kind,
+                enabled: it["sceneItemEnabled"].as_bool().unwrap_or(true),
+            });
         }
     }
     s.color_range = c.param("Video", "ColorRange").unwrap_or_default();
     s.color_space = c.param("Video", "ColorSpace").unwrap_or_default();
-    if let Ok(v) = c.request("GetInputList", json!({})) {
-        if let Some(inputs) = v["inputs"].as_array() {
-            for i in inputs {
-                let kind = i["inputKind"].as_str().unwrap_or("").to_string();
-                if crate::twopc::is_capture_kind(&kind) {
-                    let name = i["inputName"].as_str().unwrap_or("").to_string();
-                    if let Ok(st) = c.request("GetInputSettings", json!({"inputName": name})) {
-                        let audio = c.request("GetInputAudioSyncOffset", json!({"inputName": name})).ok().and_then(|m| m["inputAudioSyncOffset"].as_i64());
-                        let in_scene = s.sources.iter().any(|src| src.name == name && src.enabled);
-                        s.captures.push(crate::twopc::CaptureInfo::from_settings(&kind, &st["inputSettings"], audio, in_scene));
-                    }
+    if let Ok(v) = c.request("GetInputList", json!({}))
+        && let Some(inputs) = v["inputs"].as_array()
+    {
+        for i in inputs {
+            let kind = i["inputKind"].as_str().unwrap_or("").to_string();
+            if crate::twopc::is_capture_kind(&kind) {
+                let name = i["inputName"].as_str().unwrap_or("").to_string();
+                if let Ok(st) = c.request("GetInputSettings", json!({"inputName": name})) {
+                    let audio = c
+                        .request("GetInputAudioSyncOffset", json!({"inputName": name}))
+                        .ok()
+                        .and_then(|m| m["inputAudioSyncOffset"].as_i64());
+                    let in_scene = s.sources.iter().any(|src| src.name == name && src.enabled);
+                    s.captures.push(crate::twopc::CaptureInfo::from_settings(
+                        &kind,
+                        &st["inputSettings"],
+                        audio,
+                        in_scene,
+                    ));
                 }
-                if let Some(role) = audio_role(&kind) {
-                    let name = i["inputName"].as_str().unwrap_or("").to_string();
-                    let muted = c.request("GetInputMute", json!({"inputName": name})).ok().and_then(|m| m["inputMuted"].as_bool());
-                    let volume_db = c.request("GetInputVolume", json!({"inputName": name})).ok().and_then(|m| m["inputVolumeDb"].as_f64()).map(|v| v as f32);
-                    let device = if role == "desktop" {
-                        c.request("GetInputSettings", json!({"inputName": name})).ok().and_then(|v| v["inputSettings"]["device_id"].as_str().map(|d| d.to_string())).unwrap_or_else(|| "default".into())
-                    } else {
-                        String::new()
-                    };
-                    s.audio.push(AudioInput { name, kind, role: role.into(), muted, volume_db, device });
-                }
+            }
+            if let Some(role) = audio_role(&kind) {
+                let name = i["inputName"].as_str().unwrap_or("").to_string();
+                let muted = c
+                    .request("GetInputMute", json!({"inputName": name}))
+                    .ok()
+                    .and_then(|m| m["inputMuted"].as_bool());
+                let volume_db = c
+                    .request("GetInputVolume", json!({"inputName": name}))
+                    .ok()
+                    .and_then(|m| m["inputVolumeDb"].as_f64())
+                    .map(|v| v as f32);
+                let device = if role == "desktop" {
+                    c.request("GetInputSettings", json!({"inputName": name}))
+                        .ok()
+                        .and_then(|v| {
+                            v["inputSettings"]["device_id"]
+                                .as_str()
+                                .map(|d| d.to_string())
+                        })
+                        .unwrap_or_else(|| "default".into())
+                } else {
+                    String::new()
+                };
+                s.audio.push(AudioInput {
+                    name,
+                    kind,
+                    role: role.into(),
+                    muted,
+                    volume_db,
+                    device,
+                });
             }
         }
     }
-    crate::logger::info_changed("obs", format!(
-        "OBS {}: {} mode, encoder {} ({}), bitrate {:?}, output {:?} @ {:?} fps, recording matches stream: {:?}",
-        s.obs_version,
-        s.output_mode,
-        s.encoder_kind,
-        s.encoder_raw,
-        s.bitrate_kbps,
-        s.output_res,
-        s.fps,
-        s.recording_uses_stream_settings
-    ));
+    crate::logger::info_changed(
+        "obs",
+        format!(
+            "OBS {}: {} mode, encoder {} ({}), bitrate {:?}, output {:?} @ {:?} fps, recording matches stream: {:?}",
+            s.obs_version,
+            s.output_mode,
+            s.encoder_kind,
+            s.encoder_raw,
+            s.bitrate_kbps,
+            s.output_res,
+            s.fps,
+            s.recording_uses_stream_settings
+        ),
+    );
     s.auto_record = auto_record_setting();
     s
 }
@@ -794,7 +1008,9 @@ pub fn obs_config_dirs() -> Vec<PathBuf> {
         v.push(h.join(".config/obs-studio"));
         v.push(h.join(".var/app/com.obsproject.Studio/config/obs-studio"));
     }
-    v.into_iter().filter(|p| p.join("basic/profiles").exists()).collect()
+    v.into_iter()
+        .filter(|p| p.join("basic/profiles").exists())
+        .collect()
 }
 
 /// "Automatically record when streaming" from OBS's own settings file
@@ -816,10 +1032,10 @@ pub fn parse_auto_record(ini: &str) -> bool {
         let l = line.trim();
         if l.starts_with('[') {
             sect = l;
-        } else if sect == "[BasicWindow]" {
-            if let Some(v) = l.strip_prefix("RecordWhenStreaming=") {
-                return v.trim().eq_ignore_ascii_case("true");
-            }
+        } else if sect == "[BasicWindow]"
+            && let Some(v) = l.strip_prefix("RecordWhenStreaming=")
+        {
+            return v.trim().eq_ignore_ascii_case("true");
         }
     }
     false
@@ -831,10 +1047,10 @@ fn profile_dir_by_name(name: &str) -> Option<PathBuf> {
         if let Ok(rd) = std::fs::read_dir(&profiles) {
             for e in rd.flatten() {
                 let ini = e.path().join("basic.ini");
-                if let Ok(t) = std::fs::read_to_string(&ini) {
-                    if t.lines().any(|l| l.trim() == format!("Name={name}")) {
-                        return Some(e.path());
-                    }
+                if let Ok(t) = std::fs::read_to_string(&ini)
+                    && t.lines().any(|l| l.trim() == format!("Name={name}"))
+                {
+                    return Some(e.path());
                 }
             }
         }
@@ -851,21 +1067,19 @@ fn current_profile_dir() -> Option<PathBuf> {
                     let l = line.trim();
                     if l.starts_with('[') {
                         in_basic = l == "[Basic]";
-                    } else if in_basic {
-                        if let Some(d) = l.strip_prefix("ProfileDir=") {
-                            let p = base.join("basic/profiles").join(d);
-                            if p.exists() {
-                                return Some(p);
-                            }
+                    } else if in_basic && let Some(d) = l.strip_prefix("ProfileDir=") {
+                        let p = base.join("basic/profiles").join(d);
+                        if p.exists() {
+                            return Some(p);
                         }
                     }
                 }
             }
         }
-        if let Ok(rd) = std::fs::read_dir(base.join("basic/profiles")) {
-            if let Some(e) = rd.flatten().find(|e| e.path().join("basic.ini").exists()) {
-                return Some(e.path());
-            }
+        if let Ok(rd) = std::fs::read_dir(base.join("basic/profiles"))
+            && let Some(e) = rd.flatten().find(|e| e.path().join("basic.ini").exists())
+        {
+            return Some(e.path());
         }
     }
     None
@@ -873,27 +1087,27 @@ fn current_profile_dir() -> Option<PathBuf> {
 
 fn read_encoder_json(dir: &std::path::Path, s: &mut ObsSnapshot) {
     let p = dir.join("streamEncoder.json");
-    if let Ok(t) = std::fs::read_to_string(&p) {
-        if let Ok(v) = serde_json::from_str::<Value>(&t) {
-            if let Some(b) = v["bitrate"].as_u64() {
-                s.bitrate_kbps = Some(b as u32);
-            }
-            s.rate_control = v["rate_control"].as_str().unwrap_or("").to_string();
-            s.preset = v["preset2"]
-                .as_str()
-                .or_else(|| v["preset"].as_str())
-                .map(|x| x.to_string())
-                .or_else(|| v["target_usage"].as_str().map(|x| x.to_string()))
-                .unwrap_or_default();
-            s.keyint_sec = v["keyint_sec"].as_u64().map(|k| k as u32);
-            s.enc_tune = v["tune"].as_str().unwrap_or("").to_string();
-            s.enc_multipass = v["multipass"].as_str().unwrap_or("").to_string();
-            s.enc_bframes = v["bf"].as_u64().map(|b| b as u32);
-            s.enc_profile = v["profile"].as_str().unwrap_or("").to_string();
-            s.enc_lookahead = v["lookahead"].as_bool();
-            s.enc_psycho_aq = v["psycho_aq"].as_bool();
-            s.files_read.push("streamEncoder.json".into());
+    if let Ok(t) = std::fs::read_to_string(&p)
+        && let Ok(v) = serde_json::from_str::<Value>(&t)
+    {
+        if let Some(b) = v["bitrate"].as_u64() {
+            s.bitrate_kbps = Some(b as u32);
         }
+        s.rate_control = v["rate_control"].as_str().unwrap_or("").to_string();
+        s.preset = v["preset2"]
+            .as_str()
+            .or_else(|| v["preset"].as_str())
+            .map(|x| x.to_string())
+            .or_else(|| v["target_usage"].as_str().map(|x| x.to_string()))
+            .unwrap_or_default();
+        s.keyint_sec = v["keyint_sec"].as_u64().map(|k| k as u32);
+        s.enc_tune = v["tune"].as_str().unwrap_or("").to_string();
+        s.enc_multipass = v["multipass"].as_str().unwrap_or("").to_string();
+        s.enc_bframes = v["bf"].as_u64().map(|b| b as u32);
+        s.enc_profile = v["profile"].as_str().unwrap_or("").to_string();
+        s.enc_lookahead = v["lookahead"].as_bool();
+        s.enc_psycho_aq = v["psycho_aq"].as_bool();
+        s.files_read.push("streamEncoder.json".into());
     }
 }
 
@@ -901,7 +1115,10 @@ fn read_encoder_json(dir: &std::path::Path, s: &mut ObsSnapshot) {
 pub fn snapshot_saved() -> Option<ObsSnapshot> {
     let dir = current_profile_dir()?;
     let ini = std::fs::read_to_string(dir.join("basic.ini")).ok()?;
-    let mut s = ObsSnapshot { source: "saved OBS files (OBS closed)".into(), ..Default::default() };
+    let mut s = ObsSnapshot {
+        source: "saved OBS files (OBS closed)".into(),
+        ..Default::default()
+    };
     s.files_read.push("basic.ini".into());
     let mut sect = String::new();
     let mut get = std::collections::HashMap::new();
@@ -914,12 +1131,17 @@ pub fn snapshot_saved() -> Option<ObsSnapshot> {
         }
     }
     let g = |k: &str| get.get(k).cloned().unwrap_or_default();
-    s.output_mode = if g("Output/Mode").is_empty() { "Simple".into() } else { g("Output/Mode") };
+    s.output_mode = if g("Output/Mode").is_empty() {
+        "Simple".into()
+    } else {
+        g("Output/Mode")
+    };
     if s.output_mode.eq_ignore_ascii_case("advanced") {
         s.encoder_raw = g("AdvOut/Encoder");
         let rec = g("AdvOut/RecEncoder");
         let same = rec.is_empty() || rec.eq_ignore_ascii_case("none");
-        s.recording_uses_stream_settings = Some(same && !g("AdvOut/RecType").eq_ignore_ascii_case("ffmpeg"));
+        s.recording_uses_stream_settings =
+            Some(same && !g("AdvOut/RecType").eq_ignore_ascii_case("ffmpeg"));
         read_encoder_json(&dir, &mut s);
         advanced_defaults(&mut s);
         if !same {
@@ -929,32 +1151,52 @@ pub fn snapshot_saved() -> Option<ObsSnapshot> {
             }
             read_rec_json(&dir, &mut s);
         }
-        s.rec_format = if g("AdvOut/RecFormat2").is_empty() { g("AdvOut/RecFormat") } else { g("AdvOut/RecFormat2") };
+        s.rec_format = if g("AdvOut/RecFormat2").is_empty() {
+            g("AdvOut/RecFormat")
+        } else {
+            g("AdvOut/RecFormat2")
+        };
         s.rec_dir = g("AdvOut/RecFilePath");
         s.replay_buffer = Some(g("AdvOut/RecRB").eq_ignore_ascii_case("true"));
     } else {
         s.encoder_raw = g("SimpleOutput/StreamEncoder");
         s.bitrate_kbps = g("SimpleOutput/VBitrate").parse().ok();
         let enc = s.encoder_raw.clone();
-        simple_quality(&mut s, &enc, |k| Some(g(&format!("SimpleOutput/{k}"))).filter(|x| !x.is_empty()));
+        simple_quality(&mut s, &enc, |k| {
+            Some(g(&format!("SimpleOutput/{k}"))).filter(|x| !x.is_empty())
+        });
         let rq = g("SimpleOutput/RecQuality");
         if !rq.is_empty() && !rq.eq_ignore_ascii_case("stream") {
             s.rec_encoder_raw = g("SimpleOutput/RecEncoder");
             s.rec_quality = rq;
         }
-        s.rec_format = if g("SimpleOutput/RecFormat2").is_empty() { g("SimpleOutput/RecFormat") } else { g("SimpleOutput/RecFormat2") };
+        s.rec_format = if g("SimpleOutput/RecFormat2").is_empty() {
+            g("SimpleOutput/RecFormat")
+        } else {
+            g("SimpleOutput/RecFormat2")
+        };
         s.rec_dir = g("SimpleOutput/FilePath");
         s.replay_buffer = Some(g("SimpleOutput/RecRB").eq_ignore_ascii_case("true"));
-        s.recording_uses_stream_settings = Some(g("SimpleOutput/RecQuality").eq_ignore_ascii_case("stream"));
+        s.recording_uses_stream_settings =
+            Some(g("SimpleOutput/RecQuality").eq_ignore_ascii_case("stream"));
     }
     if s.recording_uses_stream_settings == Some(false) {
         s.recording_note = "Recording doesn't use the stream's encoder settings.".into();
     }
-    s.scale_type = if g("Video/ScaleType").is_empty() { "bicubic".into() } else { g("Video/ScaleType") };
+    s.scale_type = if g("Video/ScaleType").is_empty() {
+        "bicubic".into()
+    } else {
+        g("Video/ScaleType")
+    };
     s.sample_rate = Some(g("Audio/SampleRate").parse().unwrap_or(48000));
     s.audio_kbps = Some(if s.output_mode.eq_ignore_ascii_case("advanced") {
-        let track = g("AdvOut/TrackIndex").parse::<u32>().unwrap_or(1).clamp(1, 6);
-        g(&format!("AdvOut/Track{track}Bitrate")).parse().unwrap_or(160)
+        let track = g("AdvOut/TrackIndex")
+            .parse::<u32>()
+            .unwrap_or(1)
+            .clamp(1, 6);
+        g(&format!("AdvOut/Track{track}Bitrate"))
+            .parse()
+            .unwrap_or(160)
     } else {
         g("SimpleOutput/ABitrate").parse().unwrap_or(160)
     });
@@ -978,13 +1220,22 @@ pub fn snapshot_saved() -> Option<ObsSnapshot> {
             (Some(n), Some(d)) if d > 0 => Some(n as f32 / d as f32),
             _ => None,
         },
-        _ => g("Video/FPSCommon").split_whitespace().next().and_then(|x| x.parse().ok()),
+        _ => g("Video/FPSCommon")
+            .split_whitespace()
+            .next()
+            .and_then(|x| x.parse().ok()),
     };
     s.encoder_kind = encoder_kind(&s.encoder_raw).to_string();
     s.codec = codec_of(&s.encoder_raw).to_string();
     nvenc_defaults(&mut s);
     finish_rec(&mut s);
-    crate::logger::info_changed("obs-profile", format!("Read saved OBS profile: {} mode, encoder {}", s.output_mode, s.encoder_kind));
+    crate::logger::info_changed(
+        "obs-profile",
+        format!(
+            "Read saved OBS profile: {} mode, encoder {}",
+            s.output_mode, s.encoder_kind
+        ),
+    );
     s.auto_record = auto_record_setting();
     Some(s)
 }
@@ -995,14 +1246,23 @@ fn parse_res(r: &str) -> Option<(u32, u32)> {
 }
 
 fn read_rec_json(dir: &std::path::Path, s: &mut ObsSnapshot) {
-    if let Ok(t) = std::fs::read_to_string(dir.join("recordEncoder.json")) {
-        if let Ok(v) = serde_json::from_str::<Value>(&t) {
-            s.rec_preset = v["preset2"].as_str().or_else(|| v["preset"].as_str()).or_else(|| v["target_usage"].as_str()).unwrap_or("").to_string();
-            s.rec_rate_control = v["rate_control"].as_str().unwrap_or("").to_string();
-            s.rec_bitrate_kbps = v["bitrate"].as_u64().map(|b| b as u32);
-            s.rec_cq = v["cqp"].as_u64().or_else(|| v["crf"].as_u64()).or_else(|| v["cq"].as_u64()).map(|x| x as u32);
-            s.files_read.push("recordEncoder.json".into());
-        }
+    if let Ok(t) = std::fs::read_to_string(dir.join("recordEncoder.json"))
+        && let Ok(v) = serde_json::from_str::<Value>(&t)
+    {
+        s.rec_preset = v["preset2"]
+            .as_str()
+            .or_else(|| v["preset"].as_str())
+            .or_else(|| v["target_usage"].as_str())
+            .unwrap_or("")
+            .to_string();
+        s.rec_rate_control = v["rate_control"].as_str().unwrap_or("").to_string();
+        s.rec_bitrate_kbps = v["bitrate"].as_u64().map(|b| b as u32);
+        s.rec_cq = v["cqp"]
+            .as_u64()
+            .or_else(|| v["crf"].as_u64())
+            .or_else(|| v["cq"].as_u64())
+            .map(|x| x as u32);
+        s.files_read.push("recordEncoder.json".into());
     }
 }
 
@@ -1025,7 +1285,11 @@ fn finish_rec(s: &mut ObsSnapshot) {
         };
     }
     if s.rec_rate_control.is_empty() {
-        s.rec_rate_control = if s.rec_quality.is_empty() { "CBR".into() } else { "CQP".into() };
+        s.rec_rate_control = if s.rec_quality.is_empty() {
+            "CBR".into()
+        } else {
+            "CQP".into()
+        };
     }
 }
 
@@ -1066,12 +1330,19 @@ impl ObsSnapshot {
             keyint_sec: self.keyint_sec,
             bframes: self.enc_bframes,
             profile: self.enc_profile.clone(),
-            output: self.output_res.map(|r| format!("{}x{}", r.0, r.1)).unwrap_or_default(),
+            output: self
+                .output_res
+                .map(|r| format!("{}x{}", r.0, r.1))
+                .unwrap_or_default(),
             fps: self.fps.map(|f| f.round() as u32),
             scale: self.scale_type.clone(),
             audio_kbps: self.audio_kbps,
             sample_rate: self.sample_rate,
-            rec_encoder: if self.recording_uses_stream_settings == Some(false) { self.rec_encoder_kind.clone() } else { String::new() },
+            rec_encoder: if self.recording_uses_stream_settings == Some(false) {
+                self.rec_encoder_kind.clone()
+            } else {
+                String::new()
+            },
             rec_preset: self.rec_preset.clone(),
             rec_rate_control: self.rec_rate_control.clone(),
             rec_cq: self.rec_cq,
@@ -1096,7 +1367,11 @@ impl EncSettings {
         push("Preset", up(&self.preset), up(&n.preset));
         push("Multipass", self.multipass.clone(), n.multipass.clone());
         push("Tuning", self.tune.clone(), n.tune.clone());
-        push("Rate control", self.rate_control.clone(), n.rate_control.clone());
+        push(
+            "Rate control",
+            self.rate_control.clone(),
+            n.rate_control.clone(),
+        );
         push("Bitrate (kbps)", o(self.bitrate_kbps), o(n.bitrate_kbps));
         push("Keyframes (s)", o(self.keyint_sec), o(n.keyint_sec));
         push("B-frames", o(self.bframes), o(n.bframes));
@@ -1106,9 +1381,17 @@ impl EncSettings {
         push("Downscale filter", self.scale.clone(), n.scale.clone());
         push("Audio (kbps)", o(self.audio_kbps), o(n.audio_kbps));
         push("Sample rate", o(self.sample_rate), o(n.sample_rate));
-        push("Recording encoder", self.rec_encoder.clone(), n.rec_encoder.clone());
+        push(
+            "Recording encoder",
+            self.rec_encoder.clone(),
+            n.rec_encoder.clone(),
+        );
         push("Recording preset", up(&self.rec_preset), up(&n.rec_preset));
-        push("Recording rate control", self.rec_rate_control.clone(), n.rec_rate_control.clone());
+        push(
+            "Recording rate control",
+            self.rec_rate_control.clone(),
+            n.rec_rate_control.clone(),
+        );
         push("Recording CQ", o(self.rec_cq), o(n.rec_cq));
         v
     }
@@ -1161,7 +1444,9 @@ fn simple_quality(s: &mut ObsSnapshot, enc: &str, mut get: impl FnMut(&str) -> O
     s.preset = if l.contains("x264") || l.is_empty() {
         get("Preset").unwrap_or_else(|| "veryfast".into())
     } else if l.contains("nvenc") {
-        get("NVENCPreset2").or_else(|| get("NVENCPreset")).unwrap_or_else(|| "p5".into())
+        get("NVENCPreset2")
+            .or_else(|| get("NVENCPreset"))
+            .unwrap_or_else(|| "p5".into())
     } else if l.contains("amd") || l.contains("amf") {
         get("AMDPreset").unwrap_or_default()
     } else if l.contains("qsv") {
@@ -1173,7 +1458,11 @@ fn simple_quality(s: &mut ObsSnapshot, enc: &str, mut get: impl FnMut(&str) -> O
 
 /// Converts OBS's volume-meter multiplier to decibels.
 pub fn mul_to_db(m: f64) -> f64 {
-    if m <= 0.000_001 { -100.0 } else { 20.0 * m.log10() }
+    if m <= 0.000_001 {
+        -100.0
+    } else {
+        20.0 * m.log10()
+    }
 }
 
 #[cfg(test)]
@@ -1181,8 +1470,14 @@ mod tests {
     #[test]
     fn linux_capture_sources() {
         assert_eq!(super::source_label("vkcapture-source"), "Game capture");
-        assert_eq!(super::source_label("pipewire-screen-capture-source"), "Screen or window (PipeWire)");
-        assert_eq!(super::source_label("pipewire-window-capture-source"), "Window capture");
+        assert_eq!(
+            super::source_label("pipewire-screen-capture-source"),
+            "Screen or window (PipeWire)"
+        );
+        assert_eq!(
+            super::source_label("pipewire-window-capture-source"),
+            "Window capture"
+        );
         assert_eq!(super::source_label("xshm_input"), "Display capture");
         assert_eq!(super::source_label("game_capture"), "Game capture");
     }
@@ -1193,14 +1488,27 @@ mod audio_tests {
     use super::*;
 
     fn desk(device: &str, muted: bool) -> AudioInput {
-        AudioInput { name: String::new(), kind: "pulse_output_capture".into(), role: "desktop".into(), muted: Some(muted), volume_db: Some(0.0), device: device.into() }
+        AudioInput {
+            name: String::new(),
+            kind: "pulse_output_capture".into(),
+            role: "desktop".into(),
+            muted: Some(muted),
+            volume_db: Some(0.0),
+            device: device.into(),
+        }
     }
 
     #[test]
     fn doubled_desktop_audio() {
-        let mut s = ObsSnapshot::default();
-        s.audio = vec![desk("default", false), desk("default", false)];
-        assert_eq!(s.doubled_desktop_audio(), 2, "two captures of the same output, both on");
+        let mut s = ObsSnapshot {
+            audio: vec![desk("default", false), desk("default", false)],
+            ..Default::default()
+        };
+        assert_eq!(
+            s.doubled_desktop_audio(),
+            2,
+            "two captures of the same output, both on"
+        );
         s.audio = vec![desk("default", false), desk("default", true)];
         assert_eq!(s.doubled_desktop_audio(), 1, "one is muted");
         s.audio = vec![desk("default", false), desk("headset", false)];

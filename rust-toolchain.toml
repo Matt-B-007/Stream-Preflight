@@ -1,0 +1,7 @@
+# Pins the Rust version so a new release can't change formatting, lints or
+# builds overnight. CI and local checks both use this. To move to a newer
+# Rust, change the version here in its own small release.
+[toolchain]
+channel = "1.97.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

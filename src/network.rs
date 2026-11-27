@@ -35,7 +35,10 @@ impl NetResult {
     /// `bitrate_kbps` needs. Big swings on a very fast line don't matter.
     pub fn unsteady_for(&self, bitrate_kbps: u32) -> bool {
         let need_mbps = (bitrate_kbps.max(3000) as f32 + 160.0) / 1000.0;
-        self.ok && self.samples_mbps.len() >= 4 && self.steadiness < 0.6 && self.low_mbps < need_mbps * 3.0
+        self.ok
+            && self.samples_mbps.len() >= 4
+            && self.steadiness < 0.6
+            && self.low_mbps < need_mbps * 3.0
     }
 
     pub fn safe_video_kbps(&self) -> u32 {
@@ -58,7 +61,10 @@ fn agent() -> ureq::Agent {
 pub fn run(progress: Arc<std::sync::Mutex<f32>>, cancel: Arc<AtomicBool>) -> NetResult {
     crate::logger::activity("network test");
     let a = agent();
-    let mut r = NetResult { tested_at: crate::util::unix_now(), ..Default::default() };
+    let mut r = NetResult {
+        tested_at: crate::util::unix_now(),
+        ..Default::default()
+    };
 
     // Latency: median of 5 tiny requests.
     let mut lat = Vec::new();
@@ -69,7 +75,10 @@ pub fn run(progress: Arc<std::sync::Mutex<f32>>, cancel: Arc<AtomicBool>) -> Net
         }
     }
     if lat.is_empty() {
-        r.error = Some("Couldn't reach the speed-test server. Check your internet connection or firewall.".into());
+        r.error = Some(
+            "Couldn't reach the speed-test server. Check your internet connection or firewall."
+                .into(),
+        );
         log::warn!("Network test: speed-test server unreachable");
         return r;
     }
@@ -88,7 +97,11 @@ pub fn run(progress: Arc<std::sync::Mutex<f32>>, cancel: Arc<AtomicBool>) -> Net
             return r;
         }
         let t = Instant::now();
-        if a.post(UP_URL).header("Content-Type", "application/octet-stream").send(&payload[..chunk]).is_ok() {
+        if a.post(UP_URL)
+            .header("Content-Type", "application/octet-stream")
+            .send(&payload[..chunk])
+            .is_ok()
+        {
             warm.push((chunk as f32 * 8.0) / t.elapsed().as_secs_f32().max(0.001) / 1_000_000.0);
             r.bytes_used += chunk as u64;
         }
@@ -101,23 +114,36 @@ pub fn run(progress: Arc<std::sync::Mutex<f32>>, cancel: Arc<AtomicBool>) -> Net
     if payload.len() < chunk {
         payload.resize(chunk, 7);
     }
-    log::debug!("Network warm-up: {:?} Mbps, upload size {} KB", warm, chunk / 1024);
+    log::debug!(
+        "Network warm-up: {:?} Mbps, upload size {} KB",
+        warm,
+        chunk / 1024
+    );
     let start = Instant::now();
-    while start.elapsed().as_secs_f32() < MAX_TEST_SECONDS && r.bytes_used + chunk as u64 <= MAX_TEST_BYTES {
+    while start.elapsed().as_secs_f32() < MAX_TEST_SECONDS
+        && r.bytes_used + chunk as u64 <= MAX_TEST_BYTES
+    {
         if cancel.load(Ordering::Relaxed) {
             r.error = Some("Network test was cancelled.".into());
             return r;
         }
         let t = Instant::now();
-        let res = a.post(UP_URL).header("Content-Type", "application/octet-stream").send(&payload[..chunk]);
+        let res = a
+            .post(UP_URL)
+            .header("Content-Type", "application/octet-stream")
+            .send(&payload[..chunk]);
         let secs = t.elapsed().as_secs_f32();
         match res {
             Ok(_) => {
-                r.samples_mbps.push((chunk as f32 * 8.0) / secs.max(0.001) / 1_000_000.0);
+                r.samples_mbps
+                    .push((chunk as f32 * 8.0) / secs.max(0.001) / 1_000_000.0);
                 r.bytes_used += chunk as u64;
             }
             Err(e) => {
-                log::warn!("Upload of {} KB failed after {secs:.1} s: {e}", chunk / 1024);
+                log::warn!(
+                    "Upload of {} KB failed after {secs:.1} s: {e}",
+                    chunk / 1024
+                );
                 last_err = Some(e.to_string());
                 // Try smaller uploads instead of counting a zero.
                 if chunk > 512 * 1024 {
@@ -136,18 +162,28 @@ pub fn run(progress: Arc<std::sync::Mutex<f32>>, cancel: Arc<AtomicBool>) -> Net
     }
     r.seconds = start.elapsed().as_secs_f32();
     // The first sample includes connection setup; drop it if we have more.
-    let mut s: Vec<f32> = r.samples_mbps.iter().cloned().filter(|x| *x > 0.0).collect();
+    let mut s: Vec<f32> = r
+        .samples_mbps
+        .iter()
+        .cloned()
+        .filter(|x| *x > 0.0)
+        .collect();
     if s.is_empty() && !warm.is_empty() {
         // The main uploads failed but the warm-up worked: use that as a
         // rough figure rather than reporting nothing.
-        log::warn!("Upload test: main uploads failed ({}); using the warm-up figures", last_err.as_deref().unwrap_or("unknown error"));
+        log::warn!(
+            "Upload test: main uploads failed ({}); using the warm-up figures",
+            last_err.as_deref().unwrap_or("unknown error")
+        );
         s = warm.clone();
         r.error = None;
     }
     if s.is_empty() {
         r.error = Some(format!(
             "Upload test failed. Your connection may be blocking uploads to the test server.{}",
-            last_err.map(|e| format!(" (Error: {e})")).unwrap_or_default()
+            last_err
+                .map(|e| format!(" (Error: {e})"))
+                .unwrap_or_default()
         ));
         return r;
     }
@@ -193,6 +229,9 @@ pub fn limits(p: crate::config::Platform) -> PlatformLimits {
             max_kbps_1080p60: 12000,
             note: "YouTube accepts higher bitrates; around 9000–12000 kbps suits 1080p60.",
         },
-        Kick => PlatformLimits { max_kbps_1080p60: 8000, note: "Kick accepts up to about 8000 kbps." },
+        Kick => PlatformLimits {
+            max_kbps_1080p60: 8000,
+            note: "Kick accepts up to about 8000 kbps.",
+        },
     }
 }

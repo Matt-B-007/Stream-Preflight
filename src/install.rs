@@ -13,7 +13,12 @@ use std::path::PathBuf;
 pub fn target() -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        std::env::var("LOCALAPPDATA").ok().map(|d| PathBuf::from(d).join("Programs").join("Stream Preflight").join("stream-preflight.exe"))
+        std::env::var("LOCALAPPDATA").ok().map(|d| {
+            PathBuf::from(d)
+                .join("Programs")
+                .join("Stream Preflight")
+                .join("stream-preflight.exe")
+        })
     }
     #[cfg(not(windows))]
     {
@@ -29,13 +34,20 @@ pub fn old_program() -> Option<PathBuf> {
     }
     #[cfg(not(windows))]
     {
-        crate::util::home_dir().map(|h| h.join(".local/bin/stream-preflight-check")).filter(|p| p.exists())
+        crate::util::home_dir()
+            .map(|h| h.join(".local/bin/stream-preflight-check"))
+            .filter(|p| p.exists())
     }
 }
 
 /// Running from the installed place already?
 pub fn is_installed() -> bool {
-    match (std::env::current_exe().ok().and_then(|p| p.canonicalize().ok()), target().and_then(|p| p.canonicalize().ok())) {
+    match (
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.canonicalize().ok()),
+        target().and_then(|p| p.canonicalize().ok()),
+    ) {
         (Some(a), Some(b)) => a == b,
         _ => false,
     }
@@ -62,15 +74,14 @@ pub fn install(remove_old: bool) -> Result<PathBuf, String> {
         if to.exists() {
             let _ = std::fs::rename(&to, to.with_extension("old"));
         }
-        std::fs::rename(&tmp, &to).map_err(|e| format!("Couldn't put the program in place: {e}"))?;
+        std::fs::rename(&tmp, &to)
+            .map_err(|e| format!("Couldn't put the program in place: {e}"))?;
     }
     #[cfg(not(windows))]
     {
         crate::desktop::write_entry(&to);
-        if remove_old {
-            if let Some(o) = old_program() {
-                let _ = std::fs::remove_file(o);
-            }
+        if remove_old && let Some(o) = old_program() {
+            let _ = std::fs::remove_file(o);
         }
     }
     #[cfg(windows)]
@@ -90,13 +101,17 @@ pub fn launch(p: &std::path::Path) -> bool {
 
 #[cfg(windows)]
 pub fn start_menu_shortcut() -> Option<PathBuf> {
-    std::env::var("APPDATA").ok().map(|d| PathBuf::from(d).join("Microsoft\\Windows\\Start Menu\\Programs\\Stream Preflight.lnk"))
+    std::env::var("APPDATA").ok().map(|d| {
+        PathBuf::from(d).join("Microsoft\\Windows\\Start Menu\\Programs\\Stream Preflight.lnk")
+    })
 }
 
 #[cfg(windows)]
 fn windows_shortcut(exe: &std::path::Path) {
     use std::os::windows::process::CommandExt;
-    let Some(lnk) = start_menu_shortcut() else { return };
+    let Some(lnk) = start_menu_shortcut() else {
+        return;
+    };
     let q = |p: &std::path::Path| p.display().to_string().replace('\'', "''");
     let script = format!(
         "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';$s.WorkingDirectory='{}';$s.IconLocation='{},0';$s.Description='Check your game, OBS and stream before you go live';$s.Save()",
@@ -105,25 +120,39 @@ fn windows_shortcut(exe: &std::path::Path) {
         q(exe.parent().unwrap_or(exe)),
         q(exe)
     );
-    let _ = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).creation_flags(0x0800_0000).status();
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(0x0800_0000)
+        .status();
 }
 
 #[cfg(windows)]
-const UNINSTALL_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\StreamPreflight";
+const UNINSTALL_KEY: &str =
+    "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\StreamPreflight";
 
 #[cfg(windows)]
 fn windows_register(exe: &std::path::Path) {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
-    let Ok((k, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY) else { return };
+    let Ok((k, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(UNINSTALL_KEY) else {
+        return;
+    };
     let e = exe.display().to_string();
     let _ = k.set_value("DisplayName", &crate::util::APP_NAME);
     let _ = k.set_value("DisplayVersion", &crate::util::VERSION);
     let _ = k.set_value("Publisher", &"Stream Preflight");
     let _ = k.set_value("DisplayIcon", &format!("{e},0"));
     let _ = k.set_value("UninstallString", &format!("\"{e}\" --uninstall"));
-    let _ = k.set_value("InstallLocation", &exe.parent().map(|p| p.display().to_string()).unwrap_or_default());
-    let _ = k.set_value("URLInfoAbout", &"https://github.com/Matt-B-007/Stream-Preflight");
+    let _ = k.set_value(
+        "InstallLocation",
+        &exe.parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+    );
+    let _ = k.set_value(
+        "URLInfoAbout",
+        &"https://github.com/Matt-B-007/Stream-Preflight",
+    );
     let _ = k.set_value("NoModify", &1u32);
     let _ = k.set_value("NoRepair", &1u32);
 }
@@ -144,7 +173,9 @@ pub fn windows_unregister() {
 pub fn refresh_version() {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
-    if let Ok(k) = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(UNINSTALL_KEY, winreg::enums::KEY_SET_VALUE) {
+    if let Ok(k) = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(UNINSTALL_KEY, winreg::enums::KEY_SET_VALUE)
+    {
         let _ = k.set_value("DisplayVersion", &crate::util::VERSION);
     }
 }

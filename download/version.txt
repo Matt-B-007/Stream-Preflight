@@ -3,6 +3,6 @@
 stable_version=
 stable_sha256=
 stable_notes=
-beta_version=0.1.0-beta.5
-beta_sha256=3bfde7e883e35a826fce456b52f255e954b66bbf10d1f893f732041b4248b374
-beta_notes=Opens on Home, much lighter while gaming, recording shown live, tray and startup options, bug fixes
+beta_version=0.1.0-beta.7
+beta_sha256=c6600c6274e90442c761522f3f8f603c68474ead41052b7477d5141bb69c519d
+beta_notes=Behind-the-scenes cleanup and stricter release checks; nothing looks or works differently

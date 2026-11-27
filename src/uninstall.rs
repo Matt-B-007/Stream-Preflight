@@ -7,16 +7,25 @@ use std::path::PathBuf;
 /// What will be removed, in plain words, for the confirmation list.
 pub fn own_folders() -> Vec<(String, PathBuf)> {
     let d = crate::util::dirs();
-    let mut v = vec![("Settings and the saved OBS password".to_string(), d.config.clone())];
+    let mut v = vec![(
+        "Settings and the saved OBS password".to_string(),
+        d.config.clone(),
+    )];
     if d.data != d.config {
-        v.push(("History, stream summaries, preview frames, logs and bug reports".to_string(), d.data.clone()));
+        v.push((
+            "History, stream summaries, preview frames, logs and bug reports".to_string(),
+            d.data.clone(),
+        ));
     }
     v
 }
 
 /// The app menu entry and icons (Linux).
 pub fn menu_files() -> Vec<PathBuf> {
-    crate::desktop::files().into_iter().filter(|p| p.exists()).collect()
+    crate::desktop::files()
+        .into_iter()
+        .filter(|p| p.exists())
+        .collect()
 }
 
 pub fn program_file() -> Option<PathBuf> {
@@ -33,8 +42,24 @@ pub fn run(recordings: &[PathBuf], remove_program: bool) -> Result<(), String> {
         }
     }
     // Only ever Preflight's own folders and program file.
-    let folders: Vec<PathBuf> = own_folders().into_iter().map(|(_, p)| p).filter(|p| p.to_string_lossy().to_lowercase().contains("streampreflight")).collect();
-    let exe = if remove_program { program_file().filter(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase().contains("preflight")).unwrap_or(false)) } else { None };
+    let folders: Vec<PathBuf> = own_folders()
+        .into_iter()
+        .map(|(_, p)| p)
+        .filter(|p| {
+            p.to_string_lossy()
+                .to_lowercase()
+                .contains("streampreflight")
+        })
+        .collect();
+    let exe = if remove_program {
+        program_file().filter(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().to_lowercase().contains("preflight"))
+                .unwrap_or(false)
+        })
+    } else {
+        None
+    };
     log::info!("Removing Preflight's own files (program too: {remove_program})");
     // "Start at login" (the Linux entry is also in desktop::files()).
     let _ = crate::desktop::set_autostart(false, false);
@@ -42,7 +67,10 @@ pub fn run(recordings: &[PathBuf], remove_program: bool) -> Result<(), String> {
     {
         crate::install::windows_unregister();
         // The install folder, when the program lives there and is being removed.
-        let install_dir = exe.as_ref().and_then(|e| e.parent().map(|p| p.to_path_buf())).filter(|d| d.ends_with("Stream Preflight"));
+        let install_dir = exe
+            .as_ref()
+            .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+            .filter(|d| d.ends_with("Stream Preflight"));
         // Windows keeps the running program and its open log file locked, so
         // a small hidden command finishes the job two seconds after we close.
         use std::os::windows::process::CommandExt;
@@ -68,17 +96,21 @@ pub fn run(recordings: &[PathBuf], remove_program: bool) -> Result<(), String> {
             let _ = std::fs::remove_file(f);
         }
         for f in &folders {
-            if f.exists() {
-                if let Err(e) = std::fs::remove_dir_all(f) {
-                    errors.push(format!("{}: {e}", f.display()));
-                }
+            if f.exists()
+                && let Err(e) = std::fs::remove_dir_all(f)
+            {
+                errors.push(format!("{}: {e}", f.display()));
             }
         }
-        if let Some(e) = &exe {
-            if let Err(err) = std::fs::remove_file(e) {
-                errors.push(format!("{}: {err}", e.display()));
-            }
+        if let Some(e) = &exe
+            && let Err(err) = std::fs::remove_file(e)
+        {
+            errors.push(format!("{}: {err}", e.display()));
         }
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }

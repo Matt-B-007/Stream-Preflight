@@ -39,16 +39,31 @@ struct Manifest {
 fn steam_manifests(libs: &[PathBuf]) -> Vec<Manifest> {
     let mut out = Vec::new();
     for lib in libs {
-        let Ok(rd) = std::fs::read_dir(lib.join("steamapps")) else { continue };
+        let Ok(rd) = std::fs::read_dir(lib.join("steamapps")) else {
+            continue;
+        };
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
             if !(n.starts_with("appmanifest_") && n.ends_with(".acf")) {
                 continue;
             }
-            let Ok(t) = std::fs::read_to_string(e.path()) else { continue };
+            let Ok(t) = std::fs::read_to_string(e.path()) else {
+                continue;
+            };
             let kv = crate::games::parse("kv", &t).unwrap_or_default();
-            let (Some(id), Some(name), Some(dir)) = (kv.get("appid").and_then(|v| v.parse().ok()), kv.get("name"), kv.get("installdir")) else { continue };
-            out.push(Manifest { appid: id, name: name.clone(), installdir: dir.clone(), lib: lib.clone() });
+            let (Some(id), Some(name), Some(dir)) = (
+                kv.get("appid").and_then(|v| v.parse().ok()),
+                kv.get("name"),
+                kv.get("installdir"),
+            ) else {
+                continue;
+            };
+            out.push(Manifest {
+                appid: id,
+                name: name.clone(),
+                installdir: dir.clone(),
+                lib: lib.clone(),
+            });
         }
     }
     out
@@ -56,14 +71,26 @@ fn steam_manifests(libs: &[PathBuf]) -> Vec<Manifest> {
 
 /// Lower-case letters and digits only: "Moon Sweepers" -> "moonsweepers".
 pub fn norm(s: &str) -> String {
-    s.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
 }
 
 /// The program's name without its file ending and Unreal's build tags.
 fn exe_stem(exe: &str) -> String {
     let s = exe.to_lowercase();
-    let s = s.trim_end_matches(".exe").trim_end_matches(".x86_64").trim_end_matches(".x86");
-    let s = s.split("-win64").next().unwrap_or(s).split("-linux").next().unwrap_or(s);
+    let s = s
+        .trim_end_matches(".exe")
+        .trim_end_matches(".x86_64")
+        .trim_end_matches(".x86");
+    let s = s
+        .split("-win64")
+        .next()
+        .unwrap_or(s)
+        .split("-linux")
+        .next()
+        .unwrap_or(s);
     s.to_string()
 }
 
@@ -79,7 +106,9 @@ fn pretty_name(s: &str) -> String {
         out.push(ch);
     }
     let mut c = out.trim().chars();
-    c.next().map(|f| format!("{}{}", f.to_uppercase(), c.as_str())).unwrap_or_default()
+    c.next()
+        .map(|f| format!("{}{}", f.to_uppercase(), c.as_str()))
+        .unwrap_or_default()
 }
 
 fn steam_by_installdir(path: &Path, manifests: &[Manifest]) -> Option<(Manifest, PathBuf)> {
@@ -88,27 +117,52 @@ fn steam_by_installdir(path: &Path, manifests: &[Manifest]) -> Option<(Manifest,
     let i = low.find("/steamapps/common/")?;
     let rest = &s[i + "/steamapps/common/".len()..];
     let dir = rest.split('/').next()?;
-    let m = manifests.iter().find(|m| m.installdir.eq_ignore_ascii_case(dir))?.clone();
+    let m = manifests
+        .iter()
+        .find(|m| m.installdir.eq_ignore_ascii_case(dir))?
+        .clone();
     let install = PathBuf::from(&s[..i]).join("steamapps/common").join(dir);
     Some((m, install))
 }
 
 fn proton_prefix(m: &Manifest, libs: &[PathBuf]) -> Option<PathBuf> {
-    std::iter::once(&m.lib).chain(libs.iter()).map(|l| l.join(format!("steamapps/compatdata/{}/pfx", m.appid))).find(|p| p.join("drive_c").is_dir())
+    std::iter::once(&m.lib)
+        .chain(libs.iter())
+        .map(|l| l.join(format!("steamapps/compatdata/{}/pfx", m.appid)))
+        .find(|p| p.join("drive_c").is_dir())
 }
 
 /// Folders that hold many games: the game's own folder is the one below it.
 fn install_from_exe(exe_path: &Path) -> Option<PathBuf> {
-    const CONTAINERS: [&str; 12] = ["program files", "program files (x86)", "games", "gog games", "epic games", "drive_c", "xboxgames", "ea games", "heroic", "lutris", "common", "windowsapps"];
+    const CONTAINERS: [&str; 12] = [
+        "program files",
+        "program files (x86)",
+        "games",
+        "gog games",
+        "epic games",
+        "drive_c",
+        "xboxgames",
+        "ea games",
+        "heroic",
+        "lutris",
+        "common",
+        "windowsapps",
+    ];
     let mut cur = exe_path.parent()?.to_path_buf();
     for _ in 0..5 {
         let parent = cur.parent()?;
-        let pname = parent.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let pname = parent
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
         if CONTAINERS.contains(&pname.as_str()) {
             return Some(cur);
         }
         // Unreal: <Game>/<Project>/Binaries/Win64/x.exe
-        let cname = cur.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let cname = cur
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
         if cname == "binaries" {
             return parent.parent().map(|p| p.to_path_buf());
         }
@@ -121,22 +175,48 @@ fn install_from_exe(exe_path: &Path) -> Option<PathBuf> {
 fn heroic_title(install: &Path) -> Option<(String, Option<PathBuf>)> {
     let home = crate::util::home_dir()?;
     let inst = norm(&install.to_string_lossy());
-    let mut configs = vec![home.join(".config/legendary/installed.json"), home.join(".config/heroic/legendaryConfig/legendary/installed.json"), home.join(".config/heroic/gog_store/installed.json")];
+    let mut configs = vec![
+        home.join(".config/legendary/installed.json"),
+        home.join(".config/heroic/legendaryConfig/legendary/installed.json"),
+        home.join(".config/heroic/gog_store/installed.json"),
+    ];
     configs.push(home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic/legendaryConfig/legendary/installed.json"));
-    configs.push(home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic/gog_store/installed.json"));
+    configs.push(
+        home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic/gog_store/installed.json"),
+    );
     for c in configs {
-        let Ok(t) = std::fs::read_to_string(&c) else { continue };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else { continue };
+        let Ok(t) = std::fs::read_to_string(&c) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else {
+            continue;
+        };
         let entries: Vec<&serde_json::Value> = match &v {
-            serde_json::Value::Object(o) if o.contains_key("installed") => o["installed"].as_array().map(|a| a.iter().collect()).unwrap_or_default(),
+            serde_json::Value::Object(o) if o.contains_key("installed") => o["installed"]
+                .as_array()
+                .map(|a| a.iter().collect())
+                .unwrap_or_default(),
             serde_json::Value::Object(o) => o.values().collect(),
             _ => Vec::new(),
         };
         for e in entries {
             let p = e.get("install_path").and_then(|x| x.as_str()).unwrap_or("");
             if !p.is_empty() && norm(p) == inst {
-                let title = e.get("title").and_then(|x| x.as_str()).map(|s| s.to_string()).unwrap_or_else(|| install.file_name().map(|n| pretty_name(&n.to_string_lossy())).unwrap_or_default());
-                let app = e.get("app_name").or_else(|| e.get("appName")).and_then(|x| x.as_str()).unwrap_or("");
+                let title = e
+                    .get("title")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        install
+                            .file_name()
+                            .map(|n| pretty_name(&n.to_string_lossy()))
+                            .unwrap_or_default()
+                    });
+                let app = e
+                    .get("app_name")
+                    .or_else(|| e.get("appName"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
                 let prefix = heroic_prefix(&home, app);
                 return Some((title, prefix));
             }
@@ -149,36 +229,91 @@ fn heroic_prefix(home: &Path, app: &str) -> Option<PathBuf> {
     if app.is_empty() {
         return None;
     }
-    for base in [home.join(".config/heroic/GamesConfig"), home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic/GamesConfig")] {
-        let Ok(t) = std::fs::read_to_string(base.join(format!("{app}.json"))) else { continue };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else { continue };
-        if let Some(p) = v.get(app).and_then(|g| g.get("winePrefix")).and_then(|p| p.as_str()) {
+    for base in [
+        home.join(".config/heroic/GamesConfig"),
+        home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic/GamesConfig"),
+    ] {
+        let Ok(t) = std::fs::read_to_string(base.join(format!("{app}.json"))) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else {
+            continue;
+        };
+        if let Some(p) = v
+            .get(app)
+            .and_then(|g| g.get("winePrefix"))
+            .and_then(|p| p.as_str())
+        {
             let p = PathBuf::from(p);
             // Proton prefixes put drive_c inside "pfx".
-            return Some(if p.join("pfx/drive_c").is_dir() { p.join("pfx") } else { p });
+            return Some(if p.join("pfx/drive_c").is_dir() {
+                p.join("pfx")
+            } else {
+                p
+            });
         }
     }
     None
 }
 
 /// Lutris game files: "exe:" and "prefix:" lines.
-fn lutris_lookup(exe_path: Option<&Path>, stem: &str) -> Option<(String, Option<PathBuf>, Option<PathBuf>)> {
+fn lutris_lookup(
+    exe_path: Option<&Path>,
+    stem: &str,
+) -> Option<(String, Option<PathBuf>, Option<PathBuf>)> {
     let home = crate::util::home_dir()?;
-    for d in [home.join(".config/lutris/games"), home.join(".local/share/lutris/games"), home.join(".var/app/net.lutris.Lutris/data/lutris/games")] {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+    for d in [
+        home.join(".config/lutris/games"),
+        home.join(".local/share/lutris/games"),
+        home.join(".var/app/net.lutris.Lutris/data/lutris/games"),
+    ] {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
-            let Ok(t) = std::fs::read_to_string(e.path()) else { continue };
-            let field = |k: &str| t.lines().find_map(|l| l.trim().strip_prefix(k).map(|v| v.trim().trim_matches(['"', '\'']).to_string()));
+            let Ok(t) = std::fs::read_to_string(e.path()) else {
+                continue;
+            };
+            let field = |k: &str| {
+                t.lines().find_map(|l| {
+                    l.trim()
+                        .strip_prefix(k)
+                        .map(|v| v.trim().trim_matches(['"', '\'']).to_string())
+                })
+            };
             let exe = field("exe:").unwrap_or_default();
             let hit = match exe_path {
-                Some(p) => !exe.is_empty() && norm(&exe).ends_with(&norm(&p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())) && (norm(&p.to_string_lossy()).contains(&norm(&exe)) || exe.contains(stem)),
-                None => exe_stem(&exe.rsplit(['/', '\\']).next().unwrap_or("")) == stem,
+                Some(p) => {
+                    !exe.is_empty()
+                        && norm(&exe).ends_with(&norm(
+                            &p.file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default(),
+                        ))
+                        && (norm(&p.to_string_lossy()).contains(&norm(&exe)) || exe.contains(stem))
+                }
+                None => exe_stem(exe.rsplit(['/', '\\']).next().unwrap_or("")) == stem,
             };
             if hit {
-                let stem = e.path().file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-                let name = t.lines().find_map(|l| l.strip_prefix("name:").map(|v| v.trim().trim_matches(['"', '\'']).to_string())).filter(|n| !n.is_empty()).unwrap_or_else(|| pretty_name(stem.rsplit_once('-').map(|x| x.0).unwrap_or(&stem)));
+                let stem = e
+                    .path()
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let name = t
+                    .lines()
+                    .find_map(|l| {
+                        l.strip_prefix("name:")
+                            .map(|v| v.trim().trim_matches(['"', '\'']).to_string())
+                    })
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| {
+                        pretty_name(stem.rsplit_once('-').map(|x| x.0).unwrap_or(&stem))
+                    });
                 let prefix = field("prefix:").map(PathBuf::from);
-                let install = Some(PathBuf::from(&exe)).filter(|p| p.is_absolute()).and_then(|p| install_from_exe(&p));
+                let install = Some(PathBuf::from(&exe))
+                    .filter(|p| p.is_absolute())
+                    .and_then(|p| install_from_exe(&p));
                 return Some((name, prefix, install));
             }
         }
@@ -201,10 +336,21 @@ fn epic_title(install: &Path) -> Option<String> {
     let dir = PathBuf::from(r"C:\ProgramData\Epic\EpicGamesLauncher\Data\Manifests");
     let inst = norm(&install.to_string_lossy());
     for e in std::fs::read_dir(dir).ok()?.flatten() {
-        let Ok(t) = std::fs::read_to_string(e.path()) else { continue };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else { continue };
-        if v.get("InstallLocation").and_then(|x| x.as_str()).map(|p| norm(p) == inst).unwrap_or(false) {
-            return v.get("DisplayName").and_then(|x| x.as_str()).map(|s| s.to_string());
+        let Ok(t) = std::fs::read_to_string(e.path()) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else {
+            continue;
+        };
+        if v.get("InstallLocation")
+            .and_then(|x| x.as_str())
+            .map(|p| norm(p) == inst)
+            .unwrap_or(false)
+        {
+            return v
+                .get("DisplayName")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
         }
     }
     None
@@ -215,7 +361,10 @@ fn cache_path() -> PathBuf {
 }
 
 fn load_cache() -> BTreeMap<String, Located> {
-    std::fs::read_to_string(cache_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    std::fs::read_to_string(cache_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
 }
 
 fn save_cache(c: &BTreeMap<String, Located>) {
@@ -228,27 +377,38 @@ fn save_cache(c: &BTreeMap<String, Located>) {
 fn locate_running(p: &GameProc, manifests: &[Manifest], libs: &[PathBuf]) -> Option<Located> {
     let path = p.path.clone()?;
     let stem = exe_stem(&p.exe);
-    let mut loc = Located { exe: p.exe.clone(), ..Default::default() };
+    let mut loc = Located {
+        exe: p.exe.clone(),
+        ..Default::default()
+    };
     if let Some((m, install)) = steam_by_installdir(&path, manifests) {
         loc.name = m.name.clone();
         loc.appid = Some(m.appid);
         loc.install = Some(install);
-        loc.prefix = p.compat.as_ref().map(|c| c.join("pfx")).filter(|x| x.join("drive_c").is_dir()).or_else(|| proton_prefix(&m, libs));
+        loc.prefix = p
+            .compat
+            .as_ref()
+            .map(|c| c.join("pfx"))
+            .filter(|x| x.join("drive_c").is_dir())
+            .or_else(|| proton_prefix(&m, libs));
         loc.launcher = "Steam".into();
         return Some(loc);
     }
-    if let Some(id) = p.steam_appid {
-        if let Some(m) = manifests.iter().find(|m| m.appid == id) {
-            loc.name = m.name.clone();
-            loc.appid = Some(id);
-            loc.install = Some(m.lib.join("steamapps/common").join(&m.installdir));
-            loc.prefix = proton_prefix(m, libs);
-            loc.launcher = "Steam".into();
-            return Some(loc);
-        }
+    if let Some(id) = p.steam_appid
+        && let Some(m) = manifests.iter().find(|m| m.appid == id)
+    {
+        loc.name = m.name.clone();
+        loc.appid = Some(id);
+        loc.install = Some(m.lib.join("steamapps/common").join(&m.installdir));
+        loc.prefix = proton_prefix(m, libs);
+        loc.launcher = "Steam".into();
+        return Some(loc);
     }
     loc.install = install_from_exe(&path);
-    loc.prefix = p.wineprefix.clone().or_else(|| p.compat.as_ref().map(|c| c.join("pfx")));
+    loc.prefix = p
+        .wineprefix
+        .clone()
+        .or_else(|| p.compat.as_ref().map(|c| c.join("pfx")));
     if let Some((title, prefix)) = loc.install.as_deref().and_then(heroic_title) {
         loc.name = title;
         loc.prefix = loc.prefix.or(prefix);
@@ -266,19 +426,34 @@ fn locate_running(p: &GameProc, manifests: &[Manifest], libs: &[PathBuf]) -> Opt
         if let Some(t) = loc.install.as_deref().and_then(epic_title) {
             loc.name = t;
             loc.launcher = "Epic".into();
-        } else if path.to_string_lossy().to_lowercase().contains("xboxgames") || path.to_string_lossy().to_lowercase().contains("windowsapps") {
+        } else if path.to_string_lossy().to_lowercase().contains("xboxgames")
+            || path
+                .to_string_lossy()
+                .to_lowercase()
+                .contains("windowsapps")
+        {
             loc.launcher = "Game Pass".into();
         }
     }
     if loc.name.is_empty() {
-        loc.name = loc.install.as_ref().and_then(|i| i.file_name()).map(|n| pretty_name(&n.to_string_lossy())).unwrap_or_else(|| pretty_name(&stem));
+        loc.name = loc
+            .install
+            .as_ref()
+            .and_then(|i| i.file_name())
+            .map(|n| pretty_name(&n.to_string_lossy()))
+            .unwrap_or_else(|| pretty_name(&stem));
     }
     Some(loc)
 }
 
 /// A game seen before (only its program name is known now, e.g. from the
 /// last test): the saved location, or a Steam game with a matching name.
-fn locate_hint(exe: &str, cache: &BTreeMap<String, Located>, manifests: &[Manifest], libs: &[PathBuf]) -> Option<Located> {
+fn locate_hint(
+    exe: &str,
+    cache: &BTreeMap<String, Located>,
+    manifests: &[Manifest],
+    libs: &[PathBuf],
+) -> Option<Located> {
     if let Some(l) = cache.get(exe) {
         return Some(l.clone());
     }
@@ -286,26 +461,58 @@ fn locate_hint(exe: &str, cache: &BTreeMap<String, Located>, manifests: &[Manife
     if stem.len() < 4 {
         return None;
     }
-    let m = manifests.iter().find(|m| norm(&m.installdir) == stem || norm(&m.name) == stem)?;
+    let m = manifests
+        .iter()
+        .find(|m| norm(&m.installdir) == stem || norm(&m.name) == stem)?;
     let install = m.lib.join("steamapps/common").join(&m.installdir);
     // Make sure the program really is in that folder.
     find_named(&install, exe, 4)?;
-    Some(Located { name: m.name.clone(), exe: exe.to_string(), appid: Some(m.appid), install: Some(install), prefix: proton_prefix(m, libs), launcher: "Steam".into() })
+    Some(Located {
+        name: m.name.clone(),
+        exe: exe.to_string(),
+        appid: Some(m.appid),
+        install: Some(install),
+        prefix: proton_prefix(m, libs),
+        launcher: "Steam".into(),
+    })
 }
 
 fn find_named(dir: &Path, name: &str, depth: u32) -> Option<PathBuf> {
     let mut count = 0u32;
-    walk(dir, depth, &mut count, 4000, &mut |p, is_dir| !is_dir && p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case(name)).unwrap_or(false), &|_: &Path| true).into_iter().next()
+    walk(
+        dir,
+        depth,
+        &mut count,
+        4000,
+        &mut |p, is_dir| {
+            !is_dir
+                && p.file_name()
+                    .map(|n| n.to_string_lossy().eq_ignore_ascii_case(name))
+                    .unwrap_or(false)
+        },
+        &|_: &Path| true,
+    )
+    .into_iter()
+    .next()
 }
 
 /// Depth-limited folder walk. `want` picks files (or folders), `enter`
 /// decides which folders to go into. Links are not followed.
-fn walk(dir: &Path, depth: u32, count: &mut u32, max: u32, want: &mut dyn FnMut(&Path, bool) -> bool, enter: &dyn Fn(&Path) -> bool) -> Vec<PathBuf> {
+fn walk(
+    dir: &Path,
+    depth: u32,
+    count: &mut u32,
+    max: u32,
+    want: &mut dyn FnMut(&Path, bool) -> bool,
+    enter: &dyn Fn(&Path) -> bool,
+) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if depth == 0 || *count > max {
         return out;
     }
-    let Ok(rd) = std::fs::read_dir(dir) else { return out };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return out;
+    };
     let mut subdirs = Vec::new();
     for e in rd.flatten() {
         *count += 1;
@@ -355,27 +562,36 @@ impl Engine {
 }
 
 pub fn detect_engine(install: &Path, exe: &str) -> Engine {
-    let Ok(rd) = std::fs::read_dir(install) else { return Engine::Unknown };
+    let Ok(rd) = std::fs::read_dir(install) else {
+        return Engine::Unknown;
+    };
     let entries: Vec<std::fs::DirEntry> = rd.flatten().collect();
     // Unity: "<Game>_Data/app.info" holds the company and product names,
     // which are also where Unity saves settings.
     for e in &entries {
         let n = e.file_name().to_string_lossy().to_string();
-        if n.ends_with("_Data") && e.path().is_dir() {
-            if let Ok(t) = std::fs::read_to_string(e.path().join("app.info")) {
-                let mut l = t.lines();
-                let company = l.next().unwrap_or("").trim().to_string();
-                let product = l.next().unwrap_or("").trim().to_string();
-                if !product.is_empty() {
-                    return Engine::Unity { company, product };
-                }
+        if n.ends_with("_Data")
+            && e.path().is_dir()
+            && let Ok(t) = std::fs::read_to_string(e.path().join("app.info"))
+        {
+            let mut l = t.lines();
+            let company = l.next().unwrap_or("").trim().to_string();
+            let product = l.next().unwrap_or("").trim().to_string();
+            if !product.is_empty() {
+                return Engine::Unity { company, product };
             }
         }
     }
-    let names: Vec<String> = entries.iter().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+    let names: Vec<String> = entries
+        .iter()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
     let has = |n: &str| names.iter().any(|x| x.eq_ignore_ascii_case(n));
     if has("UnityPlayer.dll") || has("UnityPlayer.so") {
-        return Engine::Unity { company: String::new(), product: String::new() };
+        return Engine::Unity {
+            company: String::new(),
+            product: String::new(),
+        };
     }
     // Unreal: an "Engine" folder next to "<Project>/Binaries".
     if has("Engine") {
@@ -390,11 +606,19 @@ pub fn detect_engine(install: &Path, exe: &str) -> Engine {
             return Engine::Unreal { project: stem };
         }
     }
-    if exe.to_lowercase().contains("-win64-shipping") || exe.to_lowercase().contains("-wingdk-shipping") {
-        return Engine::Unreal { project: exe_stem(exe) };
+    if exe.to_lowercase().contains("-win64-shipping")
+        || exe.to_lowercase().contains("-wingdk-shipping")
+    {
+        return Engine::Unreal {
+            project: exe_stem(exe),
+        };
     }
     // Source 2: game/bin; Source: <mod>/gameinfo.txt.
-    if install.join("game/bin").is_dir() || entries.iter().any(|e| e.path().join("gameinfo.txt").is_file() || e.path().join("gameinfo.gi").is_file()) {
+    if install.join("game/bin").is_dir()
+        || entries.iter().any(|e| {
+            e.path().join("gameinfo.txt").is_file() || e.path().join("gameinfo.gi").is_file()
+        })
+    {
         return Engine::Source;
     }
     if names.iter().any(|n| n.to_lowercase().ends_with(".pck")) {
@@ -409,13 +633,13 @@ pub fn detect_engine(install: &Path, exe: &str) -> Engine {
 /// The user folders inside a Wine/Proton prefix (or on Windows itself).
 fn user_roots(loc: &Located) -> Vec<PathBuf> {
     let mut homes: Vec<PathBuf> = Vec::new();
-    if let Some(pfx) = &loc.prefix {
-        if let Ok(rd) = std::fs::read_dir(pfx.join("drive_c/users")) {
-            for e in rd.flatten() {
-                let n = e.file_name().to_string_lossy().to_lowercase();
-                if n != "public" && e.path().is_dir() {
-                    homes.push(e.path());
-                }
+    if let Some(pfx) = &loc.prefix
+        && let Ok(rd) = std::fs::read_dir(pfx.join("drive_c/users"))
+    {
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().to_lowercase();
+            if n != "public" && e.path().is_dir() {
+                homes.push(e.path());
             }
         }
     }
@@ -425,7 +649,18 @@ fn user_roots(loc: &Located) -> Vec<PathBuf> {
     }
     let mut out = Vec::new();
     for h in homes {
-        for sub in ["AppData/Local", "AppData/LocalLow", "AppData/Roaming", "Documents", "Documents/My Games", "My Documents", "My Documents/My Games", "Saved Games", "Local Settings/Application Data", "Application Data"] {
+        for sub in [
+            "AppData/Local",
+            "AppData/LocalLow",
+            "AppData/Roaming",
+            "Documents",
+            "Documents/My Games",
+            "My Documents",
+            "My Documents/My Games",
+            "Saved Games",
+            "Local Settings/Application Data",
+            "Application Data",
+        ] {
             let p = h.join(sub);
             if p.is_dir() && !out.contains(&p) {
                 out.push(p);
@@ -441,7 +676,13 @@ fn native_roots() -> Vec<PathBuf> {
     let mut v = Vec::new();
     #[cfg(not(windows))]
     if let Some(h) = crate::util::home_dir() {
-        for s in [".config", ".local/share", ".config/unity3d", ".config/Epic", ".local/share/godot/app_userdata"] {
+        for s in [
+            ".config",
+            ".local/share",
+            ".config/unity3d",
+            ".config/Epic",
+            ".local/share/godot/app_userdata",
+        ] {
             let p = h.join(s);
             if p.is_dir() {
                 v.push(p);
@@ -462,7 +703,10 @@ fn tokens(loc: &Located, engine: &Engine) -> Vec<String> {
         _ => {}
     }
     // Drop "game" and similar endings that make the names differ.
-    let extra: Vec<String> = t.iter().filter_map(|x| x.strip_suffix("game").map(|s| s.to_string())).collect();
+    let extra: Vec<String> = t
+        .iter()
+        .filter_map(|x| x.strip_suffix("game").map(|s| s.to_string()))
+        .collect();
     t.extend(extra);
     t.retain(|x| x.len() >= 3);
     t.sort();
@@ -475,14 +719,20 @@ fn name_matches(folder: &str, toks: &[String]) -> bool {
     if f.len() < 3 {
         return false;
     }
-    toks.iter().any(|t| f == *t || (t.len() >= 5 && f.contains(t.as_str())) || (f.len() >= 6 && t.contains(f.as_str())))
+    toks.iter().any(|t| {
+        f == *t
+            || (t.len() >= 5 && f.contains(t.as_str()))
+            || (f.len() >= 6 && t.contains(f.as_str()))
+    })
 }
 
 /// Folders named after the game, one or two levels down ("LocalLow/Company/Game").
 fn matching_folders(roots: &[PathBuf], toks: &[String]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for r in roots {
-        let Ok(rd) = std::fs::read_dir(r) else { continue };
+        let Ok(rd) = std::fs::read_dir(r) else {
+            continue;
+        };
         for e in rd.flatten() {
             if !e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 continue;
@@ -495,7 +745,9 @@ fn matching_folders(roots: &[PathBuf], toks: &[String]) -> Vec<PathBuf> {
             // One level deeper: company folders and "Packages/<pkg>/LocalCache/Local".
             if let Ok(rd2) = std::fs::read_dir(e.path()) {
                 for e2 in rd2.flatten().take(200) {
-                    if e2.file_type().map(|t| t.is_dir()).unwrap_or(false) && name_matches(&e2.file_name().to_string_lossy(), toks) {
+                    if e2.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                        && name_matches(&e2.file_name().to_string_lossy(), toks)
+                    {
                         out.push(e2.path());
                     }
                 }
@@ -508,19 +760,77 @@ fn matching_folders(roots: &[PathBuf], toks: &[String]) -> Vec<PathBuf> {
 }
 
 const SKIP_DIRS: [&str; 30] = [
-    "logs", "log", "crashes", "crashdumps", "crashreports", "cache", "caches", "shadercache", "shadercaches", "pipelinecache", "gpucache", "webcache", "cef", "screenshots", "saves", "savegames", "savegame", "save", "savedata", "demos",
-    "replays", "bepinex", "mods", "plugins", "movies", "paks", "localization", "unity", "il2cpp_data", "mono",
+    "logs",
+    "log",
+    "crashes",
+    "crashdumps",
+    "crashreports",
+    "cache",
+    "caches",
+    "shadercache",
+    "shadercaches",
+    "pipelinecache",
+    "gpucache",
+    "webcache",
+    "cef",
+    "screenshots",
+    "saves",
+    "savegames",
+    "savegame",
+    "save",
+    "savedata",
+    "demos",
+    "replays",
+    "bepinex",
+    "mods",
+    "plugins",
+    "movies",
+    "paks",
+    "localization",
+    "unity",
+    "il2cpp_data",
+    "mono",
 ];
 
 const SKIP_NAME_PARTS: [&str; 26] = [
-    "log", "crash", "achievement", "stats", "telemetry", "analytic", "account", "credential", "token", "auth", "cookie", "friend", "chat", "license", "eula", "readme", "changelog", "steam_api", "steam_emu", "manifest",
-    "locali", "keybind", "input", "unins", "backup", "dump",
+    "log",
+    "crash",
+    "achievement",
+    "stats",
+    "telemetry",
+    "analytic",
+    "account",
+    "credential",
+    "token",
+    "auth",
+    "cookie",
+    "friend",
+    "chat",
+    "license",
+    "eula",
+    "readme",
+    "changelog",
+    "steam_api",
+    "steam_emu",
+    "manifest",
+    "locali",
+    "keybind",
+    "input",
+    "unins",
+    "backup",
+    "dump",
 ];
 
-const EXTS: [&str; 15] = ["ini", "cfg", "json", "xml", "txt", "yaml", "yml", "toml", "conf", "vcfg", "coc", "settings", "prefs", "config", "dat"];
+const EXTS: [&str; 15] = [
+    "ini", "cfg", "json", "xml", "txt", "yaml", "yml", "toml", "conf", "vcfg", "coc", "settings",
+    "prefs", "config", "dat",
+];
 
 fn settings_like(p: &Path) -> bool {
-    let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     // Save games are never read ("profsave" is Frostbite's settings file).
     if name.contains("save") && !name.contains("profsave") {
         return false;
@@ -528,18 +838,26 @@ fn settings_like(p: &Path) -> bool {
     if SKIP_NAME_PARTS.iter().any(|s| name.contains(s)) {
         return false;
     }
-    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let ext = p
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     if ext == "dat" {
         return name.contains("setting") || name.contains("config") || name.contains("option");
     }
     if ext.is_empty() {
-        return ["setting", "config", "profile", "option", "prefs"].iter().any(|w| name.contains(w));
+        return ["setting", "config", "profile", "option", "prefs"]
+            .iter()
+            .any(|w| name.contains(w));
     }
     EXTS.contains(&ext.as_str())
 }
 
 fn enter_dir(p: &Path) -> bool {
-    let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let n = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     !SKIP_DIRS.contains(&n.as_str()) && !n.starts_with('.')
 }
 
@@ -559,7 +877,11 @@ impl PrefValue {
         match self {
             PrefValue::Int(i) => i.to_string(),
             PrefValue::Float(f) => {
-                if f.fract() == 0.0 { format!("{}", *f as i64) } else { format!("{f:.3}") }
+                if f.fract() == 0.0 {
+                    format!("{}", *f as i64)
+                } else {
+                    format!("{f:.3}")
+                }
             }
             PrefValue::Text(s) => s.clone(),
         }
@@ -569,14 +891,19 @@ impl PrefValue {
 /// Unity adds "_h12345" to every saved name.
 fn unity_key(name: &str) -> String {
     match name.rfind("_h") {
-        Some(i) if name[i + 2..].chars().all(|c| c.is_ascii_digit()) && i + 2 < name.len() => name[..i].to_string(),
+        Some(i) if name[i + 2..].chars().all(|c| c.is_ascii_digit()) && i + 2 < name.len() => {
+            name[..i].to_string()
+        }
         _ => name.to_string(),
     }
 }
 
 fn decode_bytes(bytes: &[u8]) -> PrefValue {
     let trimmed: Vec<u8> = bytes.iter().copied().take_while(|b| *b != 0).collect();
-    let printable = !trimmed.is_empty() && trimmed.iter().all(|b| b.is_ascii_graphic() || *b == b' ' || *b >= 0x80);
+    let printable = !trimmed.is_empty()
+        && trimmed
+            .iter()
+            .all(|b| b.is_ascii_graphic() || *b == b' ' || *b >= 0x80);
     if printable && std::str::from_utf8(&trimmed).is_ok() {
         return PrefValue::Text(String::from_utf8_lossy(&trimmed).to_string());
     }
@@ -620,16 +947,25 @@ pub fn read_wine_reg(text: &str, key: &str) -> Option<Vec<(String, PrefValue)>> 
             continue;
         }
         let line = std::mem::take(&mut pending);
-        let Some(rest) = line.strip_prefix('"') else { continue };
-        let Some(end) = rest.find("\"=") else { continue };
+        let Some(rest) = line.strip_prefix('"') else {
+            continue;
+        };
+        let Some(end) = rest.find("\"=") else {
+            continue;
+        };
         let name = rest[..end].replace("\\\\", "\\");
         let val = &rest[end + 2..];
         let v = if let Some(h) = val.strip_prefix("dword:") {
-            u32::from_str_radix(h, 16).map(|n| PrefValue::Int(n as i32 as i64)).ok()
+            u32::from_str_radix(h, 16)
+                .map(|n| PrefValue::Int(n as i32 as i64))
+                .ok()
         } else if let Some(s) = val.strip_prefix('"') {
             Some(PrefValue::Text(s.trim_end_matches('"').to_string()))
         } else if let Some(i) = val.find(':').filter(|_| val.starts_with("hex")) {
-            let bytes: Vec<u8> = val[i + 1..].split(',').filter_map(|b| u8::from_str_radix(b.trim(), 16).ok()).collect();
+            let bytes: Vec<u8> = val[i + 1..]
+                .split(',')
+                .filter_map(|b| u8::from_str_radix(b.trim(), 16).ok())
+                .collect();
             Some(decode_bytes(&bytes))
         } else {
             None
@@ -647,15 +983,29 @@ pub fn read_unity_prefs_xml(text: &str) -> Vec<(String, PrefValue)> {
     use base64::Engine as _;
     let mut out = Vec::new();
     for part in text.split("<pref ").skip(1) {
-        let attr = |a: &str| part.find(&format!("{a}=\"")).map(|i| &part[i + a.len() + 2..]).and_then(|r| r.find('"').map(|j| r[..j].to_string()));
-        let (Some(name), Some(ty)) = (attr("name"), attr("type")) else { continue };
+        let attr = |a: &str| {
+            part.find(&format!("{a}=\""))
+                .map(|i| &part[i + a.len() + 2..])
+                .and_then(|r| r.find('"').map(|j| r[..j].to_string()))
+        };
+        let (Some(name), Some(ty)) = (attr("name"), attr("type")) else {
+            continue;
+        };
         let Some(gt) = part.find('>') else { continue };
-        let body = part[gt + 1..].split("</pref>").next().unwrap_or("").trim().to_string();
+        let body = part[gt + 1..]
+            .split("</pref>")
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let v = match ty.as_str() {
             "int" => body.parse().ok().map(PrefValue::Int),
             "float" => body.parse().ok().map(PrefValue::Float),
             _ => {
-                let decoded = base64::engine::general_purpose::STANDARD.decode(body.as_bytes()).ok().and_then(|b| String::from_utf8(b).ok());
+                let decoded = base64::engine::general_purpose::STANDARD
+                    .decode(body.as_bytes())
+                    .ok()
+                    .and_then(|b| String::from_utf8(b).ok());
                 Some(PrefValue::Text(decoded.unwrap_or(body)))
             }
         };
@@ -674,13 +1024,26 @@ fn read_windows_reg(key: &str) -> Option<Vec<(String, PrefValue)>> {
     let mut out = Vec::new();
     for (name, v) in k.enum_values().flatten().take(2000) {
         let pv = match v.vtype {
-            RegType::REG_DWORD if v.bytes.len() >= 4 => PrefValue::Int(i32::from_le_bytes([v.bytes[0], v.bytes[1], v.bytes[2], v.bytes[3]]) as i64),
+            RegType::REG_DWORD if v.bytes.len() >= 4 => {
+                PrefValue::Int(
+                    i32::from_le_bytes([v.bytes[0], v.bytes[1], v.bytes[2], v.bytes[3]]) as i64,
+                )
+            }
             RegType::REG_QWORD if v.bytes.len() >= 8 => {
                 let mut a = [0u8; 8];
                 a.copy_from_slice(&v.bytes[..8]);
                 PrefValue::Float(f64::from_le_bytes(a))
             }
-            RegType::REG_SZ => PrefValue::Text(String::from_utf16_lossy(&v.bytes.chunks(2).map(|c| u16::from_le_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect::<Vec<_>>()).trim_end_matches('\0').to_string()),
+            RegType::REG_SZ => PrefValue::Text(
+                String::from_utf16_lossy(
+                    &v.bytes
+                        .chunks(2)
+                        .map(|c| u16::from_le_bytes([c[0], *c.get(1).unwrap_or(&0)]))
+                        .collect::<Vec<_>>(),
+                )
+                .trim_end_matches('\0')
+                .to_string(),
+            ),
             _ => decode_bytes(&v.bytes),
         };
         out.push((unity_key(&name), pv));
@@ -731,9 +1094,20 @@ fn safe_pref(name: &str, v: &PrefValue) -> String {
     match v {
         PrefValue::Text(s) => {
             let low = name.to_lowercase();
-            let private = ["name", "user", "player", "account", "email", "steam", "lobby", "friend", "clan", "token", "id", "server", "ip", "host", "chat", "nick", "tag"].iter().any(|w| low.contains(w));
-            let looks_setting = s.len() <= 24 && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-x: ".contains(c));
-            if private || !looks_setting { "(text removed by Preflight)".into() } else { s.clone() }
+            let private = [
+                "name", "user", "player", "account", "email", "steam", "lobby", "friend", "clan",
+                "token", "id", "server", "ip", "host", "chat", "nick", "tag",
+            ]
+            .iter()
+            .any(|w| low.contains(w));
+            let looks_setting = s.len() <= 24
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-x: ".contains(c));
+            if private || !looks_setting {
+                "(text removed by Preflight)".into()
+            } else {
+                s.clone()
+            }
         }
         other => other.as_setting(),
     }
@@ -741,27 +1115,49 @@ fn safe_pref(name: &str, v: &PrefValue) -> String {
 
 /// Reads a Unity game's saved settings (PlayerPrefs). Returns a file entry,
 /// the settings and a redacted text copy for bug reports.
-fn unity_prefs(company: &str, product: &str, loc: &Located) -> Option<(FileResult, BTreeMap<String, String>, String)> {
+fn unity_prefs(
+    company: &str,
+    product: &str,
+    loc: &Located,
+) -> Option<(FileResult, BTreeMap<String, String>, String)> {
     if product.is_empty() {
         return None;
     }
     let key = format!("Software\\{company}\\{product}");
-    let mut found: Option<(String, Vec<(String, PrefValue)>, Option<PathBuf>)> = None;
+    // (where it was read, the settings, the file if there is one)
+    type Found = (String, Vec<(String, PrefValue)>, Option<PathBuf>);
+    let mut found: Option<Found> = None;
     if let Some(pfx) = &loc.prefix {
         let reg = pfx.join("user.reg");
-        if let Ok(t) = std::fs::read_to_string(&reg) {
-            if let Some(v) = read_wine_reg(&t, &key) {
-                found = Some((format!("{} [{}]", crate::util::scrub(&reg.to_string_lossy()), key.replace('\\', "\\\\")), v, Some(reg)));
-            }
+        if let Ok(t) = std::fs::read_to_string(&reg)
+            && let Some(v) = read_wine_reg(&t, &key)
+        {
+            found = Some((
+                format!(
+                    "{} [{}]",
+                    crate::util::scrub(&reg.to_string_lossy()),
+                    key.replace('\\', "\\\\")
+                ),
+                v,
+                Some(reg),
+            ));
         }
     }
     #[cfg(not(windows))]
-    if found.is_none() {
-        if let Some(h) = crate::util::home_dir() {
-            let p = h.join(".config/unity3d").join(company).join(product).join("prefs");
-            if let Ok(t) = std::fs::read_to_string(&p) {
-                found = Some((crate::util::scrub(&p.to_string_lossy()), read_unity_prefs_xml(&t), Some(p)));
-            }
+    if found.is_none()
+        && let Some(h) = crate::util::home_dir()
+    {
+        let p = h
+            .join(".config/unity3d")
+            .join(company)
+            .join(product)
+            .join("prefs");
+        if let Ok(t) = std::fs::read_to_string(&p) {
+            found = Some((
+                crate::util::scrub(&p.to_string_lossy()),
+                read_unity_prefs_xml(&t),
+                Some(p),
+            ));
         }
     }
     #[cfg(windows)]
@@ -777,19 +1173,23 @@ fn unity_prefs(company: &str, product: &str, loc: &Located) -> Option<(FileResul
         let k = &hide_numbers(k);
         // Some games pack all their settings into one text value (JSON):
         // unpack it, keep the settings, drop private fields inside.
-        if let PrefValue::Text(t) = v {
-            if let Some(inner) = unpack_text(t) {
-                for (ik, iv) in inner {
-                    let full = format!("{k}/{}", hide_numbers(&ik));
-                    let safe = safe_pref(&ik, &PrefValue::Text(iv.clone()));
-                    let safe = if safe.starts_with('(') && iv.parse::<f64>().is_ok() { iv.clone() } else { safe };
-                    if !safe.starts_with('(') {
-                        map.insert(full.clone(), safe.clone());
-                    }
-                    text.push_str(&format!("{full} = {safe}\n"));
+        if let PrefValue::Text(t) = v
+            && let Some(inner) = unpack_text(t)
+        {
+            for (ik, iv) in inner {
+                let full = format!("{k}/{}", hide_numbers(&ik));
+                let safe = safe_pref(&ik, &PrefValue::Text(iv.clone()));
+                let safe = if safe.starts_with('(') && iv.parse::<f64>().is_ok() {
+                    iv.clone()
+                } else {
+                    safe
+                };
+                if !safe.starts_with('(') {
+                    map.insert(full.clone(), safe.clone());
                 }
-                continue;
+                text.push_str(&format!("{full} = {safe}\n"));
             }
+            continue;
         }
         let safe = safe_pref(k, v);
         if !safe.starts_with('(') {
@@ -815,7 +1215,11 @@ fn unity_prefs(company: &str, product: &str, loc: &Located) -> Option<(FileResul
 }
 
 fn modified_of(p: &Path) -> Option<i64> {
-    std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64)
+    std::fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
 }
 
 // ---------------------------------------------------------------------------
@@ -838,13 +1242,27 @@ fn unreal_files(project: &str, roots: &[PathBuf]) -> Vec<PathBuf> {
         }
     }
     for b in bases {
-        let Ok(rd) = std::fs::read_dir(&b) else { continue };
+        let Ok(rd) = std::fs::read_dir(&b) else {
+            continue;
+        };
         for e in rd.flatten() {
-            if !e.file_name().to_string_lossy().eq_ignore_ascii_case(project) {
+            if !e
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(project)
+            {
                 continue;
             }
             let cfg = e.path().join("Saved/Config");
-            for plat in ["Windows", "WindowsNoEditor", "WindowsClient", "WinGDK", "Linux", "LinuxNoEditor", "LinuxClient"] {
+            for plat in [
+                "Windows",
+                "WindowsNoEditor",
+                "WindowsClient",
+                "WinGDK",
+                "Linux",
+                "LinuxNoEditor",
+                "LinuxClient",
+            ] {
                 for f in ["GameUserSettings.ini", "Engine.ini"] {
                     let p = cfg.join(plat).join(f);
                     if p.is_file() {
@@ -866,10 +1284,27 @@ fn source_files(install: &Path, appid: Option<u32>, libs_roots: &[PathBuf]) -> V
         &mut count,
         6000,
         &mut |p, d| {
-            let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-            !d && p.parent().and_then(|x| x.file_name()).map(|x| x.to_string_lossy().eq_ignore_ascii_case("cfg")).unwrap_or(false) && (n == "video.txt" || n == "config.cfg" || n.ends_with("machine_convars.vcfg") || n == "autoexec.cfg")
+            let n = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            !d && p
+                .parent()
+                .and_then(|x| x.file_name())
+                .map(|x| x.to_string_lossy().eq_ignore_ascii_case("cfg"))
+                .unwrap_or(false)
+                && (n == "video.txt"
+                    || n == "config.cfg"
+                    || n.ends_with("machine_convars.vcfg")
+                    || n == "autoexec.cfg")
         },
-        &|p| enter_dir(p) && !p.file_name().map(|n| n.to_string_lossy().to_lowercase().ends_with("maps")).unwrap_or(false),
+        &|p| {
+            enter_dir(p)
+                && !p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase().ends_with("maps"))
+                    .unwrap_or(false)
+        },
     ));
     if let Some(id) = appid {
         for r in libs_roots {
@@ -960,52 +1395,271 @@ impl Kind {
         }
     }
     fn heavy(self) -> bool {
-        matches!(self, Kind::Shadows | Kind::Volumetrics | Kind::GlobalIllum | Kind::Reflections | Kind::AmbientOcclusion | Kind::PostProcess | Kind::Effects | Kind::Foliage | Kind::ViewDistance | Kind::Shading | Kind::AntiAliasing)
+        matches!(
+            self,
+            Kind::Shadows
+                | Kind::Volumetrics
+                | Kind::GlobalIllum
+                | Kind::Reflections
+                | Kind::AmbientOcclusion
+                | Kind::PostProcess
+                | Kind::Effects
+                | Kind::Foliage
+                | Kind::ViewDistance
+                | Kind::Shading
+                | Kind::AntiAliasing
+        )
     }
     /// Effects that add fine noise or smear: they cost stream bitrate.
     pub fn costs_bitrate(self) -> bool {
-        matches!(self, Kind::MotionBlur | Kind::FilmGrain | Kind::ChromaticAb | Kind::DepthOfField)
+        matches!(
+            self,
+            Kind::MotionBlur | Kind::FilmGrain | Kind::ChromaticAb | Kind::DepthOfField
+        )
     }
 }
 
 /// (kind, name fragments). Checked in order; the first match wins.
 const PATTERNS: &[(Kind, &[&str])] = &[
-    (Kind::FrameGen, &["framegeneration", "framegen", "dlssg", "fgenabled"]),
-    (Kind::Upscaler, &["dlss", "fsr", "xess", "upscal", "superresolution", "temporalsuper"]),
-    (Kind::RayTracing, &["raytrac", "pathtrac", "rtgi", "rtreflection", "rtshadow", "rtxon", "rayreconstruction"]),
+    (
+        Kind::FrameGen,
+        &["framegeneration", "framegen", "dlssg", "fgenabled"],
+    ),
+    (
+        Kind::Upscaler,
+        &[
+            "dlss",
+            "fsr",
+            "xess",
+            "upscal",
+            "superresolution",
+            "temporalsuper",
+        ],
+    ),
+    (
+        Kind::RayTracing,
+        &[
+            "raytrac",
+            "pathtrac",
+            "rtgi",
+            "rtreflection",
+            "rtshadow",
+            "rtxon",
+            "rayreconstruction",
+        ],
+    ),
     (Kind::Reflex, &["reflex", "lowlatency", "antilag"]),
-    (Kind::RefreshRate, &["refreshrate", "refreshratenumerator", "monitorhz"]),
-    (Kind::FpsLimit, &["fpsmax", "maxfps", "fpslimit", "frameratelimit", "framelimit", "maxframerate", "framecap", "fpscap", "targetframerate", "targetfps", "frameratecap", "limitfps", "fpstarget"]),
-    (Kind::VSync, &["vsync", "verticalsync", "waitforvertical", "vblank", "syncinterval"]),
-    (Kind::ResHeight, &["resolutionsizey", "resolutionheight", "screenheight", "defaultresheight", "resolutiony", "screenresy", "displayheight"]),
-    (Kind::ResWidth, &["resolutionsizex", "resolutionwidth", "screenwidth", "defaultres", "resolutionx", "screenresx", "displaywidth"]),
-    (Kind::RenderScale, &["resolutionquality", "resolutionscale", "renderscale", "renderresolution", "screenpercentage", "resolutionpercent"]),
+    (
+        Kind::RefreshRate,
+        &["refreshrate", "refreshratenumerator", "monitorhz"],
+    ),
+    (
+        Kind::FpsLimit,
+        &[
+            "fpsmax",
+            "maxfps",
+            "fpslimit",
+            "frameratelimit",
+            "framelimit",
+            "maxframerate",
+            "framecap",
+            "fpscap",
+            "targetframerate",
+            "targetfps",
+            "frameratecap",
+            "limitfps",
+            "fpstarget",
+        ],
+    ),
+    (
+        Kind::VSync,
+        &[
+            "vsync",
+            "verticalsync",
+            "waitforvertical",
+            "vblank",
+            "syncinterval",
+        ],
+    ),
+    (
+        Kind::ResHeight,
+        &[
+            "resolutionsizey",
+            "resolutionheight",
+            "screenheight",
+            "defaultresheight",
+            "resolutiony",
+            "screenresy",
+            "displayheight",
+        ],
+    ),
+    (
+        Kind::ResWidth,
+        &[
+            "resolutionsizex",
+            "resolutionwidth",
+            "screenwidth",
+            "defaultres",
+            "resolutionx",
+            "screenresx",
+            "displaywidth",
+        ],
+    ),
+    (
+        Kind::RenderScale,
+        &[
+            "resolutionquality",
+            "resolutionscale",
+            "renderscale",
+            "renderresolution",
+            "screenpercentage",
+            "resolutionpercent",
+        ],
+    ),
     (Kind::Resolution, &["resolution"]),
-    (Kind::DisplayMode, &["fullscreenmode", "windowmode", "displaymode", "screenmode", "fullscreen", "windowed"]),
-    (Kind::Preset, &["qualitypreset", "graphicspreset", "overallquality", "unitygraphicsquality", "graphicsquality", "qualitylevel", "quickpreset", "presetquality", "globalquality", "videopreset", "preset"]),
+    (
+        Kind::DisplayMode,
+        &[
+            "fullscreenmode",
+            "windowmode",
+            "displaymode",
+            "screenmode",
+            "fullscreen",
+            "windowed",
+        ],
+    ),
+    (
+        Kind::Preset,
+        &[
+            "qualitypreset",
+            "graphicspreset",
+            "overallquality",
+            "unitygraphicsquality",
+            "graphicsquality",
+            "qualitylevel",
+            "quickpreset",
+            "presetquality",
+            "globalquality",
+            "videopreset",
+            "preset",
+        ],
+    ),
     (Kind::Shadows, &["shadow"]),
-    (Kind::Volumetrics, &["volumetric", "fog", "cloud", "godray", "lightshaft"]),
-    (Kind::GlobalIllum, &["globalillumination", "ssgi", "giquality"]),
+    (
+        Kind::Volumetrics,
+        &["volumetric", "fog", "cloud", "godray", "lightshaft"],
+    ),
+    (
+        Kind::GlobalIllum,
+        &["globalillumination", "ssgi", "giquality"],
+    ),
     (Kind::Reflections, &["reflection", "ssr"]),
-    (Kind::AmbientOcclusion, &["ambientocclusion", "ssao", "hbao", "gtao", "aodetail", "aoquality"]),
+    (
+        Kind::AmbientOcclusion,
+        &[
+            "ambientocclusion",
+            "ssao",
+            "hbao",
+            "gtao",
+            "aodetail",
+            "aoquality",
+        ],
+    ),
     (Kind::MotionBlur, &["motionblur"]),
-    (Kind::DepthOfField, &["depthoffield", "dofquality", "dofenabled", "enabledof"]),
+    (
+        Kind::DepthOfField,
+        &["depthoffield", "dofquality", "dofenabled", "enabledof"],
+    ),
     (Kind::FilmGrain, &["filmgrain", "grain"]),
     (Kind::ChromaticAb, &["chromatic"]),
     (Kind::PostProcess, &["postprocess"]),
-    (Kind::Effects, &["effectsquality", "particle", "vfx", "effectquality", "sgeffects"]),
+    (
+        Kind::Effects,
+        &[
+            "effectsquality",
+            "particle",
+            "vfx",
+            "effectquality",
+            "sgeffects",
+        ],
+    ),
     (Kind::Foliage, &["foliage", "grass", "vegetation"]),
-    (Kind::ViewDistance, &["viewdistance", "drawdistance", "lodquality", "lodbias", "detaildistance"]),
-    (Kind::Shading, &["shadingquality", "shaderquality", "sgshading"]),
-    (Kind::AntiAliasing, &["antialias", "msaa", "fxaa", "smaa", "cmaa", "aamode", "aaquality", "taaquality"]),
-    (Kind::Textures, &["texturequality", "texturedetail", "textureresolution", "texturesize", "sgtexture"]),
+    (
+        Kind::ViewDistance,
+        &[
+            "viewdistance",
+            "drawdistance",
+            "lodquality",
+            "lodbias",
+            "detaildistance",
+        ],
+    ),
+    (
+        Kind::Shading,
+        &["shadingquality", "shaderquality", "sgshading"],
+    ),
+    (
+        Kind::AntiAliasing,
+        &[
+            "antialias",
+            "msaa",
+            "fxaa",
+            "smaa",
+            "cmaa",
+            "aamode",
+            "aaquality",
+            "taaquality",
+        ],
+    ),
+    (
+        Kind::Textures,
+        &[
+            "texturequality",
+            "texturedetail",
+            "textureresolution",
+            "texturesize",
+            "sgtexture",
+        ],
+    ),
 ];
 
 /// Name parts that mean the key isn't a graphics setting (or isn't the
 /// current value).
 const NOT_GRAPHICS: [&str; 34] = [
-    "audio", "sound", "volume", "mouse", "sensitiv", "controller", "gamepad", "keybind", "binding", "input", "subtitle", "language", "voice", "chat", "hud", "crosshair", "colorblind", "tutorial", "benchmark", "recommend",
-    "index", "detected", "supported", "lastuser", "lastconfirmed", "desired", "version", "tooltip", "hint", "prompt", "menu", "background", "unfocus", "inactive",
+    "audio",
+    "sound",
+    "volume",
+    "mouse",
+    "sensitiv",
+    "controller",
+    "gamepad",
+    "keybind",
+    "binding",
+    "input",
+    "subtitle",
+    "language",
+    "voice",
+    "chat",
+    "hud",
+    "crosshair",
+    "colorblind",
+    "tutorial",
+    "benchmark",
+    "recommend",
+    "index",
+    "detected",
+    "supported",
+    "lastuser",
+    "lastconfirmed",
+    "desired",
+    "version",
+    "tooltip",
+    "hint",
+    "prompt",
+    "menu",
+    "background",
+    "unfocus",
+    "inactive",
 ];
 
 #[derive(Clone, Debug)]
@@ -1018,7 +1672,11 @@ pub struct Hit {
 /// The last two parts of a setting's name, letters and digits only.
 fn short_key(key: &str) -> String {
     let parts: Vec<&str> = key.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
-    let tail = if parts.len() >= 2 { format!("{}{}", parts[parts.len() - 2], parts[parts.len() - 1]) } else { parts.last().map(|s| s.to_string()).unwrap_or_default() };
+    let tail = if parts.len() >= 2 {
+        format!("{}{}", parts[parts.len() - 2], parts[parts.len() - 1])
+    } else {
+        parts.last().map(|s| s.to_string()).unwrap_or_default()
+    };
     norm(&tail)
 }
 
@@ -1029,19 +1687,32 @@ pub fn classify(key: &str, raw: &str) -> Option<Kind> {
     }
     let last = norm(key.rsplit(['/', '\\']).next().unwrap_or(key));
     let k = short_key(key);
-    if NOT_GRAPHICS.iter().any(|w| last.contains(w)) || (last.contains("default") && !last.contains("defaultres")) {
+    if NOT_GRAPHICS.iter().any(|w| last.contains(w))
+        || (last.contains("default") && !last.contains("defaultres"))
+    {
         return None;
     }
     // FPS limits for menus, tools or a minimised window don't count.
-    if (last.contains("fps") || last.contains("framerate")) && (last.ends_with("ui") || last.contains("ui2") || last.contains("tools") || last.contains("loading") || last.contains("idle") || last.contains("battery")) {
+    if (last.contains("fps") || last.contains("framerate"))
+        && (last.ends_with("ui")
+            || last.contains("ui2")
+            || last.contains("tools")
+            || last.contains("loading")
+            || last.contains("idle")
+            || last.contains("battery"))
+    {
         return None;
     }
     for (kind, pats) in PATTERNS {
         // Match on the setting's own name first, then with its group.
-        if pats.iter().any(|p| last.contains(p)) || (last.len() <= 8 && pats.iter().any(|p| k.contains(p))) {
+        if pats.iter().any(|p| last.contains(p))
+            || (last.len() <= 8 && pats.iter().any(|p| k.contains(p)))
+        {
             let kind = *kind;
             // A "resolution" that isn't WxH is a render scale or an index.
-            if kind == Kind::Resolution && !(v.contains('x') && v.split('x').all(|n| n.trim().parse::<u32>().is_ok())) {
+            if kind == Kind::Resolution
+                && !(v.contains('x') && v.split('x').all(|n| n.trim().parse::<u32>().is_ok()))
+            {
                 return None;
             }
             if kind == Kind::Preset && last.contains("shadow") {
@@ -1055,7 +1726,16 @@ pub fn classify(key: &str, raw: &str) -> Option<Kind> {
 
 /// Every graphics setting recognised in a settings map.
 pub fn recognise(settings: &BTreeMap<String, String>) -> Vec<Hit> {
-    settings.iter().filter_map(|(k, v)| classify(k, v).map(|kind| Hit { kind, key: k.clone(), raw: v.trim().trim_matches('"').to_string() })).collect()
+    settings
+        .iter()
+        .filter_map(|(k, v)| {
+            classify(k, v).map(|kind| Hit {
+                kind,
+                key: k.clone(),
+                raw: v.trim().trim_matches('"').to_string(),
+            })
+        })
+        .collect()
 }
 
 /// A level on a known scale.
@@ -1087,14 +1767,24 @@ const WORDS: [(&str, u8); 14] = [
 fn level_of(key: &str, raw: &str) -> Option<Level> {
     let v = norm(raw.rsplit(['-', '.']).next().unwrap_or(raw));
     if let Some((_, r)) = WORDS.iter().find(|(w, _)| *w == v) {
-        return Some(Level { rank: *r, label: crate::games::pretty_value(raw.rsplit('-').next().unwrap_or(raw)), high: "High".into() });
+        return Some(Level {
+            rank: *r,
+            label: crate::games::pretty_value(raw.rsplit('-').next().unwrap_or(raw)),
+            high: "High".into(),
+        });
     }
     // Unreal scalability groups: 0 Low, 1 Medium, 2 High, 3 Epic, 4 Cinematic.
     let last = key.rsplit(['/', '\\']).next().unwrap_or(key).to_lowercase();
     if last.starts_with("sg.") {
         let n: i64 = raw.trim().parse::<f64>().ok()? as i64;
-        let label = ["Low", "Medium", "High", "Epic", "Cinematic"].get(n as usize)?.to_string();
-        return Some(Level { rank: (n + 1).clamp(1, 5) as u8, label, high: "High".into() });
+        let label = ["Low", "Medium", "High", "Epic", "Cinematic"]
+            .get(n as usize)?
+            .to_string();
+        return Some(Level {
+            rank: (n + 1).clamp(1, 5) as u8,
+            label,
+            high: "High".into(),
+        });
     }
     None
 }
@@ -1141,18 +1831,35 @@ fn effect_on(raw: &str) -> bool {
     let v = raw.trim().trim_matches('"').to_lowercase();
     match on(&v) {
         Some(b) => b,
-        None => !(v.ends_with("off") || v.ends_with("-off") || v == "none" || v == "disabled" || v.is_empty()),
+        None => {
+            !(v.ends_with("off")
+                || v.ends_with("-off")
+                || v == "none"
+                || v == "disabled"
+                || v.is_empty())
+        }
     }
 }
 
 /// Bitrate-costly effects in a profile game's settings that its profile
 /// doesn't already show.
-pub fn bitrate_effects(settings: &BTreeMap<String, String>, game: &str, covered: &[String]) -> Vec<CurrentSetting> {
+pub fn bitrate_effects(
+    settings: &BTreeMap<String, String>,
+    game: &str,
+    covered: &[String],
+) -> Vec<CurrentSetting> {
     let mut out: Vec<CurrentSetting> = Vec::new();
-    for h in merge_hits(vec![recognise(settings)]).into_iter().filter(|h| h.kind.costs_bitrate()) {
+    for h in merge_hits(vec![recognise(settings)])
+        .into_iter()
+        .filter(|h| h.kind.costs_bitrate())
+    {
         let name = h.kind.name();
         let n = name.to_lowercase();
-        if covered.iter().any(|c| c.to_lowercase().contains(&n) || n.contains(&c.to_lowercase())) || out.iter().any(|c| c.setting == name) {
+        if covered
+            .iter()
+            .any(|c| c.to_lowercase().contains(&n) || n.contains(&c.to_lowercase()))
+            || out.iter().any(|c| c.setting == name)
+        {
             continue;
         }
         let is_on = effect_on(&h.raw);
@@ -1161,7 +1868,11 @@ pub fn bitrate_effects(settings: &BTreeMap<String, String>, game: &str, covered:
             setting: name.into(),
             effect: "bitrate".into(),
             menu: format!("{game} › Settings › Graphics"),
-            value: if is_on { crate::games::pretty_value(&h.raw) } else { "Off".into() },
+            value: if is_on {
+                crate::games::pretty_value(&h.raw)
+            } else {
+                "Off".into()
+            },
             flagged: is_on,
             change_to: is_on.then(|| "Off".to_string()),
             gain: Some("A cleaner stream picture at the same bitrate".into()),
@@ -1202,7 +1913,18 @@ fn merge_hits(per_file: Vec<Vec<Hit>>) -> Vec<Hit> {
     // refresh rate's numerator over its denominator.
     let rank = |h: &Hit| {
         let k = h.key.to_lowercase();
-        if k.contains("quality") || k.contains("level") || k.contains("numerator") || k.ends_with("mode") || k.contains("detail") { 0 } else if k.contains("dynamic") || k.contains("denominator") { 2 } else { 1 }
+        if k.contains("quality")
+            || k.contains("level")
+            || k.contains("numerator")
+            || k.ends_with("mode")
+            || k.contains("detail")
+        {
+            0
+        } else if k.contains("dynamic") || k.contains("denominator") {
+            2
+        } else {
+            1
+        }
     };
     let mut out: Vec<Hit> = Vec::new();
     for mut hits in per_file {
@@ -1217,7 +1939,10 @@ fn merge_hits(per_file: Vec<Vec<Hit>>) -> Vec<Hit> {
 }
 
 fn guess_format(p: &Path, text: &str) -> &'static str {
-    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let ext = p
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     let t = text.trim_start_matches('\u{feff}').trim_start();
     if t.starts_with('{') || t.starts_with('[') && ext == "json" {
         return "json";
@@ -1231,9 +1956,16 @@ fn guess_format(p: &Path, text: &str) -> &'static str {
     if t.starts_with('"') || ext == "vcfg" {
         return "kv";
     }
-    let lines: Vec<&str> = t.lines().take(60).filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with(['#', ';', '/'])).collect();
+    let lines: Vec<&str> = t
+        .lines()
+        .take(60)
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with(['#', ';', '/']))
+        .collect();
     let eq = lines.iter().filter(|l| l.contains('=')).count();
-    let colon = lines.iter().filter(|l| l.contains(':') && !l.contains('=')).count();
+    let colon = lines
+        .iter()
+        .filter(|l| l.contains(':') && !l.contains('='))
+        .count();
     if eq > 0 && eq >= colon {
         return "ini";
     }
@@ -1252,7 +1984,10 @@ fn parse_spaced(text: &str) -> BTreeMap<String, String> {
             continue;
         }
         if let Some((k, v)) = t.split_once(char::is_whitespace) {
-            m.insert(k.trim_matches('"').to_string(), v.trim().trim_matches('"').to_string());
+            m.insert(
+                k.trim_matches('"').to_string(),
+                v.trim().trim_matches('"').to_string(),
+            );
         }
     }
     m
@@ -1264,7 +1999,10 @@ fn read_settings_file(p: &Path) -> Result<BTreeMap<String, String>, String> {
         return Err(format!("too big to read ({} KB)", bytes.len() / 1024));
     }
     let head = &bytes[..bytes.len().min(4096)];
-    let bad = head.iter().filter(|b| **b == 0 || (**b < 9) || (**b > 13 && **b < 32)).count();
+    let bad = head
+        .iter()
+        .filter(|b| **b == 0 || (**b < 9) || (**b > 13 && **b < 32))
+        .count();
     if bad > head.len() / 20 {
         return Err("saved in a binary format Preflight can't read".into());
     }
@@ -1275,7 +2013,11 @@ fn read_settings_file(p: &Path) -> Result<BTreeMap<String, String>, String> {
     }
 }
 
-fn file_result(p: &Path, format: &str, res: &Result<BTreeMap<String, String>, String>) -> FileResult {
+fn file_result(
+    p: &Path,
+    format: &str,
+    res: &Result<BTreeMap<String, String>, String>,
+) -> FileResult {
     FileResult {
         shown_path: crate::util::scrub(&p.to_string_lossy()),
         found: true,
@@ -1301,22 +2043,33 @@ struct Discovery {
     files: Vec<(PathBuf, bool)>,
 }
 
-static DISCOVERED: std::sync::Mutex<Vec<(String, std::time::Instant, Discovery)>> = std::sync::Mutex::new(Vec::new());
+static DISCOVERED: std::sync::Mutex<Vec<(String, std::time::Instant, Discovery)>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// Looks for a game's settings files. Folder searches are the slow part,
 /// so results are kept for 5 minutes; the files themselves are re-read on
 /// every scan.
 fn discover(loc: &Located, steam_roots: &[PathBuf]) -> Discovery {
-    let key = format!("{}|{}", loc.exe, loc.install.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default());
-    if let Ok(cache) = DISCOVERED.lock() {
-        if let Some((_, t, d)) = cache.iter().find(|(k, _, _)| *k == key) {
-            if t.elapsed().as_secs() < 300 {
-                return d.clone();
-            }
-        }
+    let key = format!(
+        "{}|{}",
+        loc.exe,
+        loc.install
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default()
+    );
+    if let Ok(cache) = DISCOVERED.lock()
+        && let Some((_, t, d)) = cache.iter().find(|(k, _, _)| *k == key)
+        && t.elapsed().as_secs() < 300
+    {
+        return d.clone();
     }
     let mut d = Discovery::default();
-    let engine = loc.install.as_deref().map(|i| detect_engine(i, &loc.exe)).unwrap_or(Engine::Unknown);
+    let engine = loc
+        .install
+        .as_deref()
+        .map(|i| detect_engine(i, &loc.exe))
+        .unwrap_or(Engine::Unknown);
     d.engine = engine.label().to_string();
     let roots = user_roots(loc);
     match &engine {
@@ -1326,10 +2079,16 @@ fn discover(loc: &Located, steam_roots: &[PathBuf]) -> Discovery {
                 d.unity = Some((company.clone(), product.clone()));
             }
         }
-        Engine::Unreal { project } => d.files.extend(unreal_files(project, &roots).into_iter().map(|p| (p, true))),
+        Engine::Unreal { project } => d
+            .files
+            .extend(unreal_files(project, &roots).into_iter().map(|p| (p, true))),
         Engine::Source => {
             if let Some(i) = &loc.install {
-                d.files.extend(source_files(i, loc.appid, steam_roots).into_iter().map(|p| (p, true)));
+                d.files.extend(
+                    source_files(i, loc.appid, steam_roots)
+                        .into_iter()
+                        .map(|p| (p, true)),
+                );
             }
         }
         _ => {}
@@ -1355,7 +2114,14 @@ fn discover(loc: &Located, steam_roots: &[PathBuf]) -> Discovery {
     let mut candidates: Vec<PathBuf> = Vec::new();
     for folder in matching_folders(&search_roots, &toks) {
         let mut count = 0;
-        candidates.extend(walk(&folder, 6, &mut count, 1500, &mut |p, d| !d && settings_like(p), &enter_dir));
+        candidates.extend(walk(
+            &folder,
+            6,
+            &mut count,
+            1500,
+            &mut |p, d| !d && settings_like(p),
+            &enter_dir,
+        ));
     }
     // Steam Cloud keeps some games' settings here.
     if let Some(id) = loc.appid {
@@ -1363,7 +2129,14 @@ fn discover(loc: &Located, steam_roots: &[PathBuf]) -> Discovery {
             if let Ok(rd) = std::fs::read_dir(r0.join("userdata")) {
                 for u in rd.flatten() {
                     let mut count = 0;
-                    candidates.extend(walk(&u.path().join(id.to_string()), 4, &mut count, 400, &mut |p, d| !d && settings_like(p), &enter_dir));
+                    candidates.extend(walk(
+                        &u.path().join(id.to_string()),
+                        4,
+                        &mut count,
+                        400,
+                        &mut |p, d| !d && settings_like(p),
+                        &enter_dir,
+                    ));
                 }
             }
         }
@@ -1377,10 +2150,26 @@ fn discover(loc: &Located, steam_roots: &[PathBuf]) -> Discovery {
             &mut count,
             3000,
             &mut |p, d| {
-                let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-                !d && settings_like(p) && ["setting", "config", "option", "video", "graphic", "prefs", "user"].iter().any(|w| n.contains(w)) && !n.contains("boot") && !n.contains("runtime")
+                let n = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                !d && settings_like(p)
+                    && [
+                        "setting", "config", "option", "video", "graphic", "prefs", "user",
+                    ]
+                    .iter()
+                    .any(|w| n.contains(w))
+                    && !n.contains("boot")
+                    && !n.contains("runtime")
             },
-            &|p| enter_dir(p) && !p.file_name().map(|n| n.to_string_lossy().ends_with("_Data")).unwrap_or(false),
+            &|p| {
+                enter_dir(p)
+                    && !p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().ends_with("_Data"))
+                        .unwrap_or(false)
+            },
         ));
     }
     // Newest first: the file the game saved last is the one in use.
@@ -1398,8 +2187,14 @@ fn discover(loc: &Located, steam_roots: &[PathBuf]) -> Discovery {
                 kept += 1;
             }
             Err(_) => {
-                let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-                if ["setting", "config", "option", "profile", "graphic", "video"].iter().any(|w| n.contains(w)) {
+                let n = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                if ["setting", "config", "option", "profile", "graphic", "video"]
+                    .iter()
+                    .any(|w| n.contains(w))
+                {
                     d.files.push((p, false));
                     kept += 1;
                 }
@@ -1417,16 +2212,19 @@ fn discover(loc: &Located, steam_roots: &[PathBuf]) -> Discovery {
 /// Reads everything Preflight can find for one game.
 pub fn read_game(loc: &Located, steam_roots: &[PathBuf]) -> Reading {
     let d = discover(loc, steam_roots);
-    let mut r = Reading { engine: d.engine.clone(), ..Default::default() };
+    let mut r = Reading {
+        engine: d.engine.clone(),
+        ..Default::default()
+    };
     let mut per_file: Vec<Vec<Hit>> = Vec::new();
-    if let Some((company, product)) = &d.unity {
-        if let Some((fr, map, _)) = unity_prefs(company, product, loc) {
-            per_file.push(recognise(&map));
-            for (k, v) in map {
-                r.settings.entry(k).or_insert(v);
-            }
-            r.files.push(fr);
+    if let Some((company, product)) = &d.unity
+        && let Some((fr, map, _)) = unity_prefs(company, product, loc)
+    {
+        per_file.push(recognise(&map));
+        for (k, v) in map {
+            r.settings.entry(k).or_insert(v);
         }
+        r.files.push(fr);
     }
     let mut seen: Vec<PathBuf> = Vec::new();
     for (p, _engine_place) in &d.files {
@@ -1438,7 +2236,10 @@ pub fn read_game(loc: &Located, steam_roots: &[PathBuf]) -> Reading {
         let res = read_settings_file(p);
         let hits = res.as_ref().map(recognise).unwrap_or_default();
         let fmt = match &res {
-            Ok(_) => std::fs::read(p).ok().map(|b| guess_format(p, &String::from_utf8_lossy(&b[..b.len().min(8192)]))).unwrap_or("text"),
+            Ok(_) => std::fs::read(p)
+                .ok()
+                .map(|b| guess_format(p, &String::from_utf8_lossy(&b[..b.len().min(8192)])))
+                .unwrap_or("text"),
             Err(_) => "unknown",
         };
         r.files.push(file_result(p, fmt, &res));
@@ -1457,7 +2258,10 @@ pub fn read_game(loc: &Located, steam_roots: &[PathBuf]) -> Reading {
             "Preflight couldn't find where this game keeps its settings.".into()
         })
     } else if r.files.iter().all(|f| !f.read_ok) {
-        Some("This game keeps its settings in a format Preflight can't read (binary or encrypted).".into())
+        Some(
+            "This game keeps its settings in a format Preflight can't read (binary or encrypted)."
+                .into(),
+        )
     } else if r.hits.is_empty() {
         Some("Preflight found this game's settings files but didn't recognise any graphics settings in them.".into())
     } else {
@@ -1478,7 +2282,17 @@ pub fn to_game_result(loc: &Located, rd: Reading, running: bool) -> GameResult {
     let gfx = format!("{name} › Settings › Graphics");
     let video = format!("{name} › Settings › Video / Display");
     let menu_for = |k: Kind| match k {
-        Kind::FpsLimit | Kind::VSync | Kind::Resolution | Kind::ResWidth | Kind::ResHeight | Kind::RefreshRate | Kind::DisplayMode | Kind::RenderScale | Kind::Upscaler | Kind::FrameGen | Kind::Reflex => video.clone(),
+        Kind::FpsLimit
+        | Kind::VSync
+        | Kind::Resolution
+        | Kind::ResWidth
+        | Kind::ResHeight
+        | Kind::RefreshRate
+        | Kind::DisplayMode
+        | Kind::RenderScale
+        | Kind::Upscaler
+        | Kind::FrameGen
+        | Kind::Reflex => video.clone(),
         _ => gfx.clone(),
     };
     let hits = &rd.hits;
@@ -1501,72 +2315,170 @@ pub fn to_game_result(loc: &Located, rd: Reading, running: bool) -> GameResult {
     if let Some(h) = hit_of(hits, Kind::FpsLimit) {
         match num(&h.raw) {
             Some(n) if n > 0.0 && n < 999.0 => fps_cap = Some(n as u32),
-            Some(_) => findings.push(finding("uncapped_fps", "FPS limit is off (unlimited)", h, None, menu_for(Kind::FpsLimit))),
-            None if on(&h.raw) == Some(false) || h.raw.to_lowercase().contains("unlimit") => findings.push(finding("uncapped_fps", "FPS limit is off (unlimited)", h, None, menu_for(Kind::FpsLimit))),
+            Some(_) => findings.push(finding(
+                "uncapped_fps",
+                "FPS limit is off (unlimited)",
+                h,
+                None,
+                menu_for(Kind::FpsLimit),
+            )),
+            None if on(&h.raw) == Some(false) || h.raw.to_lowercase().contains("unlimit") => {
+                findings.push(finding(
+                    "uncapped_fps",
+                    "FPS limit is off (unlimited)",
+                    h,
+                    None,
+                    menu_for(Kind::FpsLimit),
+                ))
+            }
             None => {}
         }
     }
-    if let Some(h) = hit_of(hits, Kind::RayTracing) {
-        if on(&h.raw) == Some(true) || level_of(&h.key, &h.raw).map(|l| l.rank >= 1).unwrap_or(false) {
-            let mut f = finding("rt_on", "Ray tracing is on", h, Some("Off"), menu_for(Kind::RayTracing));
-            f.gain = Some("Large GPU headroom".into());
-            f.cost = Some("Less realistic lighting and reflections".into());
-            findings.push(f);
-        }
+    if let Some(h) = hit_of(hits, Kind::RayTracing)
+        && (on(&h.raw) == Some(true)
+            || level_of(&h.key, &h.raw)
+                .map(|l| l.rank >= 1)
+                .unwrap_or(false))
+    {
+        let mut f = finding(
+            "rt_on",
+            "Ray tracing is on",
+            h,
+            Some("Off"),
+            menu_for(Kind::RayTracing),
+        );
+        f.gain = Some("Large GPU headroom".into());
+        f.cost = Some("Less realistic lighting and reflections".into());
+        findings.push(f);
     }
     let ups: Vec<&Hit> = hits.iter().filter(|h| h.kind == Kind::Upscaler).collect();
-    if !ups.is_empty() && ups.iter().all(|h| on(&h.raw) == Some(false) || h.raw.eq_ignore_ascii_case("off")) {
-        findings.push(finding("upscaler_off", "Upscaling is off", ups[0], Some("Quality"), menu_for(Kind::Upscaler)));
+    if !ups.is_empty()
+        && ups
+            .iter()
+            .all(|h| on(&h.raw) == Some(false) || h.raw.eq_ignore_ascii_case("off"))
+    {
+        findings.push(finding(
+            "upscaler_off",
+            "Upscaling is off",
+            ups[0],
+            Some("Quality"),
+            menu_for(Kind::Upscaler),
+        ));
     }
-    if let Some(h) = hit_of(hits, Kind::VSync) {
-        if on(&h.raw) == Some(true) {
-            findings.push(finding("vsync_on", "V-Sync is on", h, None, menu_for(Kind::VSync)));
-        }
+    if let Some(h) = hit_of(hits, Kind::VSync)
+        && on(&h.raw) == Some(true)
+    {
+        findings.push(finding(
+            "vsync_on",
+            "V-Sync is on",
+            h,
+            None,
+            menu_for(Kind::VSync),
+        ));
     }
 
     // Heavy settings, most GPU saved first.
     for h in hits.iter().filter(|h| h.kind.heavy()) {
-        let Some(l) = level_of(&h.key, &h.raw) else { continue };
+        let Some(l) = level_of(&h.key, &h.raw) else {
+            continue;
+        };
         let change_to = (l.rank > 3).then(|| l.high.clone());
         let (gain, cost) = match h.kind {
-            Kind::Shadows => ("Often the biggest single GPU saving", "Softer, shorter shadows"),
-            Kind::Volumetrics => ("Big GPU saving in foggy or cloudy scenes", "Less detailed fog and clouds"),
+            Kind::Shadows => (
+                "Often the biggest single GPU saving",
+                "Softer, shorter shadows",
+            ),
+            Kind::Volumetrics => (
+                "Big GPU saving in foggy or cloudy scenes",
+                "Less detailed fog and clouds",
+            ),
             Kind::GlobalIllum => ("Big GPU saving", "Flatter indirect lighting"),
             Kind::Reflections => ("Good GPU saving", "Blurrier reflections"),
             Kind::AmbientOcclusion => ("Some GPU saving", "Slightly flatter contact shadows"),
             Kind::AntiAliasing => ("Some GPU saving", "Slightly more jagged edges"),
             _ => ("Some GPU saving", "A small drop in detail"),
         };
-        tunables.push(TunableState { id: format!("auto_{}", norm(h.kind.name())), setting: h.kind.name().into(), menu: menu_for(h.kind), now: l.label.clone(), change_to, gain: gain.into(), cost: cost.into() });
+        tunables.push(TunableState {
+            id: format!("auto_{}", norm(h.kind.name())),
+            setting: h.kind.name().into(),
+            menu: menu_for(h.kind),
+            now: l.label.clone(),
+            change_to,
+            gain: gain.into(),
+            cost: cost.into(),
+        });
     }
 
     // The preset: a named level, or Unreal's groups when they all match.
     let preset = hit_of(hits, Kind::Preset)
         .and_then(|h| {
             if let Some(l) = level_of(&h.key, &h.raw) {
-                let lower = WORDS.iter().filter(|(_, r)| *r == l.rank.saturating_sub(1) && *r > 0).map(|(w, _)| crate::games::pretty_value(w)).next();
-                return Some(PresetState { setting: "Graphics preset".into(), menu: gfx.clone(), value: l.label, custom: false, lower });
+                let lower = WORDS
+                    .iter()
+                    .filter(|(_, r)| *r == l.rank.saturating_sub(1) && *r > 0)
+                    .map(|(w, _)| crate::games::pretty_value(w))
+                    .next();
+                return Some(PresetState {
+                    setting: "Graphics preset".into(),
+                    menu: gfx.clone(),
+                    value: l.label,
+                    custom: false,
+                    lower,
+                });
             }
             let n = num(&h.raw)? as i64;
-            (0..=10).contains(&n).then(|| PresetState { setting: "Graphics preset".into(), menu: gfx.clone(), value: format!("Level {n}"), custom: false, lower: (n > 0).then(|| format!("Level {} (one step lower)", n - 1)) })
+            (0..=10).contains(&n).then(|| PresetState {
+                setting: "Graphics preset".into(),
+                menu: gfx.clone(),
+                value: format!("Level {n}"),
+                custom: false,
+                lower: (n > 0).then(|| format!("Level {} (one step lower)", n - 1)),
+            })
         })
         .or_else(|| {
-            let sg: Vec<Level> = hits.iter().filter(|h| h.key.to_lowercase().contains("sg.") && h.kind != Kind::RenderScale).filter_map(|h| level_of(&h.key, &h.raw)).collect();
+            let sg: Vec<Level> = hits
+                .iter()
+                .filter(|h| h.key.to_lowercase().contains("sg.") && h.kind != Kind::RenderScale)
+                .filter_map(|h| level_of(&h.key, &h.raw))
+                .collect();
             if sg.len() < 3 {
                 return None;
             }
             let same = sg.iter().all(|l| l.rank == sg[0].rank);
-            let lower = ["Low", "Medium", "High", "Epic", "Cinematic"].get((sg[0].rank as usize).saturating_sub(2)).filter(|_| sg[0].rank > 1).map(|s| s.to_string());
-            Some(PresetState { setting: "Graphics preset".into(), menu: gfx.clone(), value: if same { sg[0].label.clone() } else { "Custom".into() }, custom: !same, lower: if same { lower } else { None } })
+            let lower = ["Low", "Medium", "High", "Epic", "Cinematic"]
+                .get((sg[0].rank as usize).saturating_sub(2))
+                .filter(|_| sg[0].rank > 1)
+                .map(|s| s.to_string());
+            Some(PresetState {
+                setting: "Graphics preset".into(),
+                menu: gfx.clone(),
+                value: if same {
+                    sg[0].label.clone()
+                } else {
+                    "Custom".into()
+                },
+                custom: !same,
+                lower: if same { lower } else { None },
+            })
         });
 
     // Display mode.
-    let (w, hgt) = (hit_of(hits, Kind::ResWidth).and_then(|h| num(&h.raw)), hit_of(hits, Kind::ResHeight).and_then(|h| num(&h.raw)));
-    let display_res = hit_of(hits, Kind::Resolution).map(|h| h.raw.replace(' ', "")).or_else(|| match (w, hgt) {
-        (Some(a), Some(b)) if a >= 320.0 && b >= 200.0 => Some(format!("{}x{}", a as u32, b as u32)),
-        _ => None,
-    });
-    let display_hz = hit_of(hits, Kind::RefreshRate).and_then(|h| num(&h.raw)).map(|n| if n > 1000.0 { n / 1000.0 } else { n } as f32).filter(|h| *h > 10.0 && *h < 1000.0);
+    let (w, hgt) = (
+        hit_of(hits, Kind::ResWidth).and_then(|h| num(&h.raw)),
+        hit_of(hits, Kind::ResHeight).and_then(|h| num(&h.raw)),
+    );
+    let display_res = hit_of(hits, Kind::Resolution)
+        .map(|h| h.raw.replace(' ', ""))
+        .or_else(|| match (w, hgt) {
+            (Some(a), Some(b)) if a >= 320.0 && b >= 200.0 => {
+                Some(format!("{}x{}", a as u32, b as u32))
+            }
+            _ => None,
+        });
+    let display_hz = hit_of(hits, Kind::RefreshRate)
+        .and_then(|h| num(&h.raw))
+        .map(|n| if n > 1000.0 { n / 1000.0 } else { n } as f32)
+        .filter(|h| *h > 10.0 && *h < 1000.0);
 
     // Every recognised setting, for the "Your setup" table.
     let mut shown_kinds: Vec<Kind> = Vec::new();
@@ -1584,16 +2496,41 @@ pub fn to_game_result(loc: &Located, rd: Reading, running: bool) -> GameResult {
             continue;
         }
         let value = match k {
-            Kind::Resolution => display_res.clone().unwrap_or_else(|| crate::games::pretty_value(&h.raw)),
-            Kind::FpsLimit => fps_cap.map(|c| c.to_string()).unwrap_or_else(|| "Off (unlimited)".into()),
-            Kind::RenderScale => num(&h.raw).map(|n| if n <= 2.0 { format!("{:.0}%", n * 100.0) } else { format!("{n:.0}%") }).unwrap_or_else(|| h.raw.clone()),
+            Kind::Resolution => display_res
+                .clone()
+                .unwrap_or_else(|| crate::games::pretty_value(&h.raw)),
+            Kind::FpsLimit => fps_cap
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "Off (unlimited)".into()),
+            Kind::RenderScale => num(&h.raw)
+                .map(|n| {
+                    if n <= 2.0 {
+                        format!("{:.0}%", n * 100.0)
+                    } else {
+                        format!("{n:.0}%")
+                    }
+                })
+                .unwrap_or_else(|| h.raw.clone()),
             Kind::DisplayMode => display_label(&h.key, &h.raw),
-            Kind::Preset if level_of(&h.key, &h.raw).is_none() && num(&h.raw).is_some() => format!("Level {}", h.raw.trim()),
-            Kind::AntiAliasing if h.key.to_lowercase().contains("msaa") && num(&h.raw).map(|n| n >= 2.0).unwrap_or(false) => format!("{}x MSAA", h.raw.trim()),
-            _ => level_of(&h.key, &h.raw).map(|l| l.label).unwrap_or_else(|| crate::games::pretty_value(&h.raw)),
+            Kind::Preset if level_of(&h.key, &h.raw).is_none() && num(&h.raw).is_some() => {
+                format!("Level {}", h.raw.trim())
+            }
+            Kind::AntiAliasing
+                if h.key.to_lowercase().contains("msaa")
+                    && num(&h.raw).map(|n| n >= 2.0).unwrap_or(false) =>
+            {
+                format!("{}x MSAA", h.raw.trim())
+            }
+            _ => level_of(&h.key, &h.raw)
+                .map(|l| l.label)
+                .unwrap_or_else(|| crate::games::pretty_value(&h.raw)),
         };
         let effect = if findings.iter().any(|f| f.key == h.key) {
-            findings.iter().find(|f| f.key == h.key).map(|f| f.effect.clone()).unwrap_or_default()
+            findings
+                .iter()
+                .find(|f| f.key == h.key)
+                .map(|f| f.effect.clone())
+                .unwrap_or_default()
         } else if k.costs_bitrate() {
             "bitrate".into()
         } else if k.heavy() {
@@ -1603,8 +2540,21 @@ pub fn to_game_result(loc: &Located, rd: Reading, running: bool) -> GameResult {
         } else {
             "setting".into()
         };
-        let flagged = findings.iter().any(|f| f.key == h.key && f.effect != "vsync_on") || tunables.iter().any(|t| t.setting == k.name() && t.change_to.is_some()) || (k.costs_bitrate() && effect_on(&h.raw));
-        let change_to = if k.costs_bitrate() && effect_on(&h.raw) { Some("Off".to_string()) } else { tunables.iter().find(|t| t.setting == k.name()).and_then(|t| t.change_to.clone()) };
+        let flagged = findings
+            .iter()
+            .any(|f| f.key == h.key && f.effect != "vsync_on")
+            || tunables
+                .iter()
+                .any(|t| t.setting == k.name() && t.change_to.is_some())
+            || (k.costs_bitrate() && effect_on(&h.raw));
+        let change_to = if k.costs_bitrate() && effect_on(&h.raw) {
+            Some("Off".to_string())
+        } else {
+            tunables
+                .iter()
+                .find(|t| t.setting == k.name())
+                .and_then(|t| t.change_to.clone())
+        };
         current.push(CurrentSetting {
             rule_id: format!("auto_{}", norm(k.name())),
             setting: k.name().into(),
@@ -1613,23 +2563,44 @@ pub fn to_game_result(loc: &Located, rd: Reading, running: bool) -> GameResult {
             value,
             flagged,
             change_to,
-            gain: k.costs_bitrate().then(|| "A cleaner stream picture at the same bitrate".to_string()),
-            cost: k.costs_bitrate().then(|| "Only a look you may like".to_string()),
+            gain: k
+                .costs_bitrate()
+                .then(|| "A cleaner stream picture at the same bitrate".to_string()),
+            cost: k
+                .costs_bitrate()
+                .then(|| "Only a look you may like".to_string()),
         });
     }
 
     let used = hits.len();
     let proton = loc.prefix.is_some() && cfg!(not(windows));
-    let engine_text = if rd.engine.is_empty() { String::new() } else { format!(", {} engine", rd.engine) };
-    let key_names = if hits.is_empty() { rd.settings.keys().take(200).cloned().collect() } else { Vec::new() };
+    let engine_text = if rd.engine.is_empty() {
+        String::new()
+    } else {
+        format!(", {} engine", rd.engine)
+    };
+    let key_names = if hits.is_empty() {
+        rd.settings.keys().take(200).cloned().collect()
+    } else {
+        Vec::new()
+    };
     GameResult {
-        id: format!("auto:{}", loc.appid.map(|a| a.to_string()).unwrap_or_else(|| exe_stem(&loc.exe))),
+        id: format!(
+            "auto:{}",
+            loc.appid
+                .map(|a| a.to_string())
+                .unwrap_or_else(|| exe_stem(&loc.exe))
+        ),
         name,
         load: "gpu".into(),
         profile_version: 0,
         verified: format!("Read automatically{engine_text}, not hand-checked"),
         installed: true,
-        install_hint: if loc.launcher.is_empty() { String::new() } else { loc.launcher.clone() },
+        install_hint: if loc.launcher.is_empty() {
+            String::new()
+        } else {
+            loc.launcher.clone()
+        },
         running,
         platform_note: None,
         files: rd.files,
@@ -1646,7 +2617,11 @@ pub fn to_game_result(loc: &Located, rd: Reading, running: bool) -> GameResult {
         proton,
         display_res,
         display_hz,
-        auto: Some(if rd.engine.is_empty() { "automatic".into() } else { rd.engine.clone() }),
+        auto: Some(if rd.engine.is_empty() {
+            "automatic".into()
+        } else {
+            rd.engine.clone()
+        }),
         processes: vec![loc.exe.clone()],
         settings_read: rd.settings.len(),
         settings_used: used,
@@ -1658,18 +2633,32 @@ pub fn to_game_result(loc: &Located, rd: Reading, running: bool) -> GameResult {
 
 /// Finds and reads games without a profile: running ones, and ones only
 /// known by program name (e.g. from the last test).
-pub fn scan(running: &[GameProc], hints: &[String], known_exes: &[String], known_appids: &[u32], steam_roots: &[PathBuf], libs: &[PathBuf]) -> Vec<GameResult> {
+pub fn scan(
+    running: &[GameProc],
+    hints: &[String],
+    known_exes: &[String],
+    known_appids: &[u32],
+    steam_roots: &[PathBuf],
+    libs: &[PathBuf],
+) -> Vec<GameResult> {
     let manifests = steam_manifests(libs);
     let mut cache = load_cache();
     let mut out: Vec<GameResult> = Vec::new();
     let mut done: Vec<String> = Vec::new();
-    let is_known = |exe: &str, appid: Option<u32>| known_exes.iter().any(|k| crate::games::process_matches(exe, k)) || appid.map(|a| known_appids.contains(&a)).unwrap_or(false);
+    let is_known = |exe: &str, appid: Option<u32>| {
+        known_exes
+            .iter()
+            .any(|k| crate::games::process_matches(exe, k))
+            || appid.map(|a| known_appids.contains(&a)).unwrap_or(false)
+    };
     let mut cache_changed = false;
     for p in running {
         if is_known(&p.exe, p.steam_appid) || done.contains(&p.exe) {
             continue;
         }
-        let Some(loc) = locate_running(p, &manifests, libs) else { continue };
+        let Some(loc) = locate_running(p, &manifests, libs) else {
+            continue;
+        };
         if is_known(&loc.exe, loc.appid) || out.iter().any(|g| g.name == loc.name) {
             continue;
         }
@@ -1688,7 +2677,9 @@ pub fn scan(running: &[GameProc], hints: &[String], known_exes: &[String], known
             continue;
         }
         done.push(h.clone());
-        let Some(loc) = locate_hint(&h, &cache, &manifests, libs) else { continue };
+        let Some(loc) = locate_hint(&h, &cache, &manifests, libs) else {
+            continue;
+        };
         if is_known(&loc.exe, loc.appid) || out.iter().any(|g| g.name == loc.name) {
             continue;
         }
@@ -1714,12 +2705,23 @@ fn log_reading(loc: &Located, rd: &Reading) {
         format!(
             "{} (no profile, {}{}): {} file(s), {} settings, {} recognised{}",
             loc.name,
-            if rd.engine.is_empty() { "engine unknown" } else { &rd.engine },
-            if loc.launcher.is_empty() { String::new() } else { format!(", {}", loc.launcher) },
+            if rd.engine.is_empty() {
+                "engine unknown"
+            } else {
+                &rd.engine
+            },
+            if loc.launcher.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", loc.launcher)
+            },
             rd.files.len(),
             rd.settings.len(),
             rd.hits.len(),
-            rd.gap.as_ref().map(|g| format!(" · {g}")).unwrap_or_default()
+            rd.gap
+                .as_ref()
+                .map(|g| format!(" · {g}"))
+                .unwrap_or_default()
         ),
     );
 }
@@ -1732,10 +2734,19 @@ mod tests {
     fn unity_wine_registry() {
         let reg = "WINE REGISTRY Version 2\n\n[Software\\\\Moon Studio\\\\Moon Sweepers] 1731600000\n#time=1db\n\"Screenmanager Resolution Width_h182942802\"=dword:00000a00\n\"Screenmanager Resolution Height_h2627697771\"=dword:000005a0\n\"Screenmanager Fullscreen mode_h3630240806\"=dword:00000001\n\"UnityGraphicsQuality_h1669003810\"=dword:00000004\n\"PlayerName_h123\"=hex:4d,61,74,74,00\n\"VSync_h99\"=dword:00000000\n\"MaxFPS_h5\"=hex(4):00,00,00,00,00,00,6e,40\n\n[Software\\\\Other] 1\n\"x\"=dword:1\n";
         let v = read_wine_reg(reg, "Software\\Moon Studio\\Moon Sweepers").unwrap();
-        assert!(v.contains(&("Screenmanager Resolution Width".into(), PrefValue::Int(2560))));
+        assert!(v.contains(&(
+            "Screenmanager Resolution Width".into(),
+            PrefValue::Int(2560)
+        )));
         assert!(v.contains(&("UnityGraphicsQuality".into(), PrefValue::Int(4))));
-        assert!(v.iter().any(|(k, val)| k == "MaxFPS" && *val == PrefValue::Float(240.0)));
-        assert!(!v.iter().any(|(k, _)| k == "x"), "other sections are not read");
+        assert!(
+            v.iter()
+                .any(|(k, val)| k == "MaxFPS" && *val == PrefValue::Float(240.0))
+        );
+        assert!(
+            !v.iter().any(|(k, _)| k == "x"),
+            "other sections are not read"
+        );
         // A player name never makes it into the settings or the report text.
         let name = v.iter().find(|(k, _)| k == "PlayerName").unwrap();
         assert_eq!(safe_pref(&name.0, &name.1), "(text removed by Preflight)");
@@ -1743,24 +2754,44 @@ mod tests {
 
     #[test]
     fn unity_reading_gives_advice() {
-        let loc = Located { name: "Moon Sweepers".into(), exe: "moonsweepers.exe".into(), launcher: "Steam".into(), ..Default::default() };
+        let loc = Located {
+            name: "Moon Sweepers".into(),
+            exe: "moonsweepers.exe".into(),
+            launcher: "Steam".into(),
+            ..Default::default()
+        };
         let mut map = BTreeMap::new();
-        map.insert("Screenmanager Resolution Width".to_string(), "2560".to_string());
-        map.insert("Screenmanager Resolution Height".to_string(), "1440".to_string());
+        map.insert(
+            "Screenmanager Resolution Width".to_string(),
+            "2560".to_string(),
+        );
+        map.insert(
+            "Screenmanager Resolution Height".to_string(),
+            "1440".to_string(),
+        );
         map.insert("UnityGraphicsQuality".to_string(), "4".to_string());
         map.insert("VSync".to_string(), "0".to_string());
         map.insert("MaxFPS".to_string(), "0".to_string());
         map.insert("ShadowQuality".to_string(), "Ultra".to_string());
         map.insert("MotionBlur".to_string(), "1".to_string());
         let hits = recognise(&map);
-        let rd = Reading { settings: map, hits, engine: "Unity".into(), ..Default::default() };
+        let rd = Reading {
+            settings: map,
+            hits,
+            engine: "Unity".into(),
+            ..Default::default()
+        };
         let g = to_game_result(&loc, rd, true);
         assert_eq!(g.display_res.as_deref(), Some("2560x1440"));
         assert!(g.findings.iter().any(|f| f.effect == "uncapped_fps"));
         assert_eq!(g.preset.as_ref().map(|p| p.value.as_str()), Some("Level 4"));
         let sh = g.tunables.iter().find(|t| t.setting == "Shadows").unwrap();
         assert_eq!(sh.change_to.as_deref(), Some("High"));
-        assert!(g.current.iter().any(|c| c.setting == "Motion blur" && c.effect == "bitrate" && c.flagged));
+        assert!(
+            g.current
+                .iter()
+                .any(|c| c.setting == "Motion blur" && c.effect == "bitrate" && c.flagged)
+        );
         assert_eq!(g.settings_used, 7);
         assert!(g.verified.contains("automatically"));
     }
@@ -1771,16 +2802,42 @@ mod tests {
         let m = crate::games::parse("ini", text).unwrap();
         let hits = recognise(&m);
         let kinds: Vec<Kind> = hits.iter().map(|h| h.kind).collect();
-        for k in [Kind::Shadows, Kind::VSync, Kind::ResWidth, Kind::ResHeight, Kind::DisplayMode, Kind::AntiAliasing, Kind::PostProcess, Kind::Foliage] {
+        for k in [
+            Kind::Shadows,
+            Kind::VSync,
+            Kind::ResWidth,
+            Kind::ResHeight,
+            Kind::DisplayMode,
+            Kind::AntiAliasing,
+            Kind::PostProcess,
+            Kind::Foliage,
+        ] {
             assert!(kinds.contains(&k), "{k:?} not recognised; got {kinds:?}");
         }
         // The long throttle lists are ignored, not misread.
-        assert!(!hits.iter().any(|h| h.key.contains("GraphicsQualityThrottles")));
-        let loc = Located { name: "Halo MCC".into(), exe: "mcc-win64-shipping.exe".into(), ..Default::default() };
-        let rd = Reading { hits: merge_hits(vec![hits]), settings: m, engine: "Unreal".into(), ..Default::default() };
+        assert!(
+            !hits
+                .iter()
+                .any(|h| h.key.contains("GraphicsQualityThrottles"))
+        );
+        let loc = Located {
+            name: "Halo MCC".into(),
+            exe: "mcc-win64-shipping.exe".into(),
+            ..Default::default()
+        };
+        let rd = Reading {
+            hits: merge_hits(vec![hits]),
+            settings: m,
+            engine: "Unreal".into(),
+            ..Default::default()
+        };
         let g = to_game_result(&loc, rd, true);
         assert_eq!(g.display_res.as_deref(), Some("1280x720"));
-        assert_eq!(g.preset.as_ref().map(|p| p.value.as_str()), Some("Medium"), "all groups at 1 = Medium");
+        assert_eq!(
+            g.preset.as_ref().map(|p| p.value.as_str()),
+            Some("Medium"),
+            "all groups at 1 = Medium"
+        );
         assert!(g.findings.iter().any(|f| f.effect == "vsync_on"));
     }
 
@@ -1788,20 +2845,39 @@ mod tests {
     fn source_files_recognised() {
         let m = crate::games::parse("kv", include_str!("testdata/cs2_video.txt")).unwrap();
         let kinds: Vec<Kind> = recognise(&m).iter().map(|h| h.kind).collect();
-        for k in [Kind::Shadows, Kind::ResWidth, Kind::ResHeight, Kind::VSync, Kind::AntiAliasing, Kind::AmbientOcclusion, Kind::Effects, Kind::Upscaler, Kind::Reflex] {
+        for k in [
+            Kind::Shadows,
+            Kind::ResWidth,
+            Kind::ResHeight,
+            Kind::VSync,
+            Kind::AntiAliasing,
+            Kind::AmbientOcclusion,
+            Kind::Effects,
+            Kind::Upscaler,
+            Kind::Reflex,
+        ] {
             assert!(kinds.contains(&k), "{k:?} missing from {kinds:?}");
         }
-        let m2 = crate::games::parse("kv", include_str!("testdata/cs2_machine_convars.vcfg")).unwrap();
-        let fps = recognise(&m2).into_iter().find(|h| h.kind == Kind::FpsLimit).unwrap();
+        let m2 =
+            crate::games::parse("kv", include_str!("testdata/cs2_machine_convars.vcfg")).unwrap();
+        let fps = recognise(&m2)
+            .into_iter()
+            .find(|h| h.kind == Kind::FpsLimit)
+            .unwrap();
         assert_eq!(fps.key, "fps_max", "menu and tools limits are ignored");
         assert_eq!(fps.raw, "400");
     }
 
     #[test]
     fn frostbite_and_spaced_files() {
-        let m = parse_spaced("GstRender.ShadowQuality 3\nGstRender.FrameRateLimit 200.000000\nGstRender.VSyncMode 0\nGstRender.MotionBlurEnable 1\nbind w forward\n");
+        let m = parse_spaced(
+            "GstRender.ShadowQuality 3\nGstRender.FrameRateLimit 200.000000\nGstRender.VSyncMode 0\nGstRender.MotionBlurEnable 1\nbind w forward\n",
+        );
         let hits = recognise(&m);
-        assert!(hits.iter().any(|h| h.kind == Kind::FpsLimit && h.raw.starts_with("200")));
+        assert!(
+            hits.iter()
+                .any(|h| h.kind == Kind::FpsLimit && h.raw.starts_with("200"))
+        );
         assert!(hits.iter().any(|h| h.kind == Kind::MotionBlur));
         assert!(!m.keys().any(|k| k == "bind"));
     }
@@ -1810,7 +2886,10 @@ mod tests {
     fn native_unity_prefs() {
         let xml = "<unity_prefs version_major=\"1\" version_minor=\"1\">\n\t<pref name=\"Screenmanager Resolution Width\" type=\"int\">1920</pref>\n\t<pref name=\"Quality\" type=\"string\">SGlnaA==</pref>\n</unity_prefs>";
         let v = read_unity_prefs_xml(xml);
-        assert!(v.contains(&("Screenmanager Resolution Width".into(), PrefValue::Int(1920))));
+        assert!(v.contains(&(
+            "Screenmanager Resolution Width".into(),
+            PrefValue::Int(1920)
+        )));
         assert!(v.contains(&("Quality".into(), PrefValue::Text("High".into()))));
     }
 
@@ -1822,8 +2901,18 @@ mod tests {
         assert!(!name_matches("Temp", &["moonsweepers".into()]));
         let dir = std::env::temp_dir().join(format!("pf-engine-{}", fastrand::u32(..)));
         std::fs::create_dir_all(dir.join("Moonsweepers_Data")).unwrap();
-        std::fs::write(dir.join("Moonsweepers_Data/app.info"), "Moon Studio\nMoon Sweepers").unwrap();
-        assert_eq!(detect_engine(&dir, "moonsweepers.exe"), Engine::Unity { company: "Moon Studio".into(), product: "Moon Sweepers".into() });
+        std::fs::write(
+            dir.join("Moonsweepers_Data/app.info"),
+            "Moon Studio\nMoon Sweepers",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_engine(&dir, "moonsweepers.exe"),
+            Engine::Unity {
+                company: "Moon Studio".into(),
+                product: "Moon Sweepers".into()
+            }
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1840,25 +2929,64 @@ mod tests {
     #[test]
     fn unity_packed_settings_and_ids() {
         let json = r#"{"Graphics":{"Quality":"Ultra","VSync":false,"TargetFPS":-1,"Shadows":"High"},"PlayerName":"PlayerOne"}"#;
-        let hex: Vec<String> = json.bytes().chain(std::iter::once(0)).map(|b| format!("{b:02x}")).collect();
-        let reg = format!("[Software\\\\DragDropGames\\\\MoonSweepers] 1\n\"MoonCleaners.UserSettings.v1_h1\"=hex:{}\n\"MoonCleaners.Achievements.76561190000000001_h2\"=hex:61,62,00\n", hex.join(","));
+        let hex: Vec<String> = json
+            .bytes()
+            .chain(std::iter::once(0))
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let reg = format!(
+            "[Software\\\\DragDropGames\\\\MoonSweepers] 1\n\"MoonCleaners.UserSettings.v1_h1\"=hex:{}\n\"MoonCleaners.Achievements.76561190000000001_h2\"=hex:61,62,00\n",
+            hex.join(",")
+        );
         let v = read_wine_reg(&reg, "Software\\DragDropGames\\MoonSweepers").unwrap();
         assert_eq!(v.len(), 2);
         let dir = std::env::temp_dir().join(format!("pf-unity-{}", fastrand::u32(..)));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("user.reg"), &reg).unwrap();
-        let loc = Located { name: "Moon Sweepers".into(), exe: "moonsweepers.exe".into(), prefix: Some(dir.clone()), ..Default::default() };
+        let loc = Located {
+            name: "Moon Sweepers".into(),
+            exe: "moonsweepers.exe".into(),
+            prefix: Some(dir.clone()),
+            ..Default::default()
+        };
         let (_, map, text) = unity_prefs("DragDropGames", "MoonSweepers", &loc).unwrap();
-        assert_eq!(map.get("MoonCleaners.UserSettings.v1/Graphics/Shadows").map(|s| s.as_str()), Some("High"));
-        assert_eq!(map.get("MoonCleaners.UserSettings.v1/Graphics/TargetFPS").map(|s| s.as_str()), Some("-1"));
+        assert_eq!(
+            map.get("MoonCleaners.UserSettings.v1/Graphics/Shadows")
+                .map(|s| s.as_str()),
+            Some("High")
+        );
+        assert_eq!(
+            map.get("MoonCleaners.UserSettings.v1/Graphics/TargetFPS")
+                .map(|s| s.as_str()),
+            Some("-1")
+        );
         assert!(!text.contains("PlayerOne"), "player name removed");
-        assert!(!text.contains("76561190000000001"), "Steam ID removed: {text}");
+        assert!(
+            !text.contains("76561190000000001"),
+            "Steam ID removed: {text}"
+        );
         let hits = recognise(&map);
-        assert!(hits.iter().any(|h| h.kind == Kind::FpsLimit) && hits.iter().any(|h| h.kind == Kind::Shadows));
+        assert!(
+            hits.iter().any(|h| h.kind == Kind::FpsLimit)
+                && hits.iter().any(|h| h.kind == Kind::Shadows)
+        );
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(crate::util::scrub_steam_ids("Steam/userdata/123456789/730 and 76561190000000001"), "Steam/userdata/<id>/730 and <steam id>");
-        let r = crate::report::redact_private_lines(&(0..12).map(|i| format!("  \"name\": \"Opt{i}\",")).collect::<Vec<_>>().join("\n"));
-        assert!(!r.contains("removed"), "setting names kept in structured files");
-        assert!(crate::report::redact_private_lines("\"name\"\t\t\"PlayerOne\"").contains("removed"));
+        assert_eq!(
+            crate::util::scrub_steam_ids("Steam/userdata/123456789/730 and 76561190000000001"),
+            "Steam/userdata/<id>/730 and <steam id>"
+        );
+        let r = crate::report::redact_private_lines(
+            &(0..12)
+                .map(|i| format!("  \"name\": \"Opt{i}\","))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        assert!(
+            !r.contains("removed"),
+            "setting names kept in structured files"
+        );
+        assert!(
+            crate::report::redact_private_lines("\"name\"\t\t\"PlayerOne\"").contains("removed")
+        );
     }
 }

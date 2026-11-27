@@ -8,7 +8,17 @@ use serde_json::Value;
 
 /// OBS input kinds that bring in another computer's picture.
 pub fn is_capture_kind(kind: &str) -> bool {
-    matches!(kind, "dshow_input" | "v4l2_input" | "av_capture_input" | "av_capture_input_v2" | "decklink-input" | "ndi_source" | "ndi_filter" | "teleport-source")
+    matches!(
+        kind,
+        "dshow_input"
+            | "v4l2_input"
+            | "av_capture_input"
+            | "av_capture_input_v2"
+            | "decklink-input"
+            | "ndi_source"
+            | "ndi_filter"
+            | "teleport-source"
+    )
 }
 
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
@@ -30,13 +40,33 @@ pub struct CaptureInfo {
 
 fn fourcc(v: u64) -> String {
     let b = (v as u32).to_le_bytes();
-    if b.iter().all(|c| c.is_ascii_alphanumeric() || *c == b' ') { String::from_utf8_lossy(&b).trim().to_string() } else { String::new() }
+    if b.iter().all(|c| c.is_ascii_alphanumeric() || *c == b' ') {
+        String::from_utf8_lossy(&b).trim().to_string()
+    } else {
+        String::new()
+    }
 }
 
 impl CaptureInfo {
-    pub fn from_settings(kind: &str, st: &Value, audio_offset_ms: Option<i64>, in_scene: bool) -> CaptureInfo {
-        let via = if kind.contains("ndi") || kind.contains("teleport") { "network" } else { "card" }.to_string();
-        let mut c = CaptureInfo { via, kind: kind.to_string(), audio_offset_ms, in_scene, ..Default::default() };
+    pub fn from_settings(
+        kind: &str,
+        st: &Value,
+        audio_offset_ms: Option<i64>,
+        in_scene: bool,
+    ) -> CaptureInfo {
+        let via = if kind.contains("ndi") || kind.contains("teleport") {
+            "network"
+        } else {
+            "card"
+        }
+        .to_string();
+        let mut c = CaptureInfo {
+            via,
+            kind: kind.to_string(),
+            audio_offset_ms,
+            in_scene,
+            ..Default::default()
+        };
         match kind {
             "dshow_input" => {
                 // Windows: "1920x1080", frame interval in 100 ns units, format name.
@@ -72,7 +102,11 @@ impl CaptureInfo {
                 if let Some(r) = st["resolution"].as_i64().filter(|r| *r > 0) {
                     // OBS packs (width << 32) | height, like the frame rate. Very old
                     // builds used 16 bits; accept both.
-                    c.res = Some(if r >> 32 > 0 { ((r >> 32) as u32, (r & 0xFFFF_FFFF) as u32) } else { ((r >> 16) as u32, (r & 0xFFFF) as u32) });
+                    c.res = Some(if r >> 32 > 0 {
+                        ((r >> 32) as u32, (r & 0xFFFF_FFFF) as u32)
+                    } else {
+                        ((r >> 16) as u32, (r & 0xFFFF) as u32)
+                    });
                 }
                 if let Some(f) = st["framerate"].as_i64().filter(|f| *f > 0) {
                     let (num, den) = ((f >> 32) as f64, (f & 0xFFFF_FFFF) as f64);
@@ -95,20 +129,43 @@ impl CaptureInfo {
     }
 
     pub fn describe(&self) -> String {
-        let res = self.res.map(|(w, h)| format!("{w}x{h}")).unwrap_or_else(|| "device default".into());
-        let fps = self.fps.map(|f| format!(" at {f:.0} fps")).unwrap_or_default();
-        let fmt = if self.format.is_empty() { String::new() } else { format!(", {}", self.format) };
-        format!("{} · {res}{fps}{fmt}", if self.via == "network" { "Network source (NDI)" } else { "Capture card" })
+        let res = self
+            .res
+            .map(|(w, h)| format!("{w}x{h}"))
+            .unwrap_or_else(|| "device default".into());
+        let fps = self
+            .fps
+            .map(|f| format!(" at {f:.0} fps"))
+            .unwrap_or_default();
+        let fmt = if self.format.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", self.format)
+        };
+        format!(
+            "{} · {res}{fps}{fmt}",
+            if self.via == "network" {
+                "Network source (NDI)"
+            } else {
+                "Capture card"
+            }
+        )
     }
 }
 
 /// localhost, 127.x, ::1 or this computer's name: OBS runs here.
 pub fn is_local_host(host: &str) -> bool {
-    let h = host.trim().trim_start_matches('[').trim_end_matches(']').to_lowercase();
+    let h = host
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_lowercase();
     if h.is_empty() || h == "localhost" || h == "::1" || h.starts_with("127.") {
         return true;
     }
-    let me = sysinfo::System::host_name().unwrap_or_default().to_lowercase();
+    let me = sysinfo::System::host_name()
+        .unwrap_or_default()
+        .to_lowercase();
     !me.is_empty() && h == me
 }
 
@@ -169,9 +226,19 @@ mod tests {
 
     #[test]
     fn windows_capture_card_settings() {
-        let c = CaptureInfo::from_settings("dshow_input", &json!({"resolution": "1920x1080", "frame_interval": 166667, "video_format": 500, "color_range": "Full"}), Some(0), true);
+        let c = CaptureInfo::from_settings(
+            "dshow_input",
+            &json!({"resolution": "1920x1080", "frame_interval": 166667, "video_format": 500, "color_range": "Full"}),
+            Some(0),
+            true,
+        );
         assert_eq!(c.res, Some((1920, 1080)));
-        let old = CaptureInfo::from_settings("v4l2_input", &json!({"resolution": (1280i64 << 16) | 720}), None, true);
+        let old = CaptureInfo::from_settings(
+            "v4l2_input",
+            &json!({"resolution": (1280i64 << 16) | 720}),
+            None,
+            true,
+        );
         assert_eq!(old.res, Some((1280, 720)));
         assert!((c.fps.unwrap() - 60.0).abs() < 0.1);
         assert_eq!(c.format, "MJPEG");
@@ -185,9 +252,19 @@ mod tests {
         let res = (1920i64 << 32) | 1080;
         let fr = (1i64 << 32) | 60;
         let yuyv = u32::from_le_bytes(*b"YUYV") as u64;
-        let c = CaptureInfo::from_settings("v4l2_input", &json!({"resolution": res, "framerate": fr, "pixelformat": yuyv, "color_range": 1}), None, true);
+        let c = CaptureInfo::from_settings(
+            "v4l2_input",
+            &json!({"resolution": res, "framerate": fr, "pixelformat": yuyv, "color_range": 1}),
+            None,
+            true,
+        );
         assert_eq!(c.res, Some((1920, 1080)));
-        let old = CaptureInfo::from_settings("v4l2_input", &json!({"resolution": (1280i64 << 16) | 720}), None, true);
+        let old = CaptureInfo::from_settings(
+            "v4l2_input",
+            &json!({"resolution": (1280i64 << 16) | 720}),
+            None,
+            true,
+        );
         assert_eq!(old.res, Some((1280, 720)));
         assert!((c.fps.unwrap() - 60.0).abs() < 0.1);
         assert_eq!(c.format, "YUYV");

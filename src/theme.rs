@@ -63,11 +63,23 @@ pub fn apply(ctx: &egui::Context) {
         s.spacing.window_margin = Margin::same(18);
         use egui::{FontFamily, FontId, TextStyle};
         s.text_styles = [
-            (TextStyle::Heading, FontId::new(19.0, FontFamily::Proportional)),
+            (
+                TextStyle::Heading,
+                FontId::new(19.0, FontFamily::Proportional),
+            ),
             (TextStyle::Body, FontId::new(15.0, FontFamily::Proportional)),
-            (TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace)),
-            (TextStyle::Button, FontId::new(15.0, FontFamily::Proportional)),
-            (TextStyle::Small, FontId::new(12.5, FontFamily::Proportional)),
+            (
+                TextStyle::Monospace,
+                FontId::new(13.0, FontFamily::Monospace),
+            ),
+            (
+                TextStyle::Button,
+                FontId::new(15.0, FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Small,
+                FontId::new(12.5, FontFamily::Proportional),
+            ),
         ]
         .into();
     });
@@ -81,7 +93,8 @@ pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
         .inner_margin(Margin::same(18))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.with_layout(egui::Layout::top_down(egui::Align::Min), add).inner
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), add)
+                .inner
         })
         .inner
 }
@@ -94,7 +107,8 @@ pub fn inset<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
         .inner_margin(Margin::same(12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.with_layout(egui::Layout::top_down(egui::Align::Min), add).inner
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), add)
+                .inner
         })
         .inner
 }
@@ -124,12 +138,14 @@ pub fn primary(ui: &mut Ui, s: &str) -> egui::Response {
     )
 }
 
-
 pub fn secondary(ui: &mut Ui, s: &str) -> egui::Response {
     ui.add(
         egui::Button::new(RichText::new(s).color(TEXT).strong())
             .fill(CARD)
-            .stroke(Stroke::new(1.0, Color32::from_rgba_premultiplied(40, 40, 44, 40)))
+            .stroke(Stroke::new(
+                1.0,
+                Color32::from_rgba_premultiplied(40, 40, 44, 40),
+            ))
             .corner_radius(CornerRadius::same(10))
             .min_size(Vec2::new(0.0, 40.0)),
     )
@@ -159,7 +175,6 @@ pub fn status_pill(ui: &mut Ui, s: Status, label: &str) {
     pill(ui, fg, bg, label);
 }
 
-
 pub fn measured_tag(ui: &mut Ui, measured: bool) {
     if measured {
         ui.label(RichText::new("Measured on this PC").size(12.0).color(GOOD));
@@ -170,7 +185,11 @@ pub fn measured_tag(ui: &mut Ui, measured: bool) {
 
 /// Tag for things read exactly from a settings file or OBS.
 pub fn read_tag(ui: &mut Ui, from: &str) {
-    ui.label(RichText::new(format!("Read from {from}")).size(12.0).color(INFO));
+    ui.label(
+        RichText::new(format!("Read from {from}"))
+            .size(12.0)
+            .color(INFO),
+    );
 }
 
 pub fn score_color(score: u8) -> Color32 {
@@ -210,11 +229,13 @@ pub fn spark_bars(ui: &mut Ui, values: &[f32], max: f32, color: Color32, height:
     for (i, v) in vals.iter().enumerate() {
         let h = (v / max).clamp(0.0, 1.0) * (height - 4.0);
         let x = rect.left() + i as f32 * (bw + gap);
-        let r = egui::Rect::from_min_max(egui::pos2(x, rect.bottom() - h - 2.0), egui::pos2(x + bw, rect.bottom() - 2.0));
+        let r = egui::Rect::from_min_max(
+            egui::pos2(x, rect.bottom() - h - 2.0),
+            egui::pos2(x + bw, rect.bottom() - 2.0),
+        );
         p.rect_filled(r, CornerRadius::same(2), color);
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Cockpit glass: backdrop, glowing card edge, dials, line graphs, readings.
@@ -222,7 +243,12 @@ pub fn spark_bars(ui: &mut Ui, values: &[f32], max: f32, color: Color32, height:
 fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Color32::from_rgba_unmultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), m(a.a(), b.a()))
+    Color32::from_rgba_unmultiplied(
+        m(a.r(), b.r()),
+        m(a.g(), b.g()),
+        m(a.b(), b.b()),
+        m(a.a(), b.a()),
+    )
 }
 
 /// Lime → teal → violet along the diagonal, like the design's card edge.
@@ -230,7 +256,11 @@ pub fn edge_color(t: f32, alpha: u8) -> Color32 {
     let lime = Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, alpha);
     let teal = Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, (alpha as f32 * 0.45) as u8);
     let violet = Color32::from_rgba_unmultiplied(0x78, 0x5A, 0xFF, (alpha as f32 * 0.6) as u8);
-    if t < 0.45 { lerp(lime, teal, t / 0.45) } else { lerp(teal, violet, (t - 0.45) / 0.55) }
+    if t < 0.45 {
+        lerp(lime, teal, t / 0.45)
+    } else {
+        lerp(teal, violet, (t - 0.45) / 0.55)
+    }
 }
 
 /// The window background: deep navy, a green glow top right, a violet glow
@@ -242,7 +272,12 @@ pub static HIDDEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 /// (the game) is in front, and not at all while minimized or in the tray.
 /// New readings and OBS events still wake the window when they arrive.
 pub fn repaint_in(ctx: &egui::Context, ms: u64) {
-    let (focused, minimized) = ctx.input(|i| (i.viewport().focused.unwrap_or(true), i.viewport().minimized.unwrap_or(false)));
+    let (focused, minimized) = ctx.input(|i| {
+        (
+            i.viewport().focused.unwrap_or(true),
+            i.viewport().minimized.unwrap_or(false),
+        )
+    });
     if minimized || HIDDEN.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
@@ -255,7 +290,8 @@ pub fn paint_backdrop(ctx: &egui::Context) {
     // grid, without rebuilding about 800 shapes each time the window redraws.
     let rect = ctx.content_rect();
     let key = egui::Id::unique("preflight_backdrop");
-    let cached: Option<(egui::Rect, std::sync::Arc<egui::epaint::Mesh>)> = ctx.data(|d| d.get_temp(key));
+    let cached: Option<(egui::Rect, std::sync::Arc<egui::epaint::Mesh>)> =
+        ctx.data(|d| d.get_temp(key));
     let mesh = match cached {
         Some((r, m)) if r == rect => m,
         _ => {
@@ -264,25 +300,48 @@ pub fn paint_backdrop(ctx: &egui::Context) {
             m
         }
     };
-    ctx.layer_painter(egui::LayerId::background()).add(egui::Shape::Mesh(mesh));
+    ctx.layer_painter(egui::LayerId::background())
+        .add(egui::Shape::Mesh(mesh));
 }
 
 fn backdrop_mesh(rect: egui::Rect) -> egui::epaint::Mesh {
     use egui::epaint::Mesh;
     let mut m = Mesh::default();
     m.add_colored_rect(rect, BG);
-    glow(&mut m, egui::pos2(rect.max.x - rect.width() * 0.12, rect.min.y), rect.width() * 0.5, Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 46));
-    glow(&mut m, egui::pos2(rect.min.x + rect.width() * 0.35, rect.max.y + 40.0), rect.width() * 0.45, Color32::from_rgba_unmultiplied(0x78, 0x5A, 0xFF, 46));
+    glow(
+        &mut m,
+        egui::pos2(rect.max.x - rect.width() * 0.12, rect.min.y),
+        rect.width() * 0.5,
+        Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 46),
+    );
+    glow(
+        &mut m,
+        egui::pos2(rect.min.x + rect.width() * 0.35, rect.max.y + 40.0),
+        rect.width() * 0.45,
+        Color32::from_rgba_unmultiplied(0x78, 0x5A, 0xFF, 46),
+    );
     let line = Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 7);
     let step = 28.0;
     let mut x = rect.min.x;
     while x < rect.max.x {
-        m.add_colored_rect(egui::Rect::from_min_max(egui::pos2(x - 0.5, rect.min.y), egui::pos2(x + 0.5, rect.max.y)), line);
+        m.add_colored_rect(
+            egui::Rect::from_min_max(
+                egui::pos2(x - 0.5, rect.min.y),
+                egui::pos2(x + 0.5, rect.max.y),
+            ),
+            line,
+        );
         x += step;
     }
     let mut y = rect.min.y;
     while y < rect.max.y {
-        m.add_colored_rect(egui::Rect::from_min_max(egui::pos2(rect.min.x, y - 0.5), egui::pos2(rect.max.x, y + 0.5)), line);
+        m.add_colored_rect(
+            egui::Rect::from_min_max(
+                egui::pos2(rect.min.x, y - 0.5),
+                egui::pos2(rect.max.x, y + 0.5),
+            ),
+            line,
+        );
         y += step;
     }
     m
@@ -295,14 +354,23 @@ fn glow(m: &mut egui::epaint::Mesh, c: egui::Pos2, r: f32, col: Color32) {
     let rings = [(0.0, 1.0), (0.35, 0.7), (0.7, 0.3), (1.0, 0.0)];
     let seg = 48;
     for (ri, (f, a)) in rings.iter().enumerate() {
-        let colr = Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), (col.a() as f32 * a) as u8);
+        let colr =
+            Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), (col.a() as f32 * a) as u8);
         if ri == 0 {
-            m.vertices.push(Vertex { pos: c, uv: WHITE_UV, color: colr });
+            m.vertices.push(Vertex {
+                pos: c,
+                uv: WHITE_UV,
+                color: colr,
+            });
             continue;
         }
         for k in 0..seg {
             let ang = k as f32 / seg as f32 * std::f32::consts::TAU;
-            m.vertices.push(Vertex { pos: egui::pos2(c.x + r * f * ang.cos(), c.y + r * f * ang.sin()), uv: WHITE_UV, color: colr });
+            m.vertices.push(Vertex {
+                pos: egui::pos2(c.x + r * f * ang.cos(), c.y + r * f * ang.sin()),
+                uv: WHITE_UV,
+                color: colr,
+            });
         }
     }
     let ring = |i: usize| 1 + (i - 1) * seg as usize;
@@ -315,7 +383,8 @@ fn glow(m: &mut egui::epaint::Mesh, c: egui::Pos2, r: f32, col: Color32) {
         let (r0, r1) = (base + ring(i) as u32, base + ring(i + 1) as u32);
         for k in 0..seg as u32 {
             let k1 = (k + 1) % seg as u32;
-            m.indices.extend_from_slice(&[r0 + k, r1 + k, r1 + k1, r0 + k, r1 + k1, r0 + k1]);
+            m.indices
+                .extend_from_slice(&[r0 + k, r1 + k, r1 + k1, r0 + k, r1 + k1, r0 + k1]);
         }
     }
 }
@@ -349,8 +418,16 @@ pub fn gradient_border(p: &egui::Painter, r: egui::Rect, rad: f32, alpha: u8) {
     for (o, i) in outer.iter().zip(inner.iter()) {
         let t = ((o.x - r.min.x) + (o.y - r.min.y)) / span;
         let c = edge_color(t, alpha);
-        m.vertices.push(Vertex { pos: *o, uv: WHITE_UV, color: c });
-        m.vertices.push(Vertex { pos: *i, uv: WHITE_UV, color: c });
+        m.vertices.push(Vertex {
+            pos: *o,
+            uv: WHITE_UV,
+            color: c,
+        });
+        m.vertices.push(Vertex {
+            pos: *i,
+            uv: WHITE_UV,
+            color: c,
+        });
     }
     let n = outer.len() as u32;
     for k in 0..n {
@@ -365,7 +442,12 @@ pub fn gradient_border(p: &egui::Painter, r: egui::Rect, rad: f32, alpha: u8) {
 pub fn brackets(p: &egui::Painter, r: egui::Rect, len: f32, col: Color32) {
     let s = Stroke::new(2.0, col);
     let r = r.shrink(8.0);
-    for (c, dx, dy) in [(r.left_top(), 1.0, 1.0), (r.right_top(), -1.0, 1.0), (r.left_bottom(), 1.0, -1.0), (r.right_bottom(), -1.0, -1.0)] {
+    for (c, dx, dy) in [
+        (r.left_top(), 1.0, 1.0),
+        (r.right_top(), -1.0, 1.0),
+        (r.left_bottom(), 1.0, -1.0),
+        (r.right_bottom(), -1.0, -1.0),
+    ] {
         p.line_segment([c, egui::pos2(c.x + dx * len, c.y)], s);
         p.line_segment([c, egui::pos2(c.x, c.y + dy * len)], s);
     }
@@ -377,28 +459,47 @@ pub fn hero_card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
         .fill(Color32::from_rgba_premultiplied(8, 11, 18, 228))
         .corner_radius(CornerRadius::same(18))
         .inner_margin(Margin::symmetric(28, 24))
-        .shadow(egui::epaint::Shadow { offset: [0, 0], blur: 28, spread: 0, color: Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 20) })
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 0],
+            blur: 28,
+            spread: 0,
+            color: Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 20),
+        })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.with_layout(egui::Layout::top_down(egui::Align::Min), add).inner
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), add)
+                .inner
         });
     let r = inner.response.rect;
     let p = ui.painter();
     gradient_border(p, r, 18.0, 200);
-    brackets(p, r, 12.0, Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 220));
+    brackets(
+        p,
+        r,
+        12.0,
+        Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 220),
+    );
     inner.inner
 }
 
 /// Upper-case label with wide letter spacing, for the cockpit feel.
 pub fn caps(s: &str, size: f32, col: Color32) -> RichText {
-    RichText::new(s.to_uppercase()).size(size).color(col).extra_letter_spacing(size * 0.16).strong()
+    RichText::new(s.to_uppercase())
+        .size(size)
+        .color(col)
+        .extra_letter_spacing(size * 0.16)
+        .strong()
 }
 
 /// The lime-to-teal main button with a soft glow. Only the Next bar uses it.
 pub fn glow_button(ui: &mut Ui, text: &str) -> egui::Response {
     let font = egui::FontId::proportional(15.0);
     let label = text.to_uppercase();
-    let mut job = egui::text::LayoutJob::simple_singleline(label.clone(), font.clone(), Color32::from_rgb(0x06, 0x10, 0x0A));
+    let mut job = egui::text::LayoutJob::simple_singleline(
+        label.clone(),
+        font.clone(),
+        Color32::from_rgb(0x06, 0x10, 0x0A),
+    );
     if let Some(sec) = job.sections.first_mut() {
         sec.format.extra_letter_spacing = 1.2;
     }
@@ -408,7 +509,13 @@ pub fn glow_button(ui: &mut Ui, text: &str) -> egui::Response {
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     let p = ui.painter();
     let hot = resp.hovered();
-    let glow_shape = egui::epaint::Shadow { offset: [0, 6], blur: if hot { 34 } else { 26 }, spread: 0, color: Color32::from_rgba_unmultiplied(0x8D, 0xF5, 0x9A, if hot { 120 } else { 80 }) }.as_shape(rect, CornerRadius::same(12));
+    let glow_shape = egui::epaint::Shadow {
+        offset: [0, 6],
+        blur: if hot { 34 } else { 26 },
+        spread: 0,
+        color: Color32::from_rgba_unmultiplied(0x8D, 0xF5, 0x9A, if hot { 120 } else { 80 }),
+    }
+    .as_shape(rect, CornerRadius::same(12));
     p.add(glow_shape);
     // Gradient fill: a fan over the rounded outline, coloured left to right.
     use egui::epaint::{Mesh, Vertex, WHITE_UV};
@@ -418,11 +525,23 @@ pub fn glow_button(ui: &mut Ui, text: &str) -> egui::Response {
     let right = Color32::from_rgb(0x5E, 0xF0, 0xB5);
     let col_at = |x: f32| {
         let c = lerp(left, right, (x - rect.min.x) / rect.width());
-        if hot { lerp(c, Color32::WHITE, 0.12) } else { c }
+        if hot {
+            lerp(c, Color32::WHITE, 0.12)
+        } else {
+            c
+        }
     };
-    m.vertices.push(Vertex { pos: rect.center(), uv: WHITE_UV, color: col_at(rect.center().x) });
+    m.vertices.push(Vertex {
+        pos: rect.center(),
+        uv: WHITE_UV,
+        color: col_at(rect.center().x),
+    });
     for q in &pts {
-        m.vertices.push(Vertex { pos: *q, uv: WHITE_UV, color: col_at(q.x) });
+        m.vertices.push(Vertex {
+            pos: *q,
+            uv: WHITE_UV,
+            color: col_at(q.x),
+        });
     }
     let n = pts.len() as u32;
     for k in 0..n {
@@ -430,7 +549,12 @@ pub fn glow_button(ui: &mut Ui, text: &str) -> egui::Response {
     }
     p.add(egui::Shape::mesh(m));
     if resp.has_focus() {
-        p.rect_stroke(rect.expand(3.0), CornerRadius::same(14), Stroke::new(1.5, ACCENT), egui::StrokeKind::Outside);
+        p.rect_stroke(
+            rect.expand(3.0),
+            CornerRadius::same(14),
+            Stroke::new(1.5, ACCENT),
+            egui::StrokeKind::Outside,
+        );
     }
     p.galley(rect.center() - galley.size() / 2.0, galley, Color32::BLACK);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, text));
@@ -440,7 +564,8 @@ pub fn glow_button(ui: &mut Ui, text: &str) -> egui::Response {
 /// A round instrument dial with tick marks, for a 0–100 score.
 pub fn dial(ui: &mut Ui, value: Option<u8>, label: &str, col: Color32) -> egui::Response {
     let size = 84.0;
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(size + 8.0, size + 10.0), egui::Sense::hover());
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(size + 8.0, size + 10.0), egui::Sense::hover());
     let p = ui.painter();
     let c = egui::pos2(rect.center().x, rect.min.y + size / 2.0);
     let r = size / 2.0 - 8.0;
@@ -451,34 +576,74 @@ pub fn dial(ui: &mut Ui, value: Option<u8>, label: &str, col: Color32) -> egui::
     };
     for i in 0..=10 {
         let a = start + sweep * i as f32 / 10.0;
-        p.line_segment([pt(a, r + 5.0), pt(a, r + 1.5)], Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 255, 255, 36)));
+        p.line_segment(
+            [pt(a, r + 5.0), pt(a, r + 1.5)],
+            Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 255, 255, 36)),
+        );
     }
     let arc = |a0: f32, a1: f32| -> Vec<egui::Pos2> {
         let n = ((a1 - a0) / 4.0).ceil().max(2.0) as usize;
-        (0..=n).map(|k| pt(a0 + (a1 - a0) * k as f32 / n as f32, r)).collect()
+        (0..=n)
+            .map(|k| pt(a0 + (a1 - a0) * k as f32 / n as f32, r))
+            .collect()
     };
-    p.add(egui::Shape::line(arc(start, start + sweep), Stroke::new(6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18))));
+    p.add(egui::Shape::line(
+        arc(start, start + sweep),
+        Stroke::new(6.0, Color32::from_rgba_unmultiplied(255, 255, 255, 18)),
+    ));
     if let Some(v) = value {
         let end = start + sweep * v as f32 / 100.0;
         // A wider faint pass under the arc reads as a glow.
-        p.add(egui::Shape::line(arc(start, end), Stroke::new(12.0, Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 40))));
+        p.add(egui::Shape::line(
+            arc(start, end),
+            Stroke::new(
+                12.0,
+                Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 40),
+            ),
+        ));
         p.add(egui::Shape::line(arc(start, end), Stroke::new(6.0, col)));
     }
     match value {
         Some(v) => {
-            p.text(c, egui::Align2::CENTER_CENTER, v.to_string(), egui::FontId::monospace(22.0), TEXT);
+            p.text(
+                c,
+                egui::Align2::CENTER_CENTER,
+                v.to_string(),
+                egui::FontId::monospace(22.0),
+                TEXT,
+            );
         }
         None => {
-            p.text(egui::pos2(c.x, c.y - 6.0), egui::Align2::CENTER_CENTER, "NOT", egui::FontId::proportional(10.5), MUTED);
-            p.text(egui::pos2(c.x, c.y + 6.0), egui::Align2::CENTER_CENTER, "TESTED", egui::FontId::proportional(10.5), MUTED);
+            p.text(
+                egui::pos2(c.x, c.y - 6.0),
+                egui::Align2::CENTER_CENTER,
+                "NOT",
+                egui::FontId::proportional(10.5),
+                MUTED,
+            );
+            p.text(
+                egui::pos2(c.x, c.y + 6.0),
+                egui::Align2::CENTER_CENTER,
+                "TESTED",
+                egui::FontId::proportional(10.5),
+                MUTED,
+            );
         }
     }
-    let mut job = egui::text::LayoutJob::simple_singleline(label.to_uppercase(), egui::FontId::proportional(10.5), MUTED);
+    let mut job = egui::text::LayoutJob::simple_singleline(
+        label.to_uppercase(),
+        egui::FontId::proportional(10.5),
+        MUTED,
+    );
     if let Some(sec) = job.sections.first_mut() {
         sec.format.extra_letter_spacing = 1.6;
     }
     let g = p.layout_job(job);
-    p.galley(egui::pos2(rect.center().x - g.size().x / 2.0, rect.max.y - g.size().y), g, MUTED);
+    p.galley(
+        egui::pos2(rect.center().x - g.size().x / 2.0, rect.max.y - g.size().y),
+        g,
+        MUTED,
+    );
     resp.on_hover_text(match value {
         Some(v) => format!("{label} {v} of 100"),
         None => format!("{label}: not measured yet"),
@@ -491,24 +656,43 @@ pub fn sparkline(ui: &mut Ui, values: &[f32], w: f32, h: f32, col: Color32) {
     if values.len() < 2 {
         return;
     }
-    let (mn, mx) = values.iter().fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+    let (mn, mx) = values
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
     let span = (mx - mn).max(1e-3);
     let pts: Vec<egui::Pos2> = values
         .iter()
         .enumerate()
-        .map(|(i, v)| egui::pos2(rect.min.x + i as f32 * w / (values.len() - 1) as f32, rect.max.y - 1.0 - (v - mn) / span * (h - 2.0)))
+        .map(|(i, v)| {
+            egui::pos2(
+                rect.min.x + i as f32 * w / (values.len() - 1) as f32,
+                rect.max.y - 1.0 - (v - mn) / span * (h - 2.0),
+            )
+        })
         .collect();
     let p = ui.painter();
     let fill = Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 30);
     for pair in pts.windows(2) {
-        let quad = vec![pair[0], pair[1], egui::pos2(pair[1].x, rect.max.y), egui::pos2(pair[0].x, rect.max.y)];
+        let quad = vec![
+            pair[0],
+            pair[1],
+            egui::pos2(pair[1].x, rect.max.y),
+            egui::pos2(pair[0].x, rect.max.y),
+        ];
         p.add(egui::Shape::convex_polygon(quad, fill, Stroke::NONE));
     }
     p.add(egui::Shape::line(pts, Stroke::new(1.5, col)));
 }
 
 /// One tile of the live readings strip: label, value and its line graph.
-pub fn reading_tile(ui: &mut Ui, label: &str, value: &str, series: &[f32], col: Color32, width: f32) {
+pub fn reading_tile(
+    ui: &mut Ui,
+    label: &str,
+    value: &str,
+    series: &[f32],
+    col: Color32,
+    width: f32,
+) {
     Frame::NONE
         .fill(CARD)
         .stroke(Stroke::new(1.0, BORDER))
@@ -534,12 +718,32 @@ pub fn readout(ui: &mut Ui, label: &str, value: &str, hot: bool) {
     ui.vertical(|ui| {
         ui.label(caps(label, 11.0, if hot { ACCENT } else { MUTED }));
         let (fill, stroke, shadow) = if hot {
-            (Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 34), Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 140)), egui::epaint::Shadow { offset: [0, 0], blur: 22, spread: 0, color: Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 70) })
+            (
+                Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 34),
+                Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 140)),
+                egui::epaint::Shadow {
+                    offset: [0, 0],
+                    blur: 22,
+                    spread: 0,
+                    color: Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 70),
+                },
+            )
         } else {
             (CARD, Stroke::new(1.0, BORDER), egui::epaint::Shadow::NONE)
         };
-        Frame::NONE.fill(fill).stroke(stroke).shadow(shadow).corner_radius(CornerRadius::same(10)).inner_margin(Margin::symmetric(18, 9)).show(ui, |ui| {
-            ui.label(RichText::new(value.to_uppercase()).monospace().size(20.0).color(if hot { TEXT } else { TEXT_SOFT }));
-        });
+        Frame::NONE
+            .fill(fill)
+            .stroke(stroke)
+            .shadow(shadow)
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(18, 9))
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(value.to_uppercase())
+                        .monospace()
+                        .size(20.0)
+                        .color(if hot { TEXT } else { TEXT_SOFT }),
+                );
+            });
     });
 }

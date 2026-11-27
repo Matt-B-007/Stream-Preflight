@@ -23,7 +23,11 @@ fn handoff_file() -> PathBuf {
 
 /// The tray-only process, if one is running.
 pub fn running_tray() -> Option<u32> {
-    let pid: u32 = std::fs::read_to_string(pid_file()).ok()?.trim().parse().ok()?;
+    let pid: u32 = std::fs::read_to_string(pid_file())
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
     if pid == std::process::id() {
         return None;
     }
@@ -59,9 +63,14 @@ pub fn ask_tray_to_exit() {
 }
 
 fn spawn_self(args: &[&str]) -> bool {
-    let Ok(exe) = std::env::current_exe() else { return false };
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
     let mut c = std::process::Command::new(exe);
-    c.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    c.args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -95,7 +104,10 @@ pub fn run() {
         host: st.obs_host.clone(),
         port: st.obs_port,
         password: crate::config::load_secret(),
-        game_processes: crate::games::profiles().iter().map(|p| (p.name.clone(), p.processes.clone())).collect(),
+        game_processes: crate::games::profiles()
+            .iter()
+            .map(|p| (p.name.clone(), p.processes.clone()))
+            .collect(),
     };
     let watch = streamwatch::start(cfg, ctx);
     log::info!("Tray-only mode: watching OBS with no window");
@@ -128,7 +140,14 @@ pub fn run() {
         if let Some(l) = finished {
             let p = streamwatch::summarize(&l);
             if st.tray_notifications {
-                tray.notify("Stream ended", &format!("{} · {}. Open Preflight for your post-flight summary.", streamwatch::fmt_duration(p.duration), p.grade));
+                tray.notify(
+                    "Stream ended",
+                    &format!(
+                        "{} · {}. Open Preflight for your post-flight summary.",
+                        streamwatch::fmt_duration(p.duration),
+                        p.grade
+                    ),
+                );
             }
         }
         if live.is_some() && !was_live && st.live_opens_window {
@@ -155,14 +174,35 @@ pub fn run() {
 /// What the tray icon shows: not connected, ready, things to fix, or live.
 pub fn view_for(connected: bool, live: Option<&streamwatch::LiveStatus>, fixes: u32) -> TrayView {
     if let Some(l) = live {
-        let rec = l.rec.as_ref().filter(|r| r.active).map(|_| " · recording").unwrap_or("");
-        TrayView { state: TrayState::Live, attention: false, status: format!("Live · {}{rec}", streamwatch::fmt_t(l.elapsed)) }
+        let rec = l
+            .rec
+            .as_ref()
+            .filter(|r| r.active)
+            .map(|_| " · recording")
+            .unwrap_or("");
+        TrayView {
+            state: TrayState::Live,
+            attention: false,
+            status: format!("Live · {}{rec}", streamwatch::fmt_t(l.elapsed)),
+        }
     } else if !connected {
-        TrayView { state: TrayState::Idle, attention: false, status: "OBS not connected".into() }
+        TrayView {
+            state: TrayState::Idle,
+            attention: false,
+            status: "OBS not connected".into(),
+        }
     } else if fixes > 0 {
-        TrayView { state: TrayState::NeedsFixes, attention: false, status: format!("{fixes} to fix before you go live") }
+        TrayView {
+            state: TrayState::NeedsFixes,
+            attention: false,
+            status: format!("{fixes} to fix before you go live"),
+        }
     } else {
-        TrayView { state: TrayState::Watching, attention: false, status: "Watching OBS · ready".into() }
+        TrayView {
+            state: TrayState::Watching,
+            attention: false,
+            status: "Watching OBS · ready".into(),
+        }
     }
 }
 
@@ -175,8 +215,18 @@ mod tests {
         assert_eq!(view_for(false, None, 0).state, TrayState::Idle);
         assert_eq!(view_for(true, None, 0).state, TrayState::Watching);
         let f = view_for(true, None, 2);
-        assert_eq!((f.state, f.status.as_str()), (TrayState::NeedsFixes, "2 to fix before you go live"));
-        let l = streamwatch::LiveStatus { elapsed: 75.0, rec: Some(streamwatch::RecStatus { active: true, ..Default::default() }), ..Default::default() };
+        assert_eq!(
+            (f.state, f.status.as_str()),
+            (TrayState::NeedsFixes, "2 to fix before you go live")
+        );
+        let l = streamwatch::LiveStatus {
+            elapsed: 75.0,
+            rec: Some(streamwatch::RecStatus {
+                active: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let v = view_for(true, Some(&l), 2);
         assert_eq!(v.state, TrayState::Live);
         assert!(v.status.ends_with("· recording"), "{}", v.status);

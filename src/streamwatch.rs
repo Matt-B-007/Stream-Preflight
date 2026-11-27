@@ -8,9 +8,9 @@
 
 use crate::hardware::Monitor;
 use crate::obs::Client;
+use crate::obs::ObsSnapshot;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::obs::ObsSnapshot;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -66,7 +66,7 @@ pub struct StreamLog {
     /// Every active output (recording, plugin outputs, extra streams):
     /// label, (skipped, total) when first seen, and latest.
     #[serde(default)]
-    pub outputs: Vec<(String, (u64, u64), (u64, u64))>,
+    pub outputs: Vec<OutputTotals>,
     /// OBS's own recording during the stream: seconds recorded (longest
     /// seen), how many times it started, and the average recording rate.
     #[serde(default)]
@@ -76,6 +76,9 @@ pub struct StreamLog {
     #[serde(default)]
     pub rec_kbps: Option<f32>,
 }
+
+/// One output's frame counts: label, (skipped, total) when first seen, and latest.
+pub type OutputTotals = (String, (u64, u64), (u64, u64));
 
 /// OBS's recording right now (asked every 5 seconds while live).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -153,9 +156,18 @@ impl WatchHandle {
 pub fn request_snapshot(cmd: &Sender<Cmd>) -> ObsReply {
     let (tx, rx) = channel();
     if cmd.send(Cmd::Snapshot(tx)).is_err() {
-        return (crate::obs::snapshot_saved(), Some("Preflight's OBS connection isn't running.".into()));
+        return (
+            crate::obs::snapshot_saved(),
+            Some("Preflight's OBS connection isn't running.".into()),
+        );
     }
-    rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| (crate::obs::snapshot_saved(), Some("OBS took too long to answer.".into())))
+    rx.recv_timeout(Duration::from_secs(10))
+        .unwrap_or_else(|_| {
+            (
+                crate::obs::snapshot_saved(),
+                Some("OBS took too long to answer.".into()),
+            )
+        })
 }
 
 impl Drop for WatchHandle {
@@ -188,12 +200,25 @@ pub fn start(cfg: WatchConfig, ctx: eframe::egui::Context) -> WatchHandle {
             done.store(true, Ordering::Relaxed);
         })
         .expect("spawn OBS hub");
-    WatchHandle { state, stop, cmd, stopped }
+    WatchHandle {
+        state,
+        stop,
+        cmd,
+        stopped,
+    }
 }
 
-fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds: Receiver<Cmd>, ctx: eframe::egui::Context) {
+fn run(
+    cfg: WatchConfig,
+    st: Arc<Mutex<WatchState>>,
+    stop: Arc<AtomicBool>,
+    cmds: Receiver<Cmd>,
+    ctx: eframe::egui::Context,
+) {
     // A stream from last time that wasn't finished.
-    let mut pending: Option<StreamLog> = std::fs::read_to_string(current_path()).ok().and_then(|t| serde_json::from_str(&t).ok());
+    let mut pending: Option<StreamLog> = std::fs::read_to_string(current_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok());
     let started = Instant::now();
     let mut client: Option<Client> = None;
     let mut last_err: Option<String> = None;
@@ -210,9 +235,15 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
     let mut rec_was_on = false;
     let mut live_outputs: Vec<crate::obs::OutputInfo> = Vec::new();
     let me = sysinfo::get_current_pid().ok();
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f32;
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1) as f32;
 
-    let connect = |client: &mut Option<Client>, last_err: &mut Option<String>| match Client::connect(&cfg.host, cfg.port, cfg.password.as_deref()) {
+    let connect = |client: &mut Option<Client>, last_err: &mut Option<String>| match Client::connect(
+        &cfg.host,
+        cfg.port,
+        cfg.password.as_deref(),
+    ) {
         Ok(c) => {
             *client = Some(c);
             *last_err = None;
@@ -237,19 +268,39 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
                 // OBS closed: finish a stream we were watching, or an old one
                 // after a minute of not finding OBS.
                 if let Some(l) = log.take() {
-                    finish(l, Some("Preflight lost contact with OBS before the stream ended.".into()), &st, &ctx);
+                    finish(
+                        l,
+                        Some("Preflight lost contact with OBS before the stream ended.".into()),
+                        &st,
+                        &ctx,
+                    );
                     mon = None;
                 }
-                if started.elapsed().as_secs() > 60 {
-                    if let Some(l) = pending.take() {
-                        finish(l, Some("Preflight was closed before the stream ended, so the end is missing.".into()), &st, &ctx);
-                    }
+                if started.elapsed().as_secs() > 60
+                    && let Some(l) = pending.take()
+                {
+                    finish(
+                        l,
+                        Some(
+                            "Preflight was closed before the stream ended, so the end is missing."
+                                .into(),
+                        ),
+                        &st,
+                        &ctx,
+                    );
                 }
             }
         }
         let now = Instant::now();
-        let wake = if client.is_some() { next_status } else { next_try.min(now + Duration::from_secs(10)) };
-        match cmds.recv_timeout(wake.saturating_duration_since(now).min(Duration::from_millis(500))) {
+        let wake = if client.is_some() {
+            next_status
+        } else {
+            next_try.min(now + Duration::from_secs(10))
+        };
+        match cmds.recv_timeout(
+            wake.saturating_duration_since(now)
+                .min(Duration::from_millis(500)),
+        ) {
             Ok(Cmd::Snapshot(reply)) => {
                 if client.is_none() {
                     connect(&mut client, &mut last_err);
@@ -293,13 +344,18 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
                     let snap = crate::obs::snapshot_live(c);
                     log::info!("Stream started; post-flight is watching");
                     StreamLog {
-                        started_at: crate::util::unix_now() - status["outputDuration"].as_u64().unwrap_or(0) as i64 / 1000,
+                        started_at: crate::util::unix_now()
+                            - status["outputDuration"].as_u64().unwrap_or(0) as i64 / 1000,
                         target_kbps: snap.bitrate_kbps,
                         encoder: snap.encoder_kind.clone(),
                         output: format!(
                             "{}{}",
-                            snap.output_res.map(|r| format!("{}p", r.1)).unwrap_or_default(),
-                            snap.fps.map(|f| (f.round() as u32).to_string()).unwrap_or_default()
+                            snap.output_res
+                                .map(|r| format!("{}p", r.1))
+                                .unwrap_or_default(),
+                            snap.fps
+                                .map(|f| (f.round() as u32).to_string())
+                                .unwrap_or_default()
                         ),
                         ..Default::default()
                     }
@@ -321,7 +377,15 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
                 mon = None;
                 sys = None;
             } else if let Some(l) = pending.take() {
-                finish(l, Some("Preflight was closed before the stream ended, so the end is missing.".into()), &st, &ctx);
+                finish(
+                    l,
+                    Some(
+                        "Preflight was closed before the stream ended, so the end is missing."
+                            .into(),
+                    ),
+                    &st,
+                    &ctx,
+                );
             }
             if let Ok(mut s) = st.lock() {
                 s.live = None;
@@ -363,8 +427,16 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
             own_cpu,
             own_mb,
         };
-        let kbps = l.samples.last().filter(|p| t - p.t > 0.5).map(|p| smp.bytes.saturating_sub(p.bytes) as f32 * 8.0 / 1000.0 / (t - p.t));
-        let dropped_pct = if smp.net_total > 0 { smp.net_dropped as f32 * 100.0 / smp.net_total as f32 } else { 0.0 };
+        let kbps = l
+            .samples
+            .last()
+            .filter(|p| t - p.t > 0.5)
+            .map(|p| smp.bytes.saturating_sub(p.bytes) as f32 * 8.0 / 1000.0 / (t - p.t));
+        let dropped_pct = if smp.net_total > 0 {
+            smp.net_dropped as f32 * 100.0 / smp.net_total as f32
+        } else {
+            0.0
+        };
         l.samples.push(smp);
         // Recording: asked every sample, so starting or stopping it mid-stream shows within 5 s.
         let mut rec = read_record(c);
@@ -393,10 +465,13 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
             rec_was_on = r.active;
         }
         // Every 2 samples (10 s): each output for the Live page; every 10, the log's totals.
-        if tick % 2 == 0 {
-            live_outputs = crate::obs::read_outputs(c).into_iter().filter(|o| o.active).collect();
+        if tick.is_multiple_of(2) {
+            live_outputs = crate::obs::read_outputs(c)
+                .into_iter()
+                .filter(|o| o.active)
+                .collect();
         }
-        if tick % 10 == 0 {
+        if tick.is_multiple_of(10) {
             for o in live_outputs.iter().filter(|o| o.label != "Stream").cloned() {
                 if let (Some(d), Some(tot)) = (o.skipped, o.total) {
                     let label = o.label.clone();
@@ -407,10 +482,13 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
                 }
             }
         }
-        if tick % 12 == 0 && l.game.is_none() {
+        if tick.is_multiple_of(12) && l.game.is_none() {
             let procs = crate::hardware::running_process_names(&mut sys);
             for (name, pats) in &cfg.game_processes {
-                if procs.iter().any(|(n, _)| pats.iter().any(|p| crate::games::process_matches(n, p))) {
+                if procs
+                    .iter()
+                    .any(|(n, _)| pats.iter().any(|p| crate::games::process_matches(n, p)))
+                {
                     l.game = Some(name.clone());
                 }
             }
@@ -422,9 +500,18 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
         if let Ok(mut g) = st.lock() {
             let enc_skipped_pct = l.samples.first().zip(l.samples.last()).and_then(|(a, b)| {
                 let tot = b.enc_total.saturating_sub(a.enc_total);
-                (tot > 0).then(|| b.enc_skipped.saturating_sub(a.enc_skipped) as f32 * 100.0 / tot as f32)
+                (tot > 0).then(|| {
+                    b.enc_skipped.saturating_sub(a.enc_skipped) as f32 * 100.0 / tot as f32
+                })
             });
-            g.live = Some(LiveStatus { elapsed: t, kbps, dropped_pct, rec, enc_skipped_pct, outputs: live_outputs.clone() });
+            g.live = Some(LiveStatus {
+                elapsed: t,
+                kbps,
+                dropped_pct,
+                rec,
+                enc_skipped_pct,
+                outputs: live_outputs.clone(),
+            });
         }
         ctx.request_repaint();
         tick += 1;
@@ -438,7 +525,12 @@ fn save_current(l: &StreamLog) {
     }
 }
 
-fn finish(mut l: StreamLog, partial: Option<String>, st: &Arc<Mutex<WatchState>>, ctx: &eframe::egui::Context) {
+fn finish(
+    mut l: StreamLog,
+    partial: Option<String>,
+    st: &Arc<Mutex<WatchState>>,
+    ctx: &eframe::egui::Context,
+) {
     let _ = std::fs::remove_file(current_path());
     if l.samples.len() < 3 {
         log::info!("Stream ended after less than 15 seconds of watching; no post-flight summary");
@@ -446,11 +538,16 @@ fn finish(mut l: StreamLog, partial: Option<String>, st: &Arc<Mutex<WatchState>>
     }
     l.ended_at = crate::util::unix_now();
     l.partial = partial;
-    let path = crate::util::dirs().streams.join(format!("stream-{}.json", l.started_at));
+    let path = crate::util::dirs()
+        .streams
+        .join(format!("stream-{}.json", l.started_at));
     if let Ok(t) = serde_json::to_string(&l) {
         let _ = std::fs::write(&path, t);
     }
-    log::info!("Stream ended after {:.0} s; post-flight summary saved", l.samples.last().map(|s| s.t).unwrap_or(0.0));
+    log::info!(
+        "Stream ended after {:.0} s; post-flight summary saved",
+        l.samples.last().map(|s| s.t).unwrap_or(0.0)
+    );
     if let Ok(mut s) = st.lock() {
         s.live = None;
         s.finished = Some(l);
@@ -460,7 +557,9 @@ fn finish(mut l: StreamLog, partial: Option<String>, st: &Arc<Mutex<WatchState>>
 
 /// Saves a changed log over its file.
 pub fn resave(l: &StreamLog) {
-    let path = crate::util::dirs().streams.join(format!("stream-{}.json", l.started_at));
+    let path = crate::util::dirs()
+        .streams
+        .join(format!("stream-{}.json", l.started_at));
     if let Ok(t) = serde_json::to_string(l) {
         let _ = std::fs::write(path, t);
     }
@@ -533,12 +632,20 @@ pub struct PostFlight {
 
 pub fn fmt_t(t: f32) -> String {
     let s = t.max(0.0) as u32;
-    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
+    }
 }
 
 pub fn fmt_duration(t: f32) -> String {
     let m = (t / 60.0).round() as u32;
-    if m >= 60 { format!("{}h {:02}m", m / 60, m % 60) } else { format!("{m} min") }
+    if m >= 60 {
+        format!("{}h {:02}m", m / 60, m % 60)
+    } else {
+        format!("{m} min")
+    }
 }
 
 /// "5.02% of frames (about 1 in every 20)"
@@ -546,26 +653,45 @@ fn frac_text(f: f32) -> String {
     if f <= 0.0 {
         return "no frames".into();
     }
-    format!("{:.2}% of frames (about 1 in every {})", f * 100.0, (1.0 / f).round() as u32)
+    format!(
+        "{:.2}% of frames (about 1 in every {})",
+        f * 100.0,
+        (1.0 / f).round() as u32
+    )
 }
 
 /// Adds a problem window, merging it with the previous one of the same kind
 /// when they touch.
 fn push_moment(v: &mut Vec<Moment>, kind: u8, t: f32, secs: f32, value: f32, severity: f32) {
-    if let Some(m) = v.iter_mut().rev().find(|m| m.kind == kind) {
-        if (m.t + m.secs - t).abs() < 1.0 {
-            let total = m.secs + secs;
-            m.value = if kind == 1 { m.value.min(value) } else { (m.value * m.secs + value * secs) / total };
-            m.secs = total;
-            m.severity = m.severity.max(severity) + 0.1;
-            return;
-        }
+    if let Some(m) = v.iter_mut().rev().find(|m| m.kind == kind)
+        && (m.t + m.secs - t).abs() < 1.0
+    {
+        let total = m.secs + secs;
+        m.value = if kind == 1 {
+            m.value.min(value)
+        } else {
+            (m.value * m.secs + value * secs) / total
+        };
+        m.secs = total;
+        m.severity = m.severity.max(severity) + 0.1;
+        return;
     }
-    v.push(Moment { t, secs, text: String::new(), severity, kind, value });
+    v.push(Moment {
+        t,
+        secs,
+        text: String::new(),
+        severity,
+        kind,
+        value,
+    });
 }
 
 fn moment_text(m: &Moment, target: f32) -> String {
-    let dur = if m.secs >= 90.0 { format!("{:.0} minutes", m.secs / 60.0) } else { format!("{:.0} seconds", m.secs) };
+    let dur = if m.secs >= 90.0 {
+        format!("{:.0} minutes", m.secs / 60.0)
+    } else {
+        format!("{:.0} seconds", m.secs)
+    };
     match m.kind {
         0 => format!("Your internet dropped about {:.0}% of frames for {dur}. Viewers saw stutters or buffering.", m.value * 100.0),
         1 => format!("Your bitrate dipped as low as {:.0} kbps (you set {:.0}) for {dur}. The picture got blurrier.", m.value, target),
@@ -578,33 +704,84 @@ fn moment_text(m: &Moment, target: f32) -> String {
 
 pub fn summarize(l: &StreamLog) -> PostFlight {
     let mut p = PostFlight::default();
-    let (Some(first), Some(last)) = (l.samples.first(), l.samples.last()) else { return p };
+    let (Some(first), Some(last)) = (l.samples.first(), l.samples.last()) else {
+        return p;
+    };
     p.duration = last.t;
-    p.net_frac = if last.net_total > 0 { last.net_dropped as f32 / last.net_total as f32 } else { 0.0 };
+    p.net_frac = if last.net_total > 0 {
+        last.net_dropped as f32 / last.net_total as f32
+    } else {
+        0.0
+    };
     let d = |a: u64, b: u64| b.saturating_sub(a);
     let et = d(first.enc_total, last.enc_total);
     let rt = d(first.render_total, last.render_total);
-    p.enc_frac = if et > 0 { d(first.enc_skipped, last.enc_skipped) as f32 / et as f32 } else { 0.0 };
-    p.outputs = l.outputs.iter().map(|(label, a, b)| format!("{label}: {:.2}% skipped", d(a.0, b.0) as f32 * 100.0 / d(a.1, b.1).max(1) as f32)).collect();
-    p.render_frac = if rt > 0 { d(first.render_skipped, last.render_skipped) as f32 / rt as f32 } else { 0.0 };
-    p.avg_kbps = if last.t > 0.0 { last.bytes as f32 * 8.0 / 1000.0 / last.t } else { 0.0 };
+    p.enc_frac = if et > 0 {
+        d(first.enc_skipped, last.enc_skipped) as f32 / et as f32
+    } else {
+        0.0
+    };
+    p.outputs = l
+        .outputs
+        .iter()
+        .map(|(label, a, b)| {
+            format!(
+                "{label}: {:.2}% skipped",
+                d(a.0, b.0) as f32 * 100.0 / d(a.1, b.1).max(1) as f32
+            )
+        })
+        .collect();
+    p.render_frac = if rt > 0 {
+        d(first.render_skipped, last.render_skipped) as f32 / rt as f32
+    } else {
+        0.0
+    };
+    p.avg_kbps = if last.t > 0.0 {
+        last.bytes as f32 * 8.0 / 1000.0 / last.t
+    } else {
+        0.0
+    };
     let n = l.samples.len() as f32;
     p.cpu_avg = l.samples.iter().map(|s| s.cpu).sum::<f32>() / n;
     let gpus: Vec<f32> = l.samples.iter().filter_map(|s| s.gpu).collect();
-    p.gpu_avg = if gpus.is_empty() { None } else { Some(gpus.iter().sum::<f32>() / gpus.len() as f32) };
-    p.gpu_temp_max = l.samples.iter().filter_map(|s| s.gpu_temp).fold(None, |a, b| Some(a.map_or(b, |x: f32| x.max(b))));
-    let avg = |v: Vec<f32>| if v.is_empty() { None } else { Some(v.iter().sum::<f32>() / v.len() as f32) };
+    p.gpu_avg = if gpus.is_empty() {
+        None
+    } else {
+        Some(gpus.iter().sum::<f32>() / gpus.len() as f32)
+    };
+    p.gpu_temp_max = l
+        .samples
+        .iter()
+        .filter_map(|s| s.gpu_temp)
+        .fold(None, |a, b| Some(a.map_or(b, |x: f32| x.max(b))));
+    let avg = |v: Vec<f32>| {
+        if v.is_empty() {
+            None
+        } else {
+            Some(v.iter().sum::<f32>() / v.len() as f32)
+        }
+    };
     p.enc_avg = avg(l.samples.iter().filter_map(|s| s.enc).collect());
     p.own_cpu_avg = avg(l.samples.iter().filter_map(|s| s.own_cpu).collect());
-    p.own_mb_max = l.samples.iter().filter_map(|s| s.own_mb).fold(None, |a, b| Some(a.map_or(b, |x: f32| x.max(b))));
+    p.own_mb_max = l
+        .samples
+        .iter()
+        .filter_map(|s| s.own_mb)
+        .fold(None, |a, b| Some(a.map_or(b, |x: f32| x.max(b))));
     p.own_mb_start = l.samples.iter().find_map(|s| s.own_mb);
     p.own_mb_end = l.samples.iter().rev().find_map(|s| s.own_mb);
     p.recording = (l.rec_starts > 0).then(|| {
         format!(
             "Recorded {}{}{}",
             fmt_duration(l.rec_seconds),
-            l.rec_kbps.map(|k| format!(" · about {:.0} Mbps", k / 1000.0)).unwrap_or_default(),
-            if l.rec_starts > 1 { format!(" · started {} times", l.rec_starts) } else { String::new() }
+            l.rec_kbps
+                .map(|k| format!(" · about {:.0} Mbps", k / 1000.0))
+                .unwrap_or_default(),
+            if l.rec_starts > 1 {
+                format!(" · started {} times", l.rec_starts)
+            } else {
+                String::new()
+            }
         )
     });
     let mut was = false;
@@ -617,7 +794,8 @@ pub fn summarize(l: &StreamLog) -> PostFlight {
     for w in l.samples.windows(2) {
         let dt = w[1].t - w[0].t;
         if dt > 0.5 {
-            p.kbps_series.push(w[1].bytes.saturating_sub(w[0].bytes) as f32 * 8.0 / 1000.0 / dt);
+            p.kbps_series
+                .push(w[1].bytes.saturating_sub(w[0].bytes) as f32 * 8.0 / 1000.0 / dt);
         }
     }
 
@@ -639,11 +817,20 @@ pub fn summarize(l: &StreamLog) -> PostFlight {
             }
             let frac = |s: u64, sb: u64, tt: u64, tb: u64| {
                 let tot = tb.saturating_sub(tt);
-                if tot > 0 { sb.saturating_sub(s) as f32 / tot as f32 } else { 0.0 }
+                if tot > 0 {
+                    sb.saturating_sub(s) as f32 / tot as f32
+                } else {
+                    0.0
+                }
             };
             let nd = frac(a.net_dropped, b.net_dropped, a.net_total, b.net_total);
             let ed = frac(a.enc_skipped, b.enc_skipped, a.enc_total, b.enc_total);
-            let rd = frac(a.render_skipped, b.render_skipped, a.render_total, b.render_total);
+            let rd = frac(
+                a.render_skipped,
+                b.render_skipped,
+                a.render_total,
+                b.render_total,
+            );
             if nd > 0.02 {
                 push_moment(&mut p.moments, 0, a.t, dt, nd, nd * 3.0);
             } else if target > 0.0 && kbps < target * 0.6 {
@@ -661,13 +848,32 @@ pub fn summarize(l: &StreamLog) -> PostFlight {
     for (k, w) in l.samples.windows(2).enumerate() {
         if w[1].reconnecting && !w[0].reconnecting {
             let _ = k;
-            p.moments.push(Moment { t: w[1].t, secs: 0.0, text: String::new(), severity: 5.0, kind: 4, value: 0.0 });
+            p.moments.push(Moment {
+                t: w[1].t,
+                secs: 0.0,
+                text: String::new(),
+                severity: 5.0,
+                kind: 4,
+                value: 0.0,
+            });
         }
     }
-    if let Some(s) = l.samples.iter().find(|s| s.gpu_temp.map(|t| t >= 87.0).unwrap_or(false)) {
-        p.moments.push(Moment { t: s.t, secs: 0.0, text: String::new(), severity: 0.5, kind: 5, value: s.gpu_temp.unwrap_or(0.0) });
+    if let Some(s) = l
+        .samples
+        .iter()
+        .find(|s| s.gpu_temp.map(|t| t >= 87.0).unwrap_or(false))
+    {
+        p.moments.push(Moment {
+            t: s.t,
+            secs: 0.0,
+            text: String::new(),
+            severity: 0.5,
+            kind: 5,
+            value: s.gpu_temp.unwrap_or(0.0),
+        });
     }
-    p.moments.sort_by(|a, b| b.severity.partial_cmp(&a.severity).unwrap());
+    p.moments
+        .sort_by(|a, b| b.severity.partial_cmp(&a.severity).unwrap());
     p.moments.truncate(6);
     p.moments.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
     for m in p.moments.iter_mut() {
@@ -675,19 +881,37 @@ pub fn summarize(l: &StreamLog) -> PostFlight {
     }
 
     let worst = p.net_frac.max(p.enc_frac).max(p.render_frac);
-    p.grade_level = if worst < 0.001 { 0 } else if worst < 0.01 { 1 } else if worst < 0.05 { 2 } else { 3 };
+    p.grade_level = if worst < 0.001 {
+        0
+    } else if worst < 0.01 {
+        1
+    } else if worst < 0.05 {
+        2
+    } else {
+        3
+    };
     if p.reconnects > 0 {
         p.grade_level = p.grade_level.max(2);
     }
-    p.grade = ["Smooth stream", "Mostly smooth", "Some rough patches", "Rough stream"][p.grade_level as usize].into();
+    p.grade = [
+        "Smooth stream",
+        "Mostly smooth",
+        "Some rough patches",
+        "Rough stream",
+    ][p.grade_level as usize]
+        .into();
 
     // What to change next time
     if p.net_frac > 0.005 || p.reconnects > 0 {
         let base = l.target_kbps.map(|b| b as f32).unwrap_or(p.avg_kbps);
         let worst = p.low_kbps.map(|x| x.0).filter(|w| *w < base * 0.9);
-        let goal = worst.map(|w| (base * 0.8).min(w * 0.9)).unwrap_or(base * 0.8);
+        let goal = worst
+            .map(|w| (base * 0.8).min(w * 0.9))
+            .unwrap_or(base * 0.8);
         let lower = ((goal / 500.0).floor() * 500.0).max(1500.0) as u32;
-        let managed = worst.map(|w| format!(" At its worst, your connection only carried about {w:.0} kbps.")).unwrap_or_default();
+        let managed = worst
+            .map(|w| format!(" At its worst, your connection only carried about {w:.0} kbps."))
+            .unwrap_or_default();
         p.advice.push(Advice {
             title: format!("Lower your bitrate to about {lower} kbps"),
             why: format!("Your internet dropped {}.{managed} A lower bitrate leaves headroom for dips. Also pause cloud backups and downloads while live, and use a cable instead of Wi-Fi if you can.", frac_text(p.net_frac)),
@@ -702,7 +926,10 @@ pub fn summarize(l: &StreamLog) -> PostFlight {
         });
     }
     if p.render_frac > 0.005 {
-        let gpu = p.gpu_avg.map(|g| format!(" Your GPU averaged {g:.0}%.")).unwrap_or_default();
+        let gpu = p
+            .gpu_avg
+            .map(|g| format!(" Your GPU averaged {g:.0}%."))
+            .unwrap_or_default();
         p.advice.push(Advice {
             title: "Free up your GPU for OBS".into(),
             why: format!("OBS couldn't draw {} because the game used the whole GPU.{gpu} Cap your game's FPS, or turn on DLSS or FSR.", frac_text(p.render_frac)),
@@ -722,26 +949,61 @@ pub fn summarize(l: &StreamLog) -> PostFlight {
 impl PostFlight {
     pub fn net_sentence(&self) -> (String, String) {
         if self.net_frac <= 0.0 {
-            ("Your internet didn't drop any frames.".into(), "The connection held up the whole time.".into())
+            (
+                "Your internet didn't drop any frames.".into(),
+                "The connection held up the whole time.".into(),
+            )
         } else {
             (
                 format!("Your internet dropped {}.", frac_text(self.net_frac)),
-                if self.net_frac < 0.001 { "Too few for viewers to notice.".into() } else if self.net_frac < 0.01 { "Viewers may have seen a few small hitches.".into() } else { "Viewers saw stutters or buffering.".into() },
+                if self.net_frac < 0.001 {
+                    "Too few for viewers to notice.".into()
+                } else if self.net_frac < 0.01 {
+                    "Viewers may have seen a few small hitches.".into()
+                } else {
+                    "Viewers saw stutters or buffering.".into()
+                },
             )
         }
     }
     pub fn enc_sentence(&self) -> (String, String) {
         if self.enc_frac <= 0.0 {
-            ("The encoder kept up with every frame.".into(), "No stutters from encoding.".into())
+            (
+                "The encoder kept up with every frame.".into(),
+                "No stutters from encoding.".into(),
+            )
         } else {
-            (format!("The encoder skipped {:.2}% of frames.", self.enc_frac * 100.0), if self.enc_frac < 0.001 { "Too few to notice.".into() } else { "Viewers saw stutters when it fell behind.".into() })
+            (
+                format!(
+                    "The encoder skipped {:.2}% of frames.",
+                    self.enc_frac * 100.0
+                ),
+                if self.enc_frac < 0.001 {
+                    "Too few to notice.".into()
+                } else {
+                    "Viewers saw stutters when it fell behind.".into()
+                },
+            )
         }
     }
     pub fn render_sentence(&self) -> (String, String) {
         if self.render_frac <= 0.0 {
-            ("OBS drew every frame.".into(), "The GPU had room for OBS.".into())
+            (
+                "OBS drew every frame.".into(),
+                "The GPU had room for OBS.".into(),
+            )
         } else {
-            (format!("OBS couldn't draw {:.2}% of frames.", self.render_frac * 100.0), if self.render_frac < 0.001 { "Too few to notice.".into() } else { "The game was using the whole GPU.".into() })
+            (
+                format!(
+                    "OBS couldn't draw {:.2}% of frames.",
+                    self.render_frac * 100.0
+                ),
+                if self.render_frac < 0.001 {
+                    "Too few to notice.".into()
+                } else {
+                    "The game was using the whole GPU.".into()
+                },
+            )
         }
     }
 }
@@ -751,11 +1013,27 @@ mod tests {
     use super::*;
 
     fn log_with(drop_from: usize) -> StreamLog {
-        let mut l = StreamLog { target_kbps: Some(6000), ..Default::default() };
+        let mut l = StreamLog {
+            target_kbps: Some(6000),
+            ..Default::default()
+        };
         for i in 0..120u64 {
             let t = i as f32 * 5.0;
-            let nd = if i as usize > drop_from { (i - drop_from as u64) * 30 } else { 0 };
-            l.samples.push(StreamSample { t, bytes: i * 5 * 750_000, net_dropped: nd, net_total: i * 300, enc_total: i * 300, render_total: i * 300, cpu: 30.0, ..Default::default() });
+            let nd = if i as usize > drop_from {
+                (i - drop_from as u64) * 30
+            } else {
+                0
+            };
+            l.samples.push(StreamSample {
+                t,
+                bytes: i * 5 * 750_000,
+                net_dropped: nd,
+                net_total: i * 300,
+                enc_total: i * 300,
+                render_total: i * 300,
+                cpu: 30.0,
+                ..Default::default()
+            });
         }
         l
     }
@@ -784,18 +1062,44 @@ mod rec_tests {
 
     #[test]
     fn recording_rate_and_auto_record() {
-        assert_eq!(rec_rate((10.0, 1_000_000), (40.0, 106_000_000)), Some(28000.0));
+        assert_eq!(
+            rec_rate((10.0, 1_000_000), (40.0, 106_000_000)),
+            Some(28000.0)
+        );
         assert_eq!(rec_rate((10.0, 5), (12.0, 9)), None, "too short to measure");
-        assert!(crate::obs::parse_auto_record("[General]\nX=1\n[BasicWindow]\nRecordWhenStreaming=true\n"));
-        assert!(!crate::obs::parse_auto_record("[BasicWindow]\nRecordWhenStreaming=false\n"));
-        assert!(!crate::obs::parse_auto_record("[Other]\nRecordWhenStreaming=true\n"), "only the BasicWindow section counts");
-        let mut l = StreamLog::default();
-        l.rec_starts = 1;
-        l.rec_seconds = 3600.0 * 5.0 + 660.0;
-        l.rec_kbps = Some(28000.0);
-        l.samples = vec![StreamSample { t: 0.0, own_mb: Some(198.0), ..Default::default() }, StreamSample { t: 5.0, own_mb: Some(249.0), ..Default::default() }];
+        assert!(crate::obs::parse_auto_record(
+            "[General]\nX=1\n[BasicWindow]\nRecordWhenStreaming=true\n"
+        ));
+        assert!(!crate::obs::parse_auto_record(
+            "[BasicWindow]\nRecordWhenStreaming=false\n"
+        ));
+        assert!(
+            !crate::obs::parse_auto_record("[Other]\nRecordWhenStreaming=true\n"),
+            "only the BasicWindow section counts"
+        );
+        let l = StreamLog {
+            rec_starts: 1,
+            rec_seconds: 3600.0 * 5.0 + 660.0,
+            rec_kbps: Some(28000.0),
+            samples: vec![
+                StreamSample {
+                    t: 0.0,
+                    own_mb: Some(198.0),
+                    ..Default::default()
+                },
+                StreamSample {
+                    t: 5.0,
+                    own_mb: Some(249.0),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
         let p = summarize(&l);
         assert_eq!((p.own_mb_start, p.own_mb_end), (Some(198.0), Some(249.0)));
-        assert_eq!(p.recording.as_deref(), Some("Recorded 5h 11m · about 28 Mbps"));
+        assert_eq!(
+            p.recording.as_deref(),
+            Some("Recorded 5h 11m · about 28 Mbps")
+        );
     }
 }

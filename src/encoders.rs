@@ -48,11 +48,27 @@ impl EncoderInfo {
                 .sessions
                 .iter()
                 .map(|s| {
-                    let detail: Vec<String> = [s.codec.clone(), s.res.clone(), s.fps.map(|f| format!("{f} fps")).unwrap_or_default()].into_iter().filter(|x| !x.is_empty()).collect();
-                    if detail.is_empty() { s.app.clone() } else { format!("{} ({})", s.app, detail.join(" ")) }
+                    let detail: Vec<String> = [
+                        s.codec.clone(),
+                        s.res.clone(),
+                        s.fps.map(|f| format!("{f} fps")).unwrap_or_default(),
+                    ]
+                    .into_iter()
+                    .filter(|x| !x.is_empty())
+                    .collect();
+                    if detail.is_empty() {
+                        s.app.clone()
+                    } else {
+                        format!("{} ({})", s.app, detail.join(" "))
+                    }
                 })
                 .collect();
-            return format!("In use: {} encode{}: {}", self.sessions.len(), if self.sessions.len() == 1 { "" } else { "s" }, list.join(", "));
+            return format!(
+                "In use: {} encode{}: {}",
+                self.sessions.len(),
+                if self.sessions.len() == 1 { "" } else { "s" },
+                list.join(", ")
+            );
         }
         match self.busy {
             Some(b) if b >= 1.0 => format!("In use ({b:.0}% busy)"),
@@ -67,7 +83,11 @@ pub fn codecs_for(vendor: Vendor, gpu: &str) -> Vec<String> {
     let has = |m: &str| n.contains(m);
     let av1 = match vendor {
         // NVIDIA: RTX 40/50 series and Ada/Blackwell workstation cards.
-        Vendor::Nvidia => ["rtx 40", "rtx 50", " 40", " 50"].iter().any(|m| has(m)) && !has("gtx") || has("ada") || has("blackwell"),
+        Vendor::Nvidia => {
+            ["rtx 40", "rtx 50", " 40", " 50"].iter().any(|m| has(m)) && !has("gtx")
+                || has("ada")
+                || has("blackwell")
+        }
         // AMD: RX 7000/9000; Intel: Arc and Core Ultra.
         Vendor::Amd => has("rx 7") || has("rx 9") || has("780m") || has("890m"),
         Vendor::Intel => has("arc") || has("ultra"),
@@ -113,14 +133,25 @@ pub fn friendly(raw: &str) -> String {
     match r {
         x if x.starts_with("obs") => "OBS".into(),
         x if x.contains("discord") => "Discord".into(),
-        x if x.contains("nvcontainer") || x.contains("nvidia") || x.contains("nvoverlay") => "NVIDIA app / overlay".into(),
+        x if x.contains("nvcontainer") || x.contains("nvidia") || x.contains("nvoverlay") => {
+            "NVIDIA app / overlay".into()
+        }
         x if x.contains("steam") => "Steam".into(),
-        x if x.contains("chrome") || x.contains("firefox") || x.contains("msedge") => "Web browser".into(),
+        x if x.contains("chrome") || x.contains("firefox") || x.contains("msedge") => {
+            "Web browser".into()
+        }
         x if x.contains("streamlabs") => "Streamlabs".into(),
         x if x.contains("meld") => "Meld Studio".into(),
-        x if x.contains("parsec") || x.contains("sunshine") || x.contains("moonlight") => "Game streaming app".into(),
+        x if x.contains("parsec") || x.contains("sunshine") || x.contains("moonlight") => {
+            "Game streaming app".into()
+        }
         x if x.contains("gpu-screen-recorder") || x.contains("gsr") => "GPU Screen Recorder".into(),
-        x if x.contains("kwin") || x.contains("gnome-shell") || x.contains("xdg-desktop-portal") => "Desktop screen sharing".into(),
+        x if x.contains("kwin")
+            || x.contains("gnome-shell")
+            || x.contains("xdg-desktop-portal") =>
+        {
+            "Desktop screen sharing".into()
+        }
         "" => "Unknown program".into(),
         x => x.to_string(),
     }
@@ -133,27 +164,46 @@ fn drm_encode_users(sys: &Option<sysinfo::System>) -> (Option<f32>, Vec<EncSessi
     use std::collections::HashMap;
     fn read_all() -> HashMap<u32, u64> {
         let mut m = HashMap::new();
-        let Ok(rd) = std::fs::read_dir("/proc") else { return m };
+        let Ok(rd) = std::fs::read_dir("/proc") else {
+            return m;
+        };
         for e in rd.flatten() {
-            let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else { continue };
-            let Ok(fds) = std::fs::read_dir(e.path().join("fdinfo")) else { continue };
+            let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+                continue;
+            };
+            let Ok(fds) = std::fs::read_dir(e.path().join("fdinfo")) else {
+                continue;
+            };
             let mut seen_clients: Vec<String> = Vec::new();
             let mut total = 0u64;
             for f in fds.flatten() {
-                let Ok(t) = std::fs::read_to_string(f.path()) else { continue };
+                let Ok(t) = std::fs::read_to_string(f.path()) else {
+                    continue;
+                };
                 if !t.contains("drm-driver") {
                     continue;
                 }
                 // One DRM client can be open on several file handles.
-                let client = t.lines().find(|l| l.starts_with("drm-client-id")).unwrap_or("").to_string();
+                let client = t
+                    .lines()
+                    .find(|l| l.starts_with("drm-client-id"))
+                    .unwrap_or("")
+                    .to_string();
                 if seen_clients.contains(&client) {
                     continue;
                 }
                 seen_clients.push(client);
                 for l in t.lines() {
                     // amdgpu: drm-engine-enc / enc_1 (VCN); i915/xe: drm-engine-video.
-                    if let Some(v) = l.strip_prefix("drm-engine-enc").or_else(|| l.strip_prefix("drm-engine-video:")) {
-                        let num: String = v.chars().skip_while(|c| !c.is_ascii_digit()).take_while(|c| c.is_ascii_digit()).collect();
+                    if let Some(v) = l
+                        .strip_prefix("drm-engine-enc")
+                        .or_else(|| l.strip_prefix("drm-engine-video:"))
+                    {
+                        let num: String = v
+                            .chars()
+                            .skip_while(|c| !c.is_ascii_digit())
+                            .take_while(|c| c.is_ascii_digit())
+                            .collect();
                         total += num.parse::<u64>().unwrap_or(0);
                     }
                 }
@@ -176,7 +226,10 @@ fn drm_encode_users(sys: &Option<sysinfo::System>) -> (Option<f32>, Vec<EncSessi
         let d = nb.saturating_sub(*a.get(pid).unwrap_or(nb));
         if d > 0 {
             busy_ns += d;
-            users.push(EncSession { app: app_name(*pid, sys), ..Default::default() });
+            users.push(EncSession {
+                app: app_name(*pid, sys),
+                ..Default::default()
+            });
         }
     }
     users.dedup();
@@ -194,15 +247,27 @@ fn windows_encode_users(sys: &Option<sysinfo::System>) -> (Option<f32>, Vec<EncS
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    let Ok(o) = cmd.output() else { return (None, Vec::new()) };
+    let Ok(o) = cmd.output() else {
+        return (None, Vec::new());
+    };
     let text = String::from_utf8_lossy(&o.stdout);
     let mut users = Vec::new();
     let mut busy = 0.0f32;
     for l in text.lines() {
-        let Some((inst, val)) = l.split_once('=') else { continue };
+        let Some((inst, val)) = l.split_once('=') else {
+            continue;
+        };
         busy = busy.max(val.trim().parse().unwrap_or(0.0));
-        if let Some(pid) = inst.split('_').skip_while(|p| *p != "pid").nth(1).and_then(|p| p.parse::<u32>().ok()) {
-            let s = EncSession { app: app_name(pid, sys), ..Default::default() };
+        if let Some(pid) = inst
+            .split('_')
+            .skip_while(|p| *p != "pid")
+            .nth(1)
+            .and_then(|p| p.parse::<u32>().ok())
+        {
+            let s = EncSession {
+                app: app_name(pid, sys),
+                ..Default::default()
+            };
             if !users.contains(&s) {
                 users.push(s);
             }
@@ -225,11 +290,17 @@ pub fn snapshot(hw: &HardwareInfo) -> Vec<EncoderInfo> {
     #[cfg(windows)]
     let mut win_done = false;
     for g in &hw.gpus {
-        let Some(kind) = kind_for(g.vendor) else { continue };
+        let Some(kind) = kind_for(g.vendor) else {
+            continue;
+        };
         let mut e = EncoderInfo {
             gpu: g.name.clone(),
             kind: kind.into(),
-            chips: if g.vendor == Vendor::Nvidia { crate::hardware::nvenc_chips(&g.name) } else { Some(1) },
+            chips: if g.vendor == Vendor::Nvidia {
+                crate::hardware::nvenc_chips(&g.name)
+            } else {
+                Some(1)
+            },
             codecs: codecs_for(g.vendor, &g.name),
             ..Default::default()
         };
@@ -244,14 +315,24 @@ pub fn snapshot(hw: &HardwareInfo) -> Vec<EncoderInfo> {
                                 nvml_wrapper::enum_wrappers::device::EncoderType::H264 => "H.264",
                                 nvml_wrapper::enum_wrappers::device::EncoderType::HEVC => "HEVC",
                             };
-                            e.sessions.push(EncSession { app: app_name(s.pid, &sys), codec: codec.into(), res: format!("{}×{}", s.hres, s.vres), fps: (s.average_fps > 0).then_some(s.average_fps) });
+                            e.sessions.push(EncSession {
+                                app: app_name(s.pid, &sys),
+                                codec: codec.into(),
+                                res: format!("{}×{}", s.hres, s.vres),
+                                fps: (s.average_fps > 0).then_some(s.average_fps),
+                            });
                         }
                     }
                     // NVML can't describe some sessions (AV1): count them instead.
                     Err(_) => {
                         if let Ok(st) = d.encoder_stats() {
                             for _ in 0..st.session_count {
-                                e.sessions.push(EncSession { app: "A program".into(), codec: "AV1 or other".into(), fps: (st.average_fps > 0).then_some(st.average_fps), ..Default::default() });
+                                e.sessions.push(EncSession {
+                                    app: "A program".into(),
+                                    codec: "AV1 or other".into(),
+                                    fps: (st.average_fps > 0).then_some(st.average_fps),
+                                    ..Default::default()
+                                });
                             }
                         }
                     }
@@ -287,13 +368,37 @@ mod tests {
 
     #[test]
     fn codecs_by_generation() {
-        assert_eq!(codecs_for(Vendor::Nvidia, "NVIDIA GeForce RTX 5090"), vec!["H.264", "HEVC", "AV1"]);
-        assert_eq!(codecs_for(Vendor::Nvidia, "NVIDIA GeForce RTX 3080"), vec!["H.264", "HEVC"]);
-        assert_eq!(codecs_for(Vendor::Amd, "AMD Radeon RX 7900 XTX"), vec!["H.264", "HEVC", "AV1"]);
-        assert_eq!(codecs_for(Vendor::Amd, "AMD Granite Ridge [Radeon 610M]"), vec!["H.264", "HEVC"]);
+        assert_eq!(
+            codecs_for(Vendor::Nvidia, "NVIDIA GeForce RTX 5090"),
+            vec!["H.264", "HEVC", "AV1"]
+        );
+        assert_eq!(
+            codecs_for(Vendor::Nvidia, "NVIDIA GeForce RTX 3080"),
+            vec!["H.264", "HEVC"]
+        );
+        assert_eq!(
+            codecs_for(Vendor::Amd, "AMD Radeon RX 7900 XTX"),
+            vec!["H.264", "HEVC", "AV1"]
+        );
+        assert_eq!(
+            codecs_for(Vendor::Amd, "AMD Granite Ridge [Radeon 610M]"),
+            vec!["H.264", "HEVC"]
+        );
         assert_eq!(friendly("obs"), "OBS");
         assert_eq!(friendly("Discord.exe"), "Discord");
-        let e = EncoderInfo { can_tell: true, sessions: vec![EncSession { app: "OBS".into(), codec: "H.264".into(), res: "1920×1080".into(), fps: Some(60) }], ..Default::default() };
-        assert_eq!(e.use_text(), "In use: 1 encode: OBS (H.264 1920×1080 60 fps)");
+        let e = EncoderInfo {
+            can_tell: true,
+            sessions: vec![EncSession {
+                app: "OBS".into(),
+                codec: "H.264".into(),
+                res: "1920×1080".into(),
+                fps: Some(60),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            e.use_text(),
+            "In use: 1 encode: OBS (H.264 1920×1080 60 fps)"
+        );
     }
 }

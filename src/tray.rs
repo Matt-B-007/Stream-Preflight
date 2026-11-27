@@ -92,7 +92,12 @@ pub fn icon_rgba(view: &TrayView, size: u32) -> Vec<u8> {
             let tot = (SS * SS) as f32;
             let i = (py * n + px) * 4;
             // Layer: background, then the logo, then the attention dot with a dark ring.
-            let mut c = [0x1C as f32, 0x22 as f32, 0x2B as f32, bg as f32 / tot * 255.0];
+            let mut c = [
+                0x1C as f32,
+                0x22 as f32,
+                0x2B as f32,
+                bg as f32 / tot * 255.0,
+            ];
             let blend = |c: &mut [f32; 4], col: (f32, f32, f32), a: f32| {
                 if a <= 0.0 {
                     return;
@@ -103,8 +108,16 @@ pub fn icon_rgba(view: &TrayView, size: u32) -> Vec<u8> {
                 c[3] = c[3].max(a * 255.0);
             };
             blend(&mut c, (r as f32, g as f32, b as f32), fg as f32 / tot);
-            blend(&mut c, (0x0F as f32, 0x12 as f32, 0x17 as f32), ring as f32 / tot);
-            blend(&mut c, (0xFF as f32, 0xFF as f32, 0xFF as f32), dot as f32 / tot);
+            blend(
+                &mut c,
+                (0x0F as f32, 0x12 as f32, 0x17 as f32),
+                ring as f32 / tot,
+            );
+            blend(
+                &mut c,
+                (0xFF as f32, 0xFF as f32, 0xFF as f32),
+                dot as f32 / tot,
+            );
             out[i] = c[0] as u8;
             out[i + 1] = c[1] as u8;
             out[i + 2] = c[2] as u8;
@@ -159,11 +172,18 @@ impl Tray {
     /// Starts the tray icon. `None` when the desktop has no tray.
     pub fn start(ctx: eframe::egui::Context) -> Option<Tray> {
         let (tx, rx) = mpsc::channel();
-        let view = TrayView { status: "Idle".into(), ..Default::default() };
+        let view = TrayView {
+            status: "Idle".into(),
+            ..Default::default()
+        };
         match imp::Imp::start(tx, ctx, view.clone()) {
             Ok(imp) => {
                 log::info!("Tray icon started");
-                Some(Tray { rx, last: view, imp })
+                Some(Tray {
+                    rx,
+                    last: view,
+                    imp,
+                })
             }
             Err(e) => {
                 log::info!("No system tray: {e}");
@@ -176,7 +196,11 @@ impl Tray {
     pub fn set(&mut self, view: TrayView) {
         if view != self.last {
             if view.state != self.last.state || view.attention != self.last.attention {
-                log::info!("Tray: {}{}", view.state.word(), if view.attention { " · needs you" } else { "" });
+                log::info!(
+                    "Tray: {}{}",
+                    view.state.word(),
+                    if view.attention { " · needs you" } else { "" }
+                );
             }
             self.imp.set(&view);
             self.last = view;
@@ -238,7 +262,9 @@ mod imp {
     }
 
     fn to_argb(rgba: &[u8]) -> Vec<u8> {
-        rgba.chunks(4).flat_map(|p| [p[3], p[0], p[1], p[2]]).collect()
+        rgba.chunks(4)
+            .flat_map(|p| [p[3], p[0], p[1], p[2]])
+            .collect()
     }
 
     impl ksni::Tray for Sni {
@@ -252,16 +278,31 @@ mod imp {
             ksni::Category::ApplicationStatus
         }
         fn status(&self) -> ksni::Status {
-            if self.view.attention { ksni::Status::NeedsAttention } else { ksni::Status::Active }
+            if self.view.attention {
+                ksni::Status::NeedsAttention
+            } else {
+                ksni::Status::Active
+            }
         }
         fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-            [22u32, 32, 64].iter().map(|&s| ksni::Icon { width: s as i32, height: s as i32, data: to_argb(&icon_rgba(&self.view, s)) }).collect()
+            [22u32, 32, 64]
+                .iter()
+                .map(|&s| ksni::Icon {
+                    width: s as i32,
+                    height: s as i32,
+                    data: to_argb(&icon_rgba(&self.view, s)),
+                })
+                .collect()
         }
         fn attention_icon_pixmap(&self) -> Vec<ksni::Icon> {
             self.icon_pixmap()
         }
         fn tool_tip(&self) -> ksni::ToolTip {
-            ksni::ToolTip { title: "Stream Preflight".into(), description: self.view.status.clone(), ..Default::default() }
+            ksni::ToolTip {
+                title: "Stream Preflight".into(),
+                description: self.view.status.clone(),
+                ..Default::default()
+            }
         }
         fn activate(&mut self, _x: i32, _y: i32) {
             self.send(TrayCmd::Open);
@@ -269,10 +310,25 @@ mod imp {
         fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
             use ksni::menu::StandardItem;
             vec![
-                StandardItem { label: self.view.status.clone(), enabled: false, ..Default::default() }.into(),
+                StandardItem {
+                    label: self.view.status.clone(),
+                    enabled: false,
+                    ..Default::default()
+                }
+                .into(),
                 ksni::MenuItem::Separator,
-                StandardItem { label: "Open Preflight".into(), activate: Box::new(|t: &mut Self| t.send(TrayCmd::Open)), ..Default::default() }.into(),
-                StandardItem { label: "Quit".into(), activate: Box::new(|t: &mut Self| t.send(TrayCmd::Quit)), ..Default::default() }.into(),
+                StandardItem {
+                    label: "Open Preflight".into(),
+                    activate: Box::new(|t: &mut Self| t.send(TrayCmd::Open)),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
+                    label: "Quit".into(),
+                    activate: Box::new(|t: &mut Self| t.send(TrayCmd::Quit)),
+                    ..Default::default()
+                }
+                .into(),
             ]
         }
         fn watcher_offline(&self, reason: ksni::OfflineReason) -> bool {
@@ -286,7 +342,11 @@ mod imp {
     }
 
     impl Imp {
-        pub fn start(tx: Sender<TrayCmd>, ctx: eframe::egui::Context, view: TrayView) -> Result<Imp, String> {
+        pub fn start(
+            tx: Sender<TrayCmd>,
+            ctx: eframe::egui::Context,
+            view: TrayView,
+        ) -> Result<Imp, String> {
             let handle = Sni { view, tx, ctx }.spawn().map_err(|e| e.to_string())?;
             Ok(Imp { handle })
         }
@@ -299,13 +359,23 @@ mod imp {
             std::thread::spawn(move || {
                 let r = (|| -> zbus::Result<()> {
                     let conn = zbus::blocking::Connection::session()?;
-                    let hints: std::collections::HashMap<&str, zbus::zvariant::Value> = std::collections::HashMap::new();
+                    let hints: std::collections::HashMap<&str, zbus::zvariant::Value> =
+                        std::collections::HashMap::new();
                     conn.call_method(
                         Some("org.freedesktop.Notifications"),
                         "/org/freedesktop/Notifications",
                         Some("org.freedesktop.Notifications"),
                         "Notify",
-                        &("Stream Preflight", 0u32, "", title.as_str(), body.as_str(), Vec::<&str>::new(), hints, 8000i32),
+                        &(
+                            "Stream Preflight",
+                            0u32,
+                            "",
+                            title.as_str(),
+                            body.as_str(),
+                            Vec::<&str>::new(),
+                            hints,
+                            8000i32,
+                        ),
                     )?;
                     Ok(())
                 })();
@@ -334,7 +404,10 @@ mod imp {
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
     use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows::Win32::UI::Shell::{NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW};
+    use windows::Win32::UI::Shell::{
+        NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+        NOTIFYICONDATAW, Shell_NotifyIconW,
+    };
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::core::{PCWSTR, w};
 
@@ -356,7 +429,11 @@ mod imp {
     static SHARED: OnceLock<Mutex<Shared>> = OnceLock::new();
 
     fn shared() -> std::sync::MutexGuard<'static, Shared> {
-        SHARED.get().expect("tray").lock().unwrap_or_else(|e| e.into_inner())
+        SHARED
+            .get()
+            .expect("tray")
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     fn wide(s: &str, out: &mut [u16]) {
@@ -368,12 +445,33 @@ mod imp {
     unsafe fn make_icon(view: &TrayView) -> HICON {
         let size = 32;
         let rgba = icon_rgba(view, size);
-        let bgra: Vec<u8> = rgba.chunks(4).flat_map(|p| [p[2], p[1], p[0], p[3]]).collect();
+        let bgra: Vec<u8> = rgba
+            .chunks(4)
+            .flat_map(|p| [p[2], p[1], p[0], p[3]])
+            .collect();
         unsafe {
-            let color = CreateBitmap(size as i32, size as i32, 1, 32, Some(bgra.as_ptr() as *const _));
+            let color = CreateBitmap(
+                size as i32,
+                size as i32,
+                1,
+                32,
+                Some(bgra.as_ptr() as *const _),
+            );
             let mask_bits = vec![0u8; (size * size / 8) as usize];
-            let mask = CreateBitmap(size as i32, size as i32, 1, 1, Some(mask_bits.as_ptr() as *const _));
-            let info = ICONINFO { fIcon: true.into(), xHotspot: 0, yHotspot: 0, hbmMask: mask, hbmColor: color };
+            let mask = CreateBitmap(
+                size as i32,
+                size as i32,
+                1,
+                1,
+                Some(mask_bits.as_ptr() as *const _),
+            );
+            let info = ICONINFO {
+                fIcon: true.into(),
+                xHotspot: 0,
+                yHotspot: 0,
+                hbmMask: mask,
+                hbmColor: color,
+            };
             let icon = CreateIconIndirect(&info).unwrap_or_default();
             let _ = DeleteObject(color.into());
             let _ = DeleteObject(mask.into());
@@ -382,7 +480,12 @@ mod imp {
     }
 
     unsafe fn data(hwnd: HWND, view: &TrayView) -> NOTIFYICONDATAW {
-        let mut d = NOTIFYICONDATAW { cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: 1, ..Default::default() };
+        let mut d = NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: hwnd,
+            uID: 1,
+            ..Default::default()
+        };
         d.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
         d.uCallbackMessage = WM_TRAY;
         d.hIcon = unsafe { make_icon(view) };
@@ -401,14 +504,27 @@ mod imp {
                         let status = shared().view.status.clone();
                         if let Ok(menu) = CreatePopupMenu() {
                             let mut st: Vec<u16> = status.encode_utf16().chain([0]).collect();
-                            let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, PCWSTR(st.as_mut_ptr()));
+                            let _ = AppendMenuW(
+                                menu,
+                                MF_STRING | MF_GRAYED,
+                                0,
+                                PCWSTR(st.as_mut_ptr()),
+                            );
                             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                             let _ = AppendMenuW(menu, MF_STRING, ID_OPEN, w!("Open Preflight"));
                             let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, w!("Quit"));
                             let mut pt = POINT::default();
                             let _ = GetCursorPos(&mut pt);
                             let _ = SetForegroundWindow(hwnd);
-                            let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, Some(0), hwnd, None);
+                            let cmd = TrackPopupMenu(
+                                menu,
+                                TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                pt.x,
+                                pt.y,
+                                Some(0),
+                                hwnd,
+                                None,
+                            );
                             let _ = DestroyMenu(menu);
                             match cmd.0 as usize {
                                 ID_OPEN => send(TrayCmd::Open),
@@ -443,7 +559,12 @@ mod imp {
                     LRESULT(0)
                 }
                 WM_DESTROY => {
-                    let d = NOTIFYICONDATAW { cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: 1, ..Default::default() };
+                    let d = NOTIFYICONDATAW {
+                        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+                        hWnd: hwnd,
+                        uID: 1,
+                        ..Default::default()
+                    };
                     let _ = Shell_NotifyIconW(NIM_DELETE, &d);
                     PostQuitMessage(0);
                     LRESULT(0)
@@ -462,8 +583,22 @@ mod imp {
     pub struct Imp;
 
     impl Imp {
-        pub fn start(tx: Sender<TrayCmd>, ctx: eframe::egui::Context, view: TrayView) -> Result<Imp, String> {
-            if SHARED.set(Mutex::new(Shared { tx, ctx, view, note: None, hwnd: 0, main: 0 })).is_err() {
+        pub fn start(
+            tx: Sender<TrayCmd>,
+            ctx: eframe::egui::Context,
+            view: TrayView,
+        ) -> Result<Imp, String> {
+            if SHARED
+                .set(Mutex::new(Shared {
+                    tx,
+                    ctx,
+                    view,
+                    note: None,
+                    hwnd: 0,
+                    main: 0,
+                }))
+                .is_err()
+            {
                 return Err("tray already started".into());
             }
             let (ok_tx, ok_rx) = std::sync::mpsc::channel();
@@ -472,9 +607,27 @@ mod imp {
                 .spawn(move || unsafe {
                     let inst = GetModuleHandleW(None).unwrap_or_default();
                     let class = w!("PreFlightTray");
-                    let wc = WNDCLASSW { lpfnWndProc: Some(wndproc), hInstance: inst.into(), lpszClassName: class, ..Default::default() };
+                    let wc = WNDCLASSW {
+                        lpfnWndProc: Some(wndproc),
+                        hInstance: inst.into(),
+                        lpszClassName: class,
+                        ..Default::default()
+                    };
                     RegisterClassW(&wc);
-                    let hwnd = match CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("Preflight tray"), WS_OVERLAPPED, 0, 0, 0, 0, None, None, Some(inst.into()), None) {
+                    let hwnd = match CreateWindowExW(
+                        WINDOW_EX_STYLE(0),
+                        class,
+                        w!("Preflight tray"),
+                        WS_OVERLAPPED,
+                        0,
+                        0,
+                        0,
+                        0,
+                        None,
+                        None,
+                        Some(inst.into()),
+                        None,
+                    ) {
                         Ok(h) => h,
                         Err(e) => {
                             let _ = ok_tx.send(Err(e.to_string()));
@@ -486,7 +639,11 @@ mod imp {
                     let d = data(hwnd, &view);
                     let added = Shell_NotifyIconW(NIM_ADD, &d).as_bool();
                     let _ = DestroyIcon(d.hIcon);
-                    let _ = ok_tx.send(if added { Ok(()) } else { Err("Shell_NotifyIcon failed".into()) });
+                    let _ = ok_tx.send(if added {
+                        Ok(())
+                    } else {
+                        Err("Shell_NotifyIcon failed".into())
+                    });
                     let mut msg = MSG::default();
                     while GetMessageW(&mut msg, None, 0, 0).as_bool() {
                         let _ = TranslateMessage(&msg);
@@ -543,7 +700,11 @@ mod imp {
     use super::{TrayCmd, TrayView};
     pub struct Imp;
     impl Imp {
-        pub fn start(_: std::sync::mpsc::Sender<TrayCmd>, _: eframe::egui::Context, _: TrayView) -> Result<Imp, String> {
+        pub fn start(
+            _: std::sync::mpsc::Sender<TrayCmd>,
+            _: eframe::egui::Context,
+            _: TrayView,
+        ) -> Result<Imp, String> {
             Err("no tray on this system".into())
         }
         pub fn set(&self, _: &TrayView) {}
@@ -557,9 +718,28 @@ mod tests {
 
     #[test]
     fn icons_differ_by_state_and_attention() {
-        let a = icon_rgba(&TrayView { state: TrayState::Idle, ..Default::default() }, 32);
-        let b = icon_rgba(&TrayView { state: TrayState::Live, ..Default::default() }, 32);
-        let c = icon_rgba(&TrayView { state: TrayState::Live, attention: true, ..Default::default() }, 32);
+        let a = icon_rgba(
+            &TrayView {
+                state: TrayState::Idle,
+                ..Default::default()
+            },
+            32,
+        );
+        let b = icon_rgba(
+            &TrayView {
+                state: TrayState::Live,
+                ..Default::default()
+            },
+            32,
+        );
+        let c = icon_rgba(
+            &TrayView {
+                state: TrayState::Live,
+                attention: true,
+                ..Default::default()
+            },
+            32,
+        );
         assert_eq!(a.len(), 32 * 32 * 4);
         assert_ne!(a, b);
         assert_ne!(b, c);
@@ -578,9 +758,30 @@ mod preview_icons {
             return;
         }
         use super::*;
-        for (n, st, att) in [("idle", TrayState::Idle, false), ("watching", TrayState::Watching, false), ("testing", TrayState::Testing, false), ("live", TrayState::Live, false), ("live_att", TrayState::Live, true), ("watch_att", TrayState::Watching, true)] {
-            let px = icon_rgba(&TrayView { state: st, attention: att, status: String::new() }, 64);
-            image::save_buffer(format!("/tmp/tray_{n}.png"), &px, 64, 64, image::ExtendedColorType::Rgba8).unwrap();
+        for (n, st, att) in [
+            ("idle", TrayState::Idle, false),
+            ("watching", TrayState::Watching, false),
+            ("testing", TrayState::Testing, false),
+            ("live", TrayState::Live, false),
+            ("live_att", TrayState::Live, true),
+            ("watch_att", TrayState::Watching, true),
+        ] {
+            let px = icon_rgba(
+                &TrayView {
+                    state: st,
+                    attention: att,
+                    status: String::new(),
+                },
+                64,
+            );
+            image::save_buffer(
+                format!("/tmp/tray_{n}.png"),
+                &px,
+                64,
+                64,
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
         }
     }
 }

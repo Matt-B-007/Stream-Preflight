@@ -46,10 +46,16 @@ pub fn start() -> Job {
         if child.is_some() {
             log::info!("Game FPS: PresentMon started");
         }
-        Job { started: std::time::SystemTime::now(), child, acc }
+        Job {
+            started: std::time::SystemTime::now(),
+            child,
+            acc,
+        }
     }
     #[cfg(not(windows))]
-    Job { started: std::time::SystemTime::now() }
+    Job {
+        started: std::time::SystemTime::now(),
+    }
 }
 
 /// Stops measuring and returns the game's average FPS, if any source had it.
@@ -71,7 +77,10 @@ pub fn finish(job: Job, exes: &[String]) -> Option<Measured> {
             .fold((0.0, 0u64), |(a, b), (s, c)| (a + s, b + c));
         let _ = job.started;
         if n > 60 && sum > 0.0 {
-            return Some(Measured { fps: (1000.0 * n as f64 / sum) as f32, source: "PresentMon".into() });
+            return Some(Measured {
+                fps: (1000.0 * n as f64 / sum) as f32,
+                source: "PresentMon".into(),
+            });
         }
         None
     }
@@ -92,14 +101,18 @@ fn presentmon_path() -> Option<PathBuf> {
             if let Ok(rd) = std::fs::read_dir(&d) {
                 for e in rd.flatten() {
                     let n = e.file_name().to_string_lossy().to_lowercase();
-                    if n.starts_with("presentmon") && n.ends_with(".exe") && !n.contains("service") {
+                    if n.starts_with("presentmon") && n.ends_with(".exe") && !n.contains("service")
+                    {
                         return Some(e.path());
                     }
                 }
             }
         }
     }
-    for base in [r"C:\Program Files\Intel\PresentMon", r"C:\Program Files (x86)\Intel\PresentMon"] {
+    for base in [
+        r"C:\Program Files\Intel\PresentMon",
+        r"C:\Program Files (x86)\Intel\PresentMon",
+    ] {
         if let Some(p) = find_exe(std::path::Path::new(base), 3) {
             return Some(p);
         }
@@ -115,7 +128,12 @@ fn find_exe(dir: &std::path::Path, depth: u32) -> Option<PathBuf> {
     for e in std::fs::read_dir(dir).ok()?.flatten() {
         let p = e.path();
         let n = e.file_name().to_string_lossy().to_lowercase();
-        if p.is_file() && n.starts_with("presentmon") && n.ends_with(".exe") && !n.contains("service") && !n.contains("capture") {
+        if p.is_file()
+            && n.starts_with("presentmon")
+            && n.ends_with(".exe")
+            && !n.contains("service")
+            && !n.contains("capture")
+        {
             return Some(p);
         }
         if p.is_dir() {
@@ -128,11 +146,20 @@ fn find_exe(dir: &std::path::Path, depth: u32) -> Option<PathBuf> {
 }
 
 #[cfg(windows)]
-fn spawn_presentmon(exe: &std::path::Path, acc: Arc<Mutex<std::collections::HashMap<String, (f64, u64)>>>) -> Option<std::process::Child> {
+fn spawn_presentmon(
+    exe: &std::path::Path,
+    acc: Arc<Mutex<std::collections::HashMap<String, (f64, u64)>>>,
+) -> Option<std::process::Child> {
     use std::io::BufRead;
     use std::os::windows::process::CommandExt;
     let mut child = std::process::Command::new(exe)
-        .args(["--output_stdout", "--stop_existing_session", "--session_name", "PreFlightFps", "--no_console_stats"])
+        .args([
+            "--output_stdout",
+            "--stop_existing_session",
+            "--session_name",
+            "PreFlightFps",
+            "--no_console_stats",
+        ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .creation_flags(0x0800_0000) // no console window
@@ -146,16 +173,30 @@ fn spawn_presentmon(exe: &std::path::Path, acc: Arc<Mutex<std::collections::Hash
         for line in std::io::BufReader::new(out).lines().map_while(Result::ok) {
             let cols: Vec<&str> = line.split(',').collect();
             if app_col.is_none() {
-                app_col = cols.iter().position(|c| c.eq_ignore_ascii_case("Application"));
+                app_col = cols
+                    .iter()
+                    .position(|c| c.eq_ignore_ascii_case("Application"));
                 ms_col = cols
                     .iter()
                     .position(|c| c.eq_ignore_ascii_case("MsBetweenPresents"))
-                    .or_else(|| cols.iter().position(|c| c.eq_ignore_ascii_case("FrameTime")))
-                    .or_else(|| cols.iter().position(|c| c.eq_ignore_ascii_case("msBetweenPresents")));
+                    .or_else(|| {
+                        cols.iter()
+                            .position(|c| c.eq_ignore_ascii_case("FrameTime"))
+                    })
+                    .or_else(|| {
+                        cols.iter()
+                            .position(|c| c.eq_ignore_ascii_case("msBetweenPresents"))
+                    });
                 continue;
             }
-            let (Some(a), Some(m)) = (app_col, ms_col) else { continue };
-            let (Some(app), Some(ms)) = (cols.get(a), cols.get(m).and_then(|v| v.parse::<f64>().ok())) else { continue };
+            let (Some(a), Some(m)) = (app_col, ms_col) else {
+                continue;
+            };
+            let (Some(app), Some(ms)) =
+                (cols.get(a), cols.get(m).and_then(|v| v.parse::<f64>().ok()))
+            else {
+                continue;
+            };
             if ms <= 0.0 || ms > 1000.0 {
                 continue;
             }
@@ -174,11 +215,18 @@ fn spawn_presentmon(exe: &std::path::Path, acc: Arc<Mutex<std::collections::Hash
 
 #[cfg(not(windows))]
 fn mangohud_fps(started: std::time::SystemTime) -> Option<Measured> {
-    let file = mangohud_logs().into_iter().filter(|(_, m)| *m >= started).max_by_key(|(_, m)| *m).map(|(p, _)| p)?;
+    let file = mangohud_logs()
+        .into_iter()
+        .filter(|(_, m)| *m >= started)
+        .max_by_key(|(_, m)| *m)
+        .map(|(p, _)| p)?;
     let text = std::fs::read_to_string(&file).ok()?;
     let fps = mangohud_avg(&text)?;
     log::info!("Game FPS from MangoHud log: {fps:.0}");
-    Some(Measured { fps, source: "MangoHud log".into() })
+    Some(Measured {
+        fps,
+        source: "MangoHud log".into(),
+    })
 }
 
 /// Average of the fps column of a MangoHud CSV log.
@@ -193,11 +241,14 @@ pub fn mangohud_avg(text: &str) -> Option<f32> {
             col = cols.iter().position(|c| c.eq_ignore_ascii_case("fps"));
             continue;
         }
-        if let Some(v) = col.and_then(|c| cols.get(c)).and_then(|v| v.parse::<f64>().ok()) {
-            if v > 0.0 && v < 2000.0 {
-                sum += v;
-                n += 1;
-            }
+        if let Some(v) = col
+            .and_then(|c| cols.get(c))
+            .and_then(|v| v.parse::<f64>().ok())
+            && v > 0.0
+            && v < 2000.0
+        {
+            sum += v;
+            n += 1;
         }
     }
     (n >= 5).then(|| (sum / n as f64) as f32)
@@ -210,14 +261,18 @@ fn mangohud_logs() -> Vec<(PathBuf, std::time::SystemTime)> {
         let cfg = h.join(".config/MangoHud");
         if let Ok(rd) = std::fs::read_dir(&cfg) {
             for e in rd.flatten() {
-                if e.path().extension().map(|x| x == "conf").unwrap_or(false) {
-                    if let Ok(t) = std::fs::read_to_string(e.path()) {
-                        for l in t.lines() {
-                            if let Some(v) = l.trim().strip_prefix("output_folder") {
-                                let v = v.trim_start_matches([' ', '=']).trim();
-                                let p = if let Some(r) = v.strip_prefix("~/") { h.join(r) } else { PathBuf::from(v) };
-                                dirs.push(p);
-                            }
+                if e.path().extension().map(|x| x == "conf").unwrap_or(false)
+                    && let Ok(t) = std::fs::read_to_string(e.path())
+                {
+                    for l in t.lines() {
+                        if let Some(v) = l.trim().strip_prefix("output_folder") {
+                            let v = v.trim_start_matches([' ', '=']).trim();
+                            let p = if let Some(r) = v.strip_prefix("~/") {
+                                h.join(r)
+                            } else {
+                                PathBuf::from(v)
+                            };
+                            dirs.push(p);
                         }
                     }
                 }
@@ -239,10 +294,11 @@ fn mangohud_logs() -> Vec<(PathBuf, std::time::SystemTime)> {
             for e in rd.flatten() {
                 let p = e.path();
                 let name = e.file_name().to_string_lossy().to_lowercase();
-                if name.ends_with(".csv") && !name.ends_with("_summary.csv") {
-                    if let Ok(m) = e.metadata().and_then(|m| m.modified()) {
-                        out.push((p, m));
-                    }
+                if name.ends_with(".csv")
+                    && !name.ends_with("_summary.csv")
+                    && let Ok(m) = e.metadata().and_then(|m| m.modified())
+                {
+                    out.push((p, m));
                 }
             }
         }

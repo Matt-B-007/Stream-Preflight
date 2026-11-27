@@ -70,10 +70,21 @@ fn store_path() -> std::path::PathBuf {
 impl History {
     pub fn load() -> Self {
         let entries = std::fs::read_to_string(entries_path())
-            .map(|s| s.lines().filter_map(|l| serde_json::from_str::<Entry>(l).ok()).collect::<Vec<_>>())
+            .map(|s| {
+                s.lines()
+                    .filter_map(|l| serde_json::from_str::<Entry>(l).ok())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
-        let store: Store = std::fs::read_to_string(store_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let mut h = Self { entries, originals: store.originals, setups: store.setups };
+        let store: Store = std::fs::read_to_string(store_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let mut h = Self {
+            entries,
+            originals: store.originals,
+            setups: store.setups,
+        };
         if h.entries.len() > 500 {
             h.entries.drain(..h.entries.len() - 500);
         }
@@ -81,10 +92,13 @@ impl History {
     }
 
     pub fn add(&mut self, e: Entry) {
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(entries_path()) {
-            if let Ok(s) = serde_json::to_string(&e) {
-                let _ = writeln!(f, "{s}");
-            }
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(entries_path())
+            && let Ok(s) = serde_json::to_string(&e)
+        {
+            let _ = writeln!(f, "{s}");
         }
         self.entries.push(e);
     }
@@ -99,7 +113,12 @@ impl History {
                         o.last_value = f.value.clone();
                         o.last_seen = now;
                     })
-                    .or_insert(Original { first_value: f.value.clone(), first_seen: now, last_value: f.value.clone(), last_seen: now });
+                    .or_insert(Original {
+                        first_value: f.value.clone(),
+                        first_seen: now,
+                        last_value: f.value.clone(),
+                        last_seen: now,
+                    });
             }
         }
         self.save_store();
@@ -111,7 +130,11 @@ impl History {
     }
 
     fn save_store(&self) {
-        let store = Store { format_version: 1, originals: self.originals.clone(), setups: self.setups.clone() };
+        let store = Store {
+            format_version: 1,
+            originals: self.originals.clone(),
+            setups: self.setups.clone(),
+        };
         if let Ok(s) = serde_json::to_string_pretty(&store) {
             let _ = std::fs::write(store_path(), s);
         }
@@ -132,19 +155,31 @@ impl History {
         for e in &self.entries {
             if let Some(u) = e.upload_low {
                 let h = chrono::DateTime::from_timestamp(e.time, 0)
-                    .map(|d| d.with_timezone(&chrono::Local).format("%H").to_string().parse::<u32>().unwrap_or(0))
+                    .map(|d| {
+                        d.with_timezone(&chrono::Local)
+                            .format("%H")
+                            .to_string()
+                            .parse::<u32>()
+                            .unwrap_or(0)
+                    })
                     .unwrap_or(0);
                 let v = acc.entry(h).or_insert((0.0, 0));
                 v.0 += u;
                 v.1 += 1;
             }
         }
-        acc.into_iter().map(|(h, (s, n))| (h, s / n as f32, n)).collect()
+        acc.into_iter()
+            .map(|(h, (s, n))| (h, s / n as f32, n))
+            .collect()
     }
 }
 
 pub fn fmt_time(t: i64) -> String {
     chrono::DateTime::from_timestamp(t, 0)
-        .map(|d| d.with_timezone(&chrono::Local).format("%b %d, %H:%M").to_string())
+        .map(|d| {
+            d.with_timezone(&chrono::Local)
+                .format("%b %d, %H:%M")
+                .to_string()
+        })
         .unwrap_or_default()
 }

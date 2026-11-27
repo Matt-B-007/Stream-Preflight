@@ -78,7 +78,7 @@ In OBS: **Tools › WebSocket Server Settings › Enable WebSocket server**. Cop
 
 ## Building from source
 
-Needs Rust 1.85 or newer.
+Uses the Rust version pinned in `rust-toolchain.toml` (rustup installs it). Before uploading, run `sh scripts/check.sh`: it runs exactly what CI runs (formatting, clippy, build, tests, shell scripts and workflow files). It needs rustup, shellcheck and PyYAML, and lists anything missing with the install command; on Arch or CachyOS: `sudo pacman -S --needed rustup shellcheck python-yaml`, then `rustup toolchain install` in the project folder. Exit code 0 = passed, 1 = a check failed, 3 = only tools missing. The window code lives in `src/app/`, one file per screen (`home.rs`, `test.rs`, `fixes.rs`, `results.rs`, `live.rs`, `history_page.rs`, `settings.rs`, `help.rs`, `setup.rs`) plus `state.rs` (data and background work), `shell.rs` (sidebar, top bar, Next bar, banners), `tray.rs`, `pcs.rs` and `widgets.rs`.
 
 ```sh
 cargo build --release

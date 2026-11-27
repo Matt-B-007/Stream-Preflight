@@ -22,8 +22,17 @@ pub struct Instance {
 /// details (`--gameDir <folder>`, or its working folder).
 pub fn running(sys: &mut Option<sysinfo::System>) -> Vec<PathBuf> {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
-    let Some(sys) = sys.as_mut() else { return Vec::new() };
-    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_cmd(UpdateKind::OnlyIfNotSet).with_cwd(UpdateKind::OnlyIfNotSet).with_exe(UpdateKind::OnlyIfNotSet));
+    let Some(sys) = sys.as_mut() else {
+        return Vec::new();
+    };
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_cmd(UpdateKind::OnlyIfNotSet)
+            .with_cwd(UpdateKind::OnlyIfNotSet)
+            .with_exe(UpdateKind::OnlyIfNotSet),
+    );
     let mut out = Vec::new();
     for p in sys.processes().values() {
         let name = p.name().to_string_lossy().to_lowercase();
@@ -34,18 +43,33 @@ pub fn running(sys: &mut Option<sysinfo::System>) -> Vec<PathBuf> {
         if !(name.starts_with("java") || name.starts_with("javaw")) {
             continue;
         }
-        let args: Vec<String> = p.cmd().iter().map(|a| a.to_string_lossy().to_string()).collect();
+        let args: Vec<String> = p
+            .cmd()
+            .iter()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
         let joined = args.join(" ").to_lowercase();
-        if !(joined.contains("net.minecraft") || joined.contains("minecraft") || joined.contains("cpw.mods") || joined.contains("fabric") || joined.contains("quilt")) {
+        if !(joined.contains("net.minecraft")
+            || joined.contains("minecraft")
+            || joined.contains("cpw.mods")
+            || joined.contains("fabric")
+            || joined.contains("quilt"))
+        {
             continue;
         }
-        let dir = args.iter().position(|a| a == "--gameDir").and_then(|i| args.get(i + 1)).map(PathBuf::from).or_else(|| p.cwd().map(|c| c.to_path_buf()));
-        if let Some(d) = dir {
-            if d.join("options.txt").is_file() || d.join("mods").is_dir() || d.join("saves").is_dir() {
-                if !out.contains(&d) {
-                    out.push(d);
-                }
-            }
+        let dir = args
+            .iter()
+            .position(|a| a == "--gameDir")
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from)
+            .or_else(|| p.cwd().map(|c| c.to_path_buf()));
+        if let Some(d) = dir
+            && (d.join("options.txt").is_file()
+                || d.join("mods").is_dir()
+                || d.join("saves").is_dir())
+            && !out.contains(&d)
+        {
+            out.push(d);
         }
     }
     out
@@ -54,51 +78,120 @@ pub fn running(sys: &mut Option<sysinfo::System>) -> Vec<PathBuf> {
 /// Every instance folder from the launchers Preflight knows.
 pub fn all_instances() -> Vec<Instance> {
     let mut out = Vec::new();
-    let Some(home) = crate::util::home_dir() else { return out };
+    let Some(home) = crate::util::home_dir() else {
+        return out;
+    };
     let mut add = |dir: PathBuf, pack: String, launcher: &str| {
         if dir.join("options.txt").is_file() && !out.iter().any(|i: &Instance| i.dir == dir) {
-            out.push(Instance { dir, pack, launcher: launcher.into(), bedrock: false });
+            out.push(Instance {
+                dir,
+                pack,
+                launcher: launcher.into(),
+                bedrock: false,
+            });
         }
     };
     // Official launcher.
     #[cfg(windows)]
     if let Ok(a) = std::env::var("APPDATA") {
-        add(PathBuf::from(a).join(".minecraft"), String::new(), "Minecraft Launcher");
+        add(
+            PathBuf::from(a).join(".minecraft"),
+            String::new(),
+            "Minecraft Launcher",
+        );
     }
     #[cfg(not(windows))]
     {
         add(home.join(".minecraft"), String::new(), "Minecraft Launcher");
-        add(home.join(".var/app/com.mojang.Minecraft/.minecraft"), String::new(), "Minecraft Launcher");
+        add(
+            home.join(".var/app/com.mojang.Minecraft/.minecraft"),
+            String::new(),
+            "Minecraft Launcher",
+        );
     }
     // Launchers that keep one folder per instance: (folder of instances, sub-folder, launcher).
     #[allow(unused_mut)]
     let mut roots: Vec<(PathBuf, &[&str], &str)> = vec![
-        (home.join("curseforge/minecraft/Instances"), &[""], "CurseForge"),
-        (home.join("Documents/curseforge/minecraft/Instances"), &[""], "CurseForge"),
-        (home.join(".local/share/PrismLauncher/instances"), &[".minecraft", "minecraft"], "Prism Launcher"),
-        (home.join(".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances"), &[".minecraft", "minecraft"], "Prism Launcher"),
-        (home.join(".local/share/multimc/instances"), &[".minecraft", "minecraft"], "MultiMC"),
-        (home.join(".local/share/ModrinthApp/profiles"), &[""], "Modrinth"),
-        (home.join(".local/share/com.modrinth.theseus/profiles"), &[""], "Modrinth"),
-        (home.join(".local/share/ATLauncher/instances"), &[""], "ATLauncher"),
+        (
+            home.join("curseforge/minecraft/Instances"),
+            &[""],
+            "CurseForge",
+        ),
+        (
+            home.join("Documents/curseforge/minecraft/Instances"),
+            &[""],
+            "CurseForge",
+        ),
+        (
+            home.join(".local/share/PrismLauncher/instances"),
+            &[".minecraft", "minecraft"],
+            "Prism Launcher",
+        ),
+        (
+            home.join(".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances"),
+            &[".minecraft", "minecraft"],
+            "Prism Launcher",
+        ),
+        (
+            home.join(".local/share/multimc/instances"),
+            &[".minecraft", "minecraft"],
+            "MultiMC",
+        ),
+        (
+            home.join(".local/share/ModrinthApp/profiles"),
+            &[""],
+            "Modrinth",
+        ),
+        (
+            home.join(".local/share/com.modrinth.theseus/profiles"),
+            &[""],
+            "Modrinth",
+        ),
+        (
+            home.join(".local/share/ATLauncher/instances"),
+            &[""],
+            "ATLauncher",
+        ),
         (home.join("ATLauncher/instances"), &[""], "ATLauncher"),
-        (home.join(".config/gdlauncher_carbon/data/instances"), &["instance"], "GDLauncher"),
+        (
+            home.join(".config/gdlauncher_carbon/data/instances"),
+            &["instance"],
+            "GDLauncher",
+        ),
     ];
     #[cfg(windows)]
     if let Ok(a) = std::env::var("APPDATA") {
         let a = PathBuf::from(a);
-        roots.push((a.join("PrismLauncher/instances"), &[".minecraft", "minecraft"], "Prism Launcher"));
+        roots.push((
+            a.join("PrismLauncher/instances"),
+            &[".minecraft", "minecraft"],
+            "Prism Launcher",
+        ));
         roots.push((a.join("ModrinthApp/profiles"), &[""], "Modrinth"));
         roots.push((a.join("com.modrinth.theseus/profiles"), &[""], "Modrinth"));
-        roots.push((a.join("gdlauncher_carbon/data/instances"), &["instance"], "GDLauncher"));
+        roots.push((
+            a.join("gdlauncher_carbon/data/instances"),
+            &["instance"],
+            "GDLauncher",
+        ));
     }
     for (root, subs, launcher) in roots {
-        let Ok(rd) = std::fs::read_dir(&root) else { continue };
+        let Ok(rd) = std::fs::read_dir(&root) else {
+            continue;
+        };
         for e in rd.flatten().take(200) {
             let name = e.file_name().to_string_lossy().to_string();
             for sub in subs.iter() {
-                let dir = if sub.is_empty() { e.path() } else { e.path().join(sub) };
-                add(dir, pack_name(&e.path()).unwrap_or_else(|| name.clone()), launcher);
+                let dir = if sub.is_empty() {
+                    e.path()
+                } else {
+                    e.path().join(sub)
+                };
+                add(
+                    dir,
+                    pack_name(&e.path()).unwrap_or_else(|| name.clone()),
+                    launcher,
+                );
             }
         }
     }
@@ -106,7 +199,12 @@ pub fn all_instances() -> Vec<Instance> {
     #[cfg(windows)]
     for d in bedrock_dirs() {
         if d.join("options.txt").is_file() {
-            out.push(Instance { dir: d, pack: String::new(), launcher: "Bedrock".into(), bedrock: true });
+            out.push(Instance {
+                dir: d,
+                pack: String::new(),
+                launcher: "Bedrock".into(),
+                bedrock: true,
+            });
         }
     }
     out
@@ -116,7 +214,9 @@ pub fn all_instances() -> Vec<Instance> {
 fn bedrock_dirs() -> Vec<PathBuf> {
     let mut v = Vec::new();
     if let Ok(l) = std::env::var("LOCALAPPDATA") {
-        v.push(PathBuf::from(l).join("Packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalState/games/com.mojang/minecraftpe"));
+        v.push(PathBuf::from(l).join(
+            "Packages/Microsoft.MinecraftUWP_8wekyb3d8bbwe/LocalState/games/com.mojang/minecraftpe",
+        ));
     }
     if let Ok(a) = std::env::var("APPDATA") {
         if let Ok(rd) = std::fs::read_dir(PathBuf::from(a).join("Minecraft Bedrock/Users")) {
@@ -131,44 +231,63 @@ fn bedrock_dirs() -> Vec<PathBuf> {
 /// A modpack's own name from its launcher's files.
 fn pack_name(instance: &Path) -> Option<String> {
     // CurseForge
-    if let Ok(t) = std::fs::read_to_string(instance.join("minecraftinstance.json")) {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) {
-            if let Some(n) = v["name"].as_str().filter(|s| !s.is_empty()) {
-                return Some(n.to_string());
-            }
-        }
+    if let Ok(t) = std::fs::read_to_string(instance.join("minecraftinstance.json"))
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(&t)
+        && let Some(n) = v["name"].as_str().filter(|s| !s.is_empty())
+    {
+        return Some(n.to_string());
     }
     // Prism / MultiMC
-    if let Ok(t) = std::fs::read_to_string(instance.join("instance.cfg")) {
-        if let Some(n) = t.lines().find_map(|l| l.strip_prefix("name=")).filter(|s| !s.is_empty()) {
-            return Some(n.trim().to_string());
-        }
+    if let Ok(t) = std::fs::read_to_string(instance.join("instance.cfg"))
+        && let Some(n) = t
+            .lines()
+            .find_map(|l| l.strip_prefix("name="))
+            .filter(|s| !s.is_empty())
+    {
+        return Some(n.trim().to_string());
     }
     // Modrinth (profile.json)
-    if let Ok(t) = std::fs::read_to_string(instance.join("profile.json")) {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) {
-            if let Some(n) = v["metadata"]["name"].as_str().or(v["name"].as_str()) {
-                return Some(n.to_string());
-            }
-        }
+    if let Ok(t) = std::fs::read_to_string(instance.join("profile.json"))
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(&t)
+        && let Some(n) = v["metadata"]["name"].as_str().or(v["name"].as_str())
+    {
+        return Some(n.to_string());
     }
     None
 }
 
 fn instance_for(dir: &Path, all: &[Instance]) -> Instance {
     if dir == Path::new("bedrock") {
-        return all.iter().find(|i| i.bedrock).cloned().unwrap_or(Instance { dir: dir.into(), pack: String::new(), launcher: "Bedrock".into(), bedrock: true });
+        return all.iter().find(|i| i.bedrock).cloned().unwrap_or(Instance {
+            dir: dir.into(),
+            pack: String::new(),
+            launcher: "Bedrock".into(),
+            bedrock: true,
+        });
     }
     if let Some(i) = all.iter().find(|i| i.dir == dir) {
         return i.clone();
     }
     // Not from a known launcher: name it from its folder.
-    let parent = if dir.file_name().map(|n| n.to_string_lossy().contains("minecraft")).unwrap_or(false) { dir.parent().unwrap_or(dir) } else { dir };
+    let parent = if dir
+        .file_name()
+        .map(|n| n.to_string_lossy().contains("minecraft"))
+        .unwrap_or(false)
+    {
+        dir.parent().unwrap_or(dir)
+    } else {
+        dir
+    };
     let pack = pack_name(parent).or_else(|| {
         let n = parent.file_name()?.to_string_lossy().to_string();
         (!n.starts_with('.')).then_some(n)
     });
-    Instance { dir: dir.into(), pack: pack.unwrap_or_default(), launcher: String::new(), bedrock: false }
+    Instance {
+        dir: dir.into(),
+        pack: pack.unwrap_or_default(),
+        launcher: String::new(),
+        bedrock: false,
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -183,7 +302,9 @@ pub struct Mods {
 /// Mods by file name only.
 pub fn mods_of(dir: &Path) -> Mods {
     let mut m = Mods::default();
-    let Ok(rd) = std::fs::read_dir(dir.join("mods")) else { return m };
+    let Ok(rd) = std::fs::read_dir(dir.join("mods")) else {
+        return m;
+    };
     for e in rd.flatten() {
         let n = e.file_name().to_string_lossy().to_lowercase();
         if !n.ends_with(".jar") {
@@ -193,7 +314,9 @@ pub fn mods_of(dir: &Path) -> Mods {
         m.sodium |= n.contains("sodium") || n.contains("embeddium") || n.contains("rubidium");
         m.iris |= n.contains("iris") || n.contains("oculus");
         m.optifine |= n.contains("optifine");
-        m.distant_horizons |= n.contains("distanthorizons") || n.contains("distant-horizons") || n.contains("distant_horizons");
+        m.distant_horizons |= n.contains("distanthorizons")
+            || n.contains("distant-horizons")
+            || n.contains("distant_horizons");
     }
     m
 }
@@ -220,7 +343,11 @@ fn file_res(p: &Path, format: &str, count: usize) -> FileResult {
         format: format.into(),
         read_ok: true,
         settings_count: count,
-        modified: std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64),
+        modified: std::fs::metadata(p)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64),
         real_path: Some(p.to_path_buf()),
         ..Default::default()
     }
@@ -248,9 +375,17 @@ pub fn read(inst: &Instance, running: bool) -> GameResult {
         installed: true,
         install_hint: inst.launcher.clone(),
         running,
-        processes: if inst.bedrock { vec!["minecraft.windows.exe".into()] } else { vec!["javaw.exe".into(), "java".into()] },
+        processes: if inst.bedrock {
+            vec!["minecraft.windows.exe".into()]
+        } else {
+            vec!["javaw.exe".into(), "java".into()]
+        },
         has_fps_limit: true,
-        api: Some(if inst.bedrock { "dx12".into() } else { "opengl".into() }),
+        api: Some(if inst.bedrock {
+            "dx12".into()
+        } else {
+            "opengl".into()
+        }),
         launcher: inst.launcher.clone(),
         motion: "medium".into(),
         auto: Some("Minecraft".into()),
@@ -264,10 +399,32 @@ pub fn read(inst: &Instance, running: bool) -> GameResult {
     g.files.push(file_res(&opts_path, "lines", o.len()));
     let mut all: BTreeMap<String, String> = o.clone();
     let mut used = 0usize;
-    let mut cur = |setting: &str, value: String, effect: &str, flagged: bool, change_to: Option<String>, menu: &str| {
-        g.current.push(CurrentSetting { rule_id: format!("mc_{}", crate::autoread::norm(setting)), setting: setting.into(), effect: effect.into(), menu: menu.into(), value, flagged, change_to, gain: None, cost: None });
+    let mut cur = |setting: &str,
+                   value: String,
+                   effect: &str,
+                   flagged: bool,
+                   change_to: Option<String>,
+                   menu: &str| {
+        g.current.push(CurrentSetting {
+            rule_id: format!("mc_{}", crate::autoread::norm(setting)),
+            setting: setting.into(),
+            effect: effect.into(),
+            menu: menu.into(),
+            value,
+            flagged,
+            change_to,
+            gain: None,
+            cost: None,
+        });
     };
-    let finding = |effect: &str, label: &str, key: &str, value: &str, to: Option<&str>, gain: Option<&str>, cost: Option<&str>, menu: &str| Finding {
+    let finding = |effect: &str,
+                   label: &str,
+                   key: &str,
+                   value: &str,
+                   to: Option<&str>,
+                   gain: Option<&str>,
+                   cost: Option<&str>,
+                   menu: &str| Finding {
         rule_id: format!("mc_{}", crate::autoread::norm(label)),
         effect: effect.into(),
         label: label.into(),
@@ -284,48 +441,134 @@ pub fn read(inst: &Instance, running: bool) -> GameResult {
         if let Some(f) = num(o.get("gfx_max_framerate")) {
             used += 1;
             if f <= 0.0 {
-                g.findings.push(finding("uncapped_fps", "Max framerate is unlimited", "gfx_max_framerate", "0", None, None, None, &video));
-                cur("FPS limit", "Off (unlimited)".into(), "uncapped_fps", true, None, &video);
+                g.findings.push(finding(
+                    "uncapped_fps",
+                    "Max framerate is unlimited",
+                    "gfx_max_framerate",
+                    "0",
+                    None,
+                    None,
+                    None,
+                    &video,
+                ));
+                cur(
+                    "FPS limit",
+                    "Off (unlimited)".into(),
+                    "uncapped_fps",
+                    true,
+                    None,
+                    &video,
+                );
             } else {
                 g.fps_cap = Some(f as u32);
-                cur("FPS limit", format!("{f:.0}"), "uncapped_fps", false, None, &video);
+                cur(
+                    "FPS limit",
+                    format!("{f:.0}"),
+                    "uncapped_fps",
+                    false,
+                    None,
+                    &video,
+                );
             }
         }
         if let Some(v) = num(o.get("gfx_viewdistance")) {
             used += 1;
             let chunks = (v / 16.0).round() as u32;
             let to = (chunks > 16).then(|| "16 chunks".to_string());
-            g.tunables.push(TunableState { id: "mc_render".into(), setting: "Render distance".into(), menu: video.clone(), now: format!("{chunks} chunks"), change_to: to, gain: "Large GPU and CPU saving".into(), cost: "You see less far".into() });
+            g.tunables.push(TunableState {
+                id: "mc_render".into(),
+                setting: "Render distance".into(),
+                menu: video.clone(),
+                now: format!("{chunks} chunks"),
+                change_to: to,
+                gain: "Large GPU and CPU saving".into(),
+                cost: "You see less far".into(),
+            });
         }
     } else {
         // Java: maxFps 260 = Unlimited.
         if let Some(f) = num(o.get("maxFps")) {
             used += 1;
             if f >= 260.0 {
-                g.findings.push(finding("uncapped_fps", "Max Framerate is Unlimited", "maxFps", "260", None, None, None, &video));
-                cur("FPS limit", "Off (unlimited)".into(), "uncapped_fps", true, None, &video);
+                g.findings.push(finding(
+                    "uncapped_fps",
+                    "Max Framerate is Unlimited",
+                    "maxFps",
+                    "260",
+                    None,
+                    None,
+                    None,
+                    &video,
+                ));
+                cur(
+                    "FPS limit",
+                    "Off (unlimited)".into(),
+                    "uncapped_fps",
+                    true,
+                    None,
+                    &video,
+                );
             } else {
                 g.fps_cap = Some(f as u32);
-                cur("FPS limit", format!("{f:.0}"), "uncapped_fps", false, None, &video);
+                cur(
+                    "FPS limit",
+                    format!("{f:.0}"),
+                    "uncapped_fps",
+                    false,
+                    None,
+                    &video,
+                );
             }
         }
         if let Some(v) = o.get("enableVsync") {
             used += 1;
             let on = v == "true";
             if on {
-                g.findings.push(finding("vsync_on", "VSync is on", "enableVsync", v, None, None, None, &video));
+                g.findings.push(finding(
+                    "vsync_on",
+                    "VSync is on",
+                    "enableVsync",
+                    v,
+                    None,
+                    None,
+                    None,
+                    &video,
+                ));
             }
-            cur("V-Sync", if on { "On".into() } else { "Off".into() }, "vsync_on", false, None, &video);
+            cur(
+                "V-Sync",
+                if on { "On".into() } else { "Off".into() },
+                "vsync_on",
+                false,
+                None,
+                &video,
+            );
         }
         if let Some(r) = num(o.get("renderDistance")) {
             used += 1;
             let to = (r > 16.0).then(|| "12 to 16 chunks".to_string());
-            g.tunables.push(TunableState { id: "mc_render".into(), setting: "Render distance".into(), menu: video.clone(), now: format!("{r:.0} chunks"), change_to: to, gain: "Large GPU and CPU saving".into(), cost: "You see less far".into() });
+            g.tunables.push(TunableState {
+                id: "mc_render".into(),
+                setting: "Render distance".into(),
+                menu: video.clone(),
+                now: format!("{r:.0} chunks"),
+                change_to: to,
+                gain: "Large GPU and CPU saving".into(),
+                cost: "You see less far".into(),
+            });
         }
         if let Some(sd) = num(o.get("simulationDistance")) {
             used += 1;
             let to = (sd > 12.0).then(|| "8 to 12 chunks".to_string());
-            g.tunables.push(TunableState { id: "mc_sim".into(), setting: "Simulation distance".into(), menu: video.clone(), now: format!("{sd:.0} chunks"), change_to: to, gain: "Big CPU saving (farms and mobs far away stop ticking)".into(), cost: "Far-away farms and mobs pause".into() });
+            g.tunables.push(TunableState {
+                id: "mc_sim".into(),
+                setting: "Simulation distance".into(),
+                menu: video.clone(),
+                now: format!("{sd:.0} chunks"),
+                change_to: to,
+                gain: "Big CPU saving (farms and mobs far away stop ticking)".into(),
+                cost: "Far-away farms and mobs pause".into(),
+            });
         }
         if let Some(gm) = o.get("graphicsMode") {
             used += 1;
@@ -336,12 +579,28 @@ pub fn read(inst: &Instance, running: bool) -> GameResult {
                 x => x,
             };
             let fab = label == "Fabulous!";
-            g.tunables.push(TunableState { id: "mc_graphics".into(), setting: "Graphics".into(), menu: video.clone(), now: label.into(), change_to: fab.then(|| "Fancy".into()), gain: "Good GPU saving".into(), cost: "Slightly simpler transparency".into() });
+            g.tunables.push(TunableState {
+                id: "mc_graphics".into(),
+                setting: "Graphics".into(),
+                menu: video.clone(),
+                now: label.into(),
+                change_to: fab.then(|| "Fancy".into()),
+                gain: "Good GPU saving".into(),
+                cost: "Slightly simpler transparency".into(),
+            });
         }
         if let Some(b) = num(o.get("biomeBlendRadius")) {
             used += 1;
             if b > 2.0 {
-                g.tunables.push(TunableState { id: "mc_blend".into(), setting: "Biome blend".into(), menu: video.clone(), now: format!("{b:.0}"), change_to: Some("2".into()), gain: "Faster chunk loading (CPU)".into(), cost: "Harder colour edges between biomes".into() });
+                g.tunables.push(TunableState {
+                    id: "mc_blend".into(),
+                    setting: "Biome blend".into(),
+                    menu: video.clone(),
+                    now: format!("{b:.0}"),
+                    change_to: Some("2".into()),
+                    gain: "Faster chunk loading (CPU)".into(),
+                    cost: "Harder colour edges between biomes".into(),
+                });
             }
         }
     }
@@ -355,38 +614,90 @@ pub fn read(inst: &Instance, running: bool) -> GameResult {
             g.files.push(file_res(&cfg.join(f), "ini", m.len()));
             used += 1;
             if m.get("enableShaders").map(|v| v == "true").unwrap_or(false) {
-                shader = Some(m.get("shaderPack").cloned().unwrap_or_else(|| "a shader pack".into()));
+                shader = Some(
+                    m.get("shaderPack")
+                        .cloned()
+                        .unwrap_or_else(|| "a shader pack".into()),
+                );
             }
             all.extend(m.into_iter().map(|(k, v)| (format!("{f}/{k}"), v)));
         }
     }
     if let Some(m) = read_kv_file(&inst.dir.join("optionsshaders.txt"), '=') {
-        g.files.push(file_res(&inst.dir.join("optionsshaders.txt"), "ini", m.len()));
+        g.files.push(file_res(
+            &inst.dir.join("optionsshaders.txt"),
+            "ini",
+            m.len(),
+        ));
         used += 1;
-        if let Some(p) = m.get("shaderPack").filter(|p| !p.is_empty() && p.as_str() != "OFF" && p.as_str() != "(internal)") {
+        if let Some(p) = m
+            .get("shaderPack")
+            .filter(|p| !p.is_empty() && p.as_str() != "OFF" && p.as_str() != "(internal)")
+        {
             shader = Some(p.clone());
         }
     }
     if let Some(sp) = &shader {
         let pack = sp.trim_end_matches(".zip").to_string();
-        let mut f = finding("heavy", &format!("Shaders are on ({pack})"), "enableShaders", "true", Some("Off, or a lighter shader pack or preset"), Some("Usually the biggest GPU saving in Minecraft"), Some("No shader lighting and shadows"), &format!("{name} › Options › Video Settings › Shader Packs"));
+        let mut f = finding(
+            "heavy",
+            &format!("Shaders are on ({pack})"),
+            "enableShaders",
+            "true",
+            Some("Off, or a lighter shader pack or preset"),
+            Some("Usually the biggest GPU saving in Minecraft"),
+            Some("No shader lighting and shadows"),
+            &format!("{name} › Options › Video Settings › Shader Packs"),
+        );
         f.rule_id = "mc_shaders".into();
         g.findings.push(f);
-        cur("Shaders", pack, "heavy", true, Some("Off, or a lighter pack".into()), &format!("{name} › Options › Video Settings › Shader Packs"));
+        cur(
+            "Shaders",
+            pack,
+            "heavy",
+            true,
+            Some("Off, or a lighter pack".into()),
+            &format!("{name} › Options › Video Settings › Shader Packs"),
+        );
     } else if mods.iris || mods.optifine {
-        cur("Shaders", "Off".into(), "heavy", false, None, &format!("{name} › Options › Video Settings › Shader Packs"));
+        cur(
+            "Shaders",
+            "Off".into(),
+            "heavy",
+            false,
+            None,
+            &format!("{name} › Options › Video Settings › Shader Packs"),
+        );
     }
     if mods.distant_horizons {
         let dh = cfg.join("DistantHorizons.toml");
         let radius = read_kv_file(&dh, '=').and_then(|m| {
-            let r = m.get("lodChunkRenderDistanceRadius").or_else(|| m.get("lodChunkRenderDistance")).cloned();
+            let r = m
+                .get("lodChunkRenderDistanceRadius")
+                .or_else(|| m.get("lodChunkRenderDistance"))
+                .cloned();
             g.files.push(file_res(&dh, "toml", m.len()));
             r
         });
         used += 1;
-        let now = radius.clone().map(|r| format!("On · {r} chunks")).unwrap_or_else(|| "On".into());
-        let big = radius.as_deref().and_then(|r| r.parse::<u32>().ok()).map(|r| r > 128).unwrap_or(true);
-        g.tunables.push(TunableState { id: "mc_dh".into(), setting: "Distant Horizons".into(), menu: format!("{name} › Distant Horizons settings (the DH button in Video Settings)"), now, change_to: big.then(|| "128 chunks or less".into()), gain: "Large GPU saving".into(), cost: "Distant land shows less far".into() });
+        let now = radius
+            .clone()
+            .map(|r| format!("On · {r} chunks"))
+            .unwrap_or_else(|| "On".into());
+        let big = radius
+            .as_deref()
+            .and_then(|r| r.parse::<u32>().ok())
+            .map(|r| r > 128)
+            .unwrap_or(true);
+        g.tunables.push(TunableState {
+            id: "mc_dh".into(),
+            setting: "Distant Horizons".into(),
+            menu: format!("{name} › Distant Horizons settings (the DH button in Video Settings)"),
+            now,
+            change_to: big.then(|| "128 chunks or less".into()),
+            gain: "Large GPU saving".into(),
+            cost: "Distant land shows less far".into(),
+        });
     }
     if mods.count > 0 {
         let mut notes = vec![format!("{} mods", mods.count)];
@@ -412,12 +723,28 @@ pub fn scan(sys: &mut Option<sysinfo::System>) -> Vec<GameResult> {
     }
     if out.is_empty() {
         // Not running: the instance whose options.txt changed last.
-        if let Some(i) = all.iter().max_by_key(|i| std::fs::metadata(i.dir.join("options.txt")).and_then(|m| m.modified()).ok()) {
+        if let Some(i) = all.iter().max_by_key(|i| {
+            std::fs::metadata(i.dir.join("options.txt"))
+                .and_then(|m| m.modified())
+                .ok()
+        }) {
             out.push(read(i, false));
         }
     }
     for g in &out {
-        crate::logger::info_changed(&format!("mc:{}", g.id), format!("{}: {} settings, {} used{}", g.name, g.settings_read, g.settings_used, g.platform_note.as_ref().map(|n| format!(" · {n}")).unwrap_or_default()));
+        crate::logger::info_changed(
+            &format!("mc:{}", g.id),
+            format!(
+                "{}: {} settings, {} used{}",
+                g.name,
+                g.settings_read,
+                g.settings_used,
+                g.platform_note
+                    .as_ref()
+                    .map(|n| format!(" · {n}"))
+                    .unwrap_or_default()
+            ),
+        );
     }
     out
 }
@@ -432,19 +759,45 @@ mod tests {
         let inst = root.join("curseforge/minecraft/Instances/ATM10");
         std::fs::create_dir_all(inst.join("mods")).unwrap();
         std::fs::create_dir_all(inst.join("config")).unwrap();
-        std::fs::write(inst.join("minecraftinstance.json"), r#"{"name":"All the Mods 10","gameVersion":"1.21.1"}"#).unwrap();
+        std::fs::write(
+            inst.join("minecraftinstance.json"),
+            r#"{"name":"All the Mods 10","gameVersion":"1.21.1"}"#,
+        )
+        .unwrap();
         std::fs::write(inst.join("options.txt"), "version:3955\nmaxFps:260\nenableVsync:false\nrenderDistance:24\nsimulationDistance:16\ngraphicsMode:2\nbiomeBlendRadius:5\nlastServer:play.example.net\n").unwrap();
-        for m in ["sodium-fabric-0.6.jar", "iris-fabric-1.8.jar", "DistantHorizons-2.3.jar", "create-6.0.jar"] {
+        for m in [
+            "sodium-fabric-0.6.jar",
+            "iris-fabric-1.8.jar",
+            "DistantHorizons-2.3.jar",
+            "create-6.0.jar",
+        ] {
             std::fs::write(inst.join("mods").join(m), "").unwrap();
         }
-        std::fs::write(inst.join("config/iris.properties"), "enableShaders=true\nshaderPack=ComplementaryReimagined_r5.4.zip\n").unwrap();
-        std::fs::write(inst.join("config/DistantHorizons.toml"), "[client.advanced.graphics.quality]\n\tlodChunkRenderDistanceRadius = 256\n").unwrap();
-        let i = Instance { dir: inst.clone(), pack: pack_name(&inst).unwrap(), launcher: "CurseForge".into(), bedrock: false };
+        std::fs::write(
+            inst.join("config/iris.properties"),
+            "enableShaders=true\nshaderPack=ComplementaryReimagined_r5.4.zip\n",
+        )
+        .unwrap();
+        std::fs::write(
+            inst.join("config/DistantHorizons.toml"),
+            "[client.advanced.graphics.quality]\n\tlodChunkRenderDistanceRadius = 256\n",
+        )
+        .unwrap();
+        let i = Instance {
+            dir: inst.clone(),
+            pack: pack_name(&inst).unwrap(),
+            launcher: "CurseForge".into(),
+            bedrock: false,
+        };
         assert_eq!(i.pack, "All the Mods 10");
         let g = read(&i, true);
         assert_eq!(g.name, "Minecraft · All the Mods 10");
         assert!(g.findings.iter().any(|f| f.effect == "uncapped_fps"));
-        assert!(g.findings.iter().any(|f| f.rule_id == "mc_shaders" && f.label.contains("ComplementaryReimagined")));
+        assert!(
+            g.findings
+                .iter()
+                .any(|f| f.rule_id == "mc_shaders" && f.label.contains("ComplementaryReimagined"))
+        );
         let t = |id: &str| g.tunables.iter().find(|t| t.id == id).unwrap().clone();
         assert_eq!(t("mc_render").change_to.as_deref(), Some("12 to 16 chunks"));
         assert_eq!(t("mc_sim").change_to.as_deref(), Some("8 to 12 chunks"));

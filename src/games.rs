@@ -97,7 +97,12 @@ pub struct Tunable {
 
 impl Tunable {
     fn label(&self, raw: &str, labels: &BTreeMap<String, String>) -> String {
-        match self.levels.iter().position(|l| l.eq_ignore_ascii_case(raw)).and_then(|i| self.level_labels.get(i)) {
+        match self
+            .levels
+            .iter()
+            .position(|l| l.eq_ignore_ascii_case(raw))
+            .and_then(|i| self.level_labels.get(i))
+        {
             Some(l) => l.clone(),
             None => label_of(labels, raw),
         }
@@ -384,7 +389,10 @@ pub fn steam_libraries() -> Vec<PathBuf> {
 
 fn steam_installed(appid: u32, libs: &[PathBuf]) -> Option<PathBuf> {
     libs.iter()
-        .find(|l| l.join(format!("steamapps/appmanifest_{appid}.acf")).exists())
+        .find(|l| {
+            l.join(format!("steamapps/appmanifest_{appid}.acf"))
+                .exists()
+        })
         .cloned()
 }
 
@@ -419,10 +427,10 @@ fn expand(pattern: &str, steam_roots: &[PathBuf], libs: &[PathBuf]) -> Vec<PathB
         if s.starts_with('%') {
             continue;
         }
-        if let Some(rest) = s.strip_prefix("~/") {
-            if let Some(h) = crate::util::home_dir() {
-                s = h.join(rest).to_string_lossy().to_string();
-            }
+        if let Some(rest) = s.strip_prefix("~/")
+            && let Some(h) = crate::util::home_dir()
+        {
+            s = h.join(rest).to_string_lossy().to_string();
         }
         out.extend(glob(&s));
     }
@@ -433,12 +441,20 @@ fn expand(pattern: &str, steam_roots: &[PathBuf], libs: &[PathBuf]) -> Vec<PathB
 fn glob(path: &str) -> Vec<PathBuf> {
     let norm = path.replace('\\', "/");
     if !norm.contains('*') {
-        return vec![PathBuf::from(if cfg!(windows) { norm.replace('/', "\\") } else { norm })];
+        return vec![PathBuf::from(if cfg!(windows) {
+            norm.replace('/', "\\")
+        } else {
+            norm
+        })];
     }
     let mut parts = norm.split('/').peekable();
     let mut current: Vec<PathBuf> = vec![];
     let first = parts.next().unwrap_or("");
-    current.push(if first.is_empty() { PathBuf::from("/") } else { PathBuf::from(format!("{first}/")) });
+    current.push(if first.is_empty() {
+        PathBuf::from("/")
+    } else {
+        PathBuf::from(format!("{first}/"))
+    });
     for seg in parts {
         if seg.is_empty() {
             continue;
@@ -456,7 +472,11 @@ fn glob(path: &str) -> Vec<PathBuf> {
             } else if seg.contains('*') {
                 // "options*.cst": a name pattern (files or folders).
                 if let Ok(rd) = std::fs::read_dir(c) {
-                    let mut hits: Vec<PathBuf> = rd.flatten().filter(|e| wild_match(&e.file_name().to_string_lossy(), seg)).map(|e| e.path()).collect();
+                    let mut hits: Vec<PathBuf> = rd
+                        .flatten()
+                        .filter(|e| wild_match(&e.file_name().to_string_lossy(), seg))
+                        .map(|e| e.path())
+                        .collect();
                     hits.sort();
                     next.extend(hits);
                 }
@@ -493,7 +513,10 @@ fn wild_match(name: &str, pat: &str) -> bool {
             return false;
         }
     }
-    parts.last().map(|l| l.is_empty() || n.ends_with(l)).unwrap_or(true)
+    parts
+        .last()
+        .map(|l| l.is_empty() || n.ends_with(l))
+        .unwrap_or(true)
 }
 
 fn shown(p: &Path) -> String {
@@ -528,7 +551,11 @@ fn parse_ini(text: &str) -> BTreeMap<String, String> {
             continue;
         }
         if let Some((k, v)) = t.split_once('=') {
-            let key = if section.is_empty() { k.trim().to_string() } else { format!("{}/{}", section, k.trim()) };
+            let key = if section.is_empty() {
+                k.trim().to_string()
+            } else {
+                format!("{}/{}", section, k.trim())
+            };
             m.insert(key, v.trim().to_string());
         }
     }
@@ -549,21 +576,31 @@ fn flatten_json(prefix: &str, v: &serde_json::Value, m: &mut BTreeMap<String, St
         V::Object(o) => {
             // {"name": "...", "value": ...} pairs (used by Cyberpunk and others)
             if let (Some(V::String(n)), Some(val)) = (o.get("name"), o.get("value")) {
-                let key = if prefix.is_empty() { n.clone() } else { format!("{prefix}/{n}") };
+                let key = if prefix.is_empty() {
+                    n.clone()
+                } else {
+                    format!("{prefix}/{n}")
+                };
                 m.insert(key, scalar(val));
                 return;
             }
             // {"value": ..., "version": ...} (used by Halo Infinite): the
             // setting's value belongs to the parent name.
-            if o.contains_key("value") && o.contains_key("version") && !prefix.is_empty() && o.len() <= 3 {
-                if let Some(val) = o.get("value") {
-                    if !val.is_object() && !val.is_array() {
-                        m.insert(prefix.to_string(), scalar(val));
-                        return;
-                    }
-                }
+            if o.contains_key("value")
+                && o.contains_key("version")
+                && !prefix.is_empty()
+                && o.len() <= 3
+                && let Some(val) = o.get("value")
+                && !val.is_object()
+                && !val.is_array()
+            {
+                m.insert(prefix.to_string(), scalar(val));
+                return;
             }
-            let group = o.get("group_name").and_then(|g| g.as_str()).map(|s| s.trim_matches('/').to_string());
+            let group = o
+                .get("group_name")
+                .and_then(|g| g.as_str())
+                .map(|s| s.trim_matches('/').to_string());
             for (k, val) in o {
                 if k == "group_name" {
                     continue;
@@ -573,7 +610,11 @@ fn flatten_json(prefix: &str, v: &serde_json::Value, m: &mut BTreeMap<String, St
                     (None, true) => k.clone(),
                     (None, false) => format!("{prefix}/{k}"),
                 };
-                let p = if group.is_some() && !matches!(val, V::Array(_)) { format!("{p}/{k}") } else { p };
+                let p = if group.is_some() && !matches!(val, V::Array(_)) {
+                    format!("{p}/{k}")
+                } else {
+                    p
+                };
                 flatten_json(&p, val, m);
             }
         }
@@ -665,10 +706,20 @@ fn flatten_coc(prefix: &str, v: &serde_json::Value, m: &mut BTreeMap<String, Str
         }
         V::Array(a) => {
             for (i, val) in a.iter().enumerate() {
-                let typed = val.get("@type").and_then(|t| t.as_str()).map(|t| t.rsplit('.').next().unwrap_or(t).to_string());
+                let typed = val
+                    .get("@type")
+                    .and_then(|t| t.as_str())
+                    .map(|t| t.rsplit('.').next().unwrap_or(t).to_string());
                 match typed {
                     // Quality groups: drop the list name, key by the group type.
-                    Some(t) => flatten_coc(&format!("{}/{t}", prefix.rsplit_once('/').map(|x| x.0).unwrap_or(prefix)), val, m),
+                    Some(t) => flatten_coc(
+                        &format!(
+                            "{}/{t}",
+                            prefix.rsplit_once('/').map(|x| x.0).unwrap_or(prefix)
+                        ),
+                        val,
+                        m,
+                    ),
                     None if val.is_object() => flatten_coc(&format!("{prefix}[{i}]"), val, m),
                     None => {
                         m.insert(format!("{prefix}[{i}]"), scalar(val));
@@ -708,7 +759,10 @@ fn parse_xml(text: &str) -> BTreeMap<String, String> {
         let self_closing = tag.ends_with('/');
         let body = tag.trim_end_matches('/');
         let name = body.split_whitespace().next().unwrap_or("").to_string();
-        let value_attr = body.find("value=\"").map(|i| &body[i + 7..]).and_then(|v| v.find('"').map(|j| v[..j].to_string()));
+        let value_attr = body
+            .find("value=\"")
+            .map(|i| &body[i + 7..])
+            .and_then(|v| v.find('"').map(|j| v[..j].to_string()));
         stack.push(name);
         if let Some(v) = value_attr {
             m.insert(stack.join("/"), v);
@@ -765,7 +819,11 @@ fn parse_lines(text: &str) -> BTreeMap<String, String> {
                     section.push(k.to_string());
                     continue;
                 }
-                let key = if section.is_empty() { k.to_string() } else { format!("{}/{}", section.join("/"), k) };
+                let key = if section.is_empty() {
+                    k.to_string()
+                } else {
+                    format!("{}/{}", section.join("/"), k)
+                };
                 m.insert(key, v.to_string());
             }
             None => {
@@ -802,12 +860,17 @@ fn num(v: &str) -> Option<f64> {
 
 fn truthy(v: &str) -> bool {
     let l = v.trim().trim_matches('"').to_lowercase();
-    matches!(l.as_str(), "true" | "on" | "yes" | "enabled") || num(&l).map(|n| n != 0.0).unwrap_or(false)
+    matches!(l.as_str(), "true" | "on" | "yes" | "enabled")
+        || num(&l).map(|n| n != 0.0).unwrap_or(false)
 }
 
 fn is_off(v: &str) -> bool {
     let l = v.trim().trim_matches('"').to_lowercase();
-    matches!(l.as_str(), "off" | "false" | "0" | "none" | "disabled" | "native" | "") || l.ends_with("_off") || l.ends_with(" off")
+    matches!(
+        l.as_str(),
+        "off" | "false" | "0" | "none" | "disabled" | "native" | ""
+    ) || l.ends_with("_off")
+        || l.ends_with(" off")
 }
 
 fn condition(when: &str, v: &str) -> bool {
@@ -849,11 +912,20 @@ pub fn pretty_value(v: &str) -> String {
         "false" | "0" | "off" | "no" | "disabled" | "none" => "Off".into(),
         _ => {
             if let Ok(f) = t.parse::<f64>() {
-                if f.fract() == 0.0 { format!("{}", f as i64) } else { format!("{f:.1}") }
+                if f.fract() == 0.0 {
+                    format!("{}", f as i64)
+                } else {
+                    format!("{f:.1}")
+                }
             } else if t.starts_with("UI-") && t.contains('-') {
                 // Cyberpunk stores menu text ids like "UI-Settings-Video-QualitySetting-Off".
                 pretty_value(t.rsplit('-').next().unwrap_or(t))
-            } else if !t.contains(' ') && !t.contains('_') && t.chars().skip(1).any(|c| c.is_uppercase()) && t.chars().all(|c| c.is_ascii_alphabetic()) && t.chars().filter(|c| c.is_uppercase()).count() < t.len() / 2 {
+            } else if !t.contains(' ')
+                && !t.contains('_')
+                && t.chars().skip(1).any(|c| c.is_uppercase())
+                && t.chars().all(|c| c.is_ascii_alphabetic())
+                && t.chars().filter(|c| c.is_uppercase()).count() < t.len() / 2
+            {
                 // "BorderlessWindowed" -> "Borderless windowed" (but leave "DLSS", "FSR" alone).
                 let mut out = String::new();
                 for (i, ch) in t.chars().enumerate() {
@@ -868,14 +940,20 @@ pub fn pretty_value(v: &str) -> String {
             } else {
                 let s = t.replace('_', " ");
                 let mut c = s.chars();
-                c.next().map(|f| format!("{}{}", f.to_uppercase(), c.as_str())).unwrap_or_default()
+                c.next()
+                    .map(|f| format!("{}{}", f.to_uppercase(), c.as_str()))
+                    .unwrap_or_default()
             }
         }
     }
 }
 
 /// Current value of every rule's setting, flagged or not.
-fn current_settings(rules: &[FindingRule], settings: &BTreeMap<String, String>, findings: &[Finding]) -> Vec<CurrentSetting> {
+fn current_settings(
+    rules: &[FindingRule],
+    settings: &BTreeMap<String, String>,
+    findings: &[Finding],
+) -> Vec<CurrentSetting> {
     let mut out = Vec::new();
     for r in rules {
         let flagged = findings.iter().find(|f| f.rule_id == r.id);
@@ -885,28 +963,49 @@ fn current_settings(rules: &[FindingRule], settings: &BTreeMap<String, String>, 
         let raw = flagged.map(|f| f.value.clone()).or_else(|| {
             if r.when == "off" {
                 // Upscalers: show the one that's on, if any.
-                settings.iter().filter(|(k, _)| r.keys.iter().any(|p| key_matches(k, p))).find(|(_, v)| !is_off(v)).map(|(k, v)| {
-                    let name = k.rsplit('/').next().unwrap_or(k).to_uppercase();
-                    format!("{name}: {}", pretty_value(v))
-                })
+                settings
+                    .iter()
+                    .filter(|(k, _)| r.keys.iter().any(|p| key_matches(k, p)))
+                    .find(|(_, v)| !is_off(v))
+                    .map(|(k, v)| {
+                        let name = k.rsplit('/').next().unwrap_or(k).to_uppercase();
+                        format!("{name}: {}", pretty_value(v))
+                    })
             } else {
-                settings.iter().find(|(k, _)| r.keys.iter().any(|p| key_matches(k, p))).map(|(_, v)| v.clone())
+                settings
+                    .iter()
+                    .find(|(k, _)| r.keys.iter().any(|p| key_matches(k, p)))
+                    .map(|(_, v)| v.clone())
             }
         });
         let Some(raw) = raw else { continue };
-        let mut value = if raw.contains(": ") { raw.clone() } else { pretty_value(&raw) };
+        let mut value = if raw.contains(": ") {
+            raw.clone()
+        } else {
+            pretty_value(&raw)
+        };
         // An FPS limit of 0 (or less) means unlimited.
-        if r.effect == "uncapped_fps" && raw.trim().trim_matches('"').parse::<f64>().map(|n| n <= 0.0).unwrap_or(false) {
+        if r.effect == "uncapped_fps"
+            && raw
+                .trim()
+                .trim_matches('"')
+                .parse::<f64>()
+                .map(|n| n <= 0.0)
+                .unwrap_or(false)
+        {
             value = "Off (unlimited)".into();
         }
         if r.when == "off" && flagged.is_some() {
             value = "Off".into();
         }
         // An extra number, like the FPS limit value.
-        if let Some(extra) = settings.iter().find(|(k, _)| r.value_keys.iter().any(|p| key_matches(k, p))).map(|(_, v)| pretty_value(v)) {
-            if value == "On" {
-                value = extra;
-            }
+        if let Some(extra) = settings
+            .iter()
+            .find(|(k, _)| r.value_keys.iter().any(|p| key_matches(k, p)))
+            .map(|(_, v)| pretty_value(v))
+            && value == "On"
+        {
+            value = extra;
         }
         out.push(CurrentSetting {
             rule_id: r.id.clone(),
@@ -929,16 +1028,26 @@ fn current_settings(rules: &[FindingRule], settings: &BTreeMap<String, String>, 
 fn main_switch_on(requires: Option<&str>, settings: &BTreeMap<String, String>) -> bool {
     match requires {
         None => true,
-        Some(p) => settings.iter().find(|(k, _)| key_matches(k, p)).map(|(_, v)| truthy(v)).unwrap_or(true),
+        Some(p) => settings
+            .iter()
+            .find(|(k, _)| key_matches(k, p))
+            .map(|(_, v)| truthy(v))
+            .unwrap_or(true),
     }
 }
 
 fn find_value<'a>(settings: &'a BTreeMap<String, String>, pattern: &str) -> Option<&'a String> {
-    settings.iter().find(|(k, _)| key_matches(k, pattern)).map(|(_, v)| v)
+    settings
+        .iter()
+        .find(|(k, _)| key_matches(k, pattern))
+        .map(|(_, v)| v)
 }
 
 fn label_of(labels: &BTreeMap<String, String>, raw: &str) -> String {
-    labels.get(raw).cloned().unwrap_or_else(|| pretty_value(raw))
+    labels
+        .get(raw)
+        .cloned()
+        .unwrap_or_else(|| pretty_value(raw))
 }
 
 /// The preset and one level lower.
@@ -947,8 +1056,16 @@ fn preset_state(p: &Profile, settings: &BTreeMap<String, String>) -> Option<Pres
     let raw = find_value(settings, &r.key)?;
     let custom = r.custom.iter().any(|c| c.eq_ignore_ascii_case(raw));
     let idx = r.levels.iter().position(|l| l.eq_ignore_ascii_case(raw));
-    let lower = idx.filter(|i| *i > 0).map(|i| label_of(&p.labels, &r.levels[i - 1]));
-    Some(PresetState { setting: r.setting.clone(), menu: r.menu.clone(), value: label_of(&p.labels, raw), custom: custom || idx.is_none(), lower })
+    let lower = idx
+        .filter(|i| *i > 0)
+        .map(|i| label_of(&p.labels, &r.levels[i - 1]));
+    Some(PresetState {
+        setting: r.setting.clone(),
+        menu: r.menu.clone(),
+        value: label_of(&p.labels, raw),
+        custom: custom || idx.is_none(),
+        lower,
+    })
 }
 
 /// Each heavy setting's level, and whether it's above the suggested one.
@@ -958,14 +1075,27 @@ fn tunable_states(p: &Profile, settings: &BTreeMap<String, String>) -> Vec<Tunab
         if !main_switch_on(t.requires.as_deref(), settings) {
             continue;
         }
-        let Some(raw) = find_value(settings, &t.key) else { continue };
+        let Some(raw) = find_value(settings, &t.key) else {
+            continue;
+        };
         let now = t.levels.iter().position(|l| l.eq_ignore_ascii_case(raw));
-        let target = t.levels.iter().position(|l| l.eq_ignore_ascii_case(&t.target));
+        let target = t
+            .levels
+            .iter()
+            .position(|l| l.eq_ignore_ascii_case(&t.target));
         let change_to = match (now, target) {
             (Some(n), Some(g)) if n > g => Some(t.label(&t.levels[g], &p.labels)),
             _ => None,
         };
-        out.push(TunableState { id: t.id.clone(), setting: t.setting.clone(), menu: t.menu.clone(), now: t.label(raw, &p.labels), change_to, gain: t.gain.clone(), cost: t.cost.clone() });
+        out.push(TunableState {
+            id: t.id.clone(),
+            setting: t.setting.clone(),
+            menu: t.menu.clone(),
+            now: t.label(raw, &p.labels),
+            change_to,
+            gain: t.gain.clone(),
+            cost: t.cost.clone(),
+        });
     }
     out
 }
@@ -973,41 +1103,79 @@ fn tunable_states(p: &Profile, settings: &BTreeMap<String, String>) -> Vec<Tunab
 /// The FPS limit number when the limit is on.
 fn fps_cap_of(rules: &[FindingRule], settings: &BTreeMap<String, String>) -> Option<u32> {
     let r = rules.iter().find(|r| r.effect == "uncapped_fps")?;
-    let (_, on) = settings.iter().find(|(k, _)| r.keys.iter().any(|p| key_matches(k, p)))?;
+    let (_, on) = settings
+        .iter()
+        .find(|(k, _)| r.keys.iter().any(|p| key_matches(k, p)))?;
     if r.value_keys.is_empty() {
         // The key itself holds the number (0 = no limit).
-        return num(on).filter(|n| *n > 0.0 && *n < 1000.0).map(|n| n as u32);
+        return num(on)
+            .filter(|n| *n > 0.0 && *n < 1000.0)
+            .map(|n| n as u32);
     }
     if !truthy(on) {
         return None;
     }
-    let v = settings.iter().find(|(k, _)| r.value_keys.iter().any(|p| key_matches(k, p))).map(|(_, v)| v)?;
+    let v = settings
+        .iter()
+        .find(|(k, _)| r.value_keys.iter().any(|p| key_matches(k, p)))
+        .map(|(_, v)| v)?;
     num(v).filter(|n| *n > 0.0).map(|n| n as u32)
 }
 
 /// The game's own resolution and refresh rate, when its file stores them.
 fn display_of(p: &Profile, settings: &BTreeMap<String, String>) -> (Option<String>, Option<f32>) {
-    let Some(d) = &p.display else { return (None, None) };
-    let res = d.resolution.as_ref().and_then(|k| find_value(settings, k)).map(|v| v.trim_matches('"').to_string()).filter(|v| v.contains('x')).or_else(|| {
-        let w = d.width.as_ref().and_then(|k| find_value(settings, k)).and_then(|v| num(v))?;
-        let h = d.height.as_ref().and_then(|k| find_value(settings, k)).and_then(|v| num(v))?;
-        (w >= 320.0 && h >= 200.0).then(|| format!("{}x{}", w as u32, h as u32))
-    });
-    let hz = d.refresh.as_ref().and_then(|k| find_value(settings, k)).and_then(|v| num(v)).map(|n| (n / d.refresh_scale) as f32).filter(|h| *h > 10.0 && *h < 1000.0);
+    let Some(d) = &p.display else {
+        return (None, None);
+    };
+    let res = d
+        .resolution
+        .as_ref()
+        .and_then(|k| find_value(settings, k))
+        .map(|v| v.trim_matches('"').to_string())
+        .filter(|v| v.contains('x'))
+        .or_else(|| {
+            let w = d
+                .width
+                .as_ref()
+                .and_then(|k| find_value(settings, k))
+                .and_then(|v| num(v))?;
+            let h = d
+                .height
+                .as_ref()
+                .and_then(|k| find_value(settings, k))
+                .and_then(|v| num(v))?;
+            (w >= 320.0 && h >= 200.0).then(|| format!("{}x{}", w as u32, h as u32))
+        });
+    let hz = d
+        .refresh
+        .as_ref()
+        .and_then(|k| find_value(settings, k))
+        .and_then(|v| num(v))
+        .map(|n| (n / d.refresh_scale) as f32)
+        .filter(|h| *h > 10.0 && *h < 1000.0);
     (res, hz)
 }
 
 /// Settings the profile expects but the file doesn't have.
-fn unreadable_of(p: &Profile, settings: &BTreeMap<String, String>, unmatched: &[String]) -> Vec<String> {
+fn unreadable_of(
+    p: &Profile,
+    settings: &BTreeMap<String, String>,
+    unmatched: &[String],
+) -> Vec<String> {
     if p.sparse_file {
         // Missing just means "at its default".
         return Vec::new();
     }
-    let mut v: Vec<String> = p.findings.iter().filter(|r| unmatched.contains(&r.id) && r.effect != "info").map(setting_name).collect();
-    if let Some(r) = &p.preset {
-        if find_value(settings, &r.key).is_none() {
-            v.push(r.setting.clone());
-        }
+    let mut v: Vec<String> = p
+        .findings
+        .iter()
+        .filter(|r| unmatched.contains(&r.id) && r.effect != "info")
+        .map(setting_name)
+        .collect();
+    if let Some(r) = &p.preset
+        && find_value(settings, &r.key).is_none()
+    {
+        v.push(r.setting.clone());
     }
     for t in &p.tunables {
         if find_value(settings, &t.key).is_none() {
@@ -1017,7 +1185,10 @@ fn unreadable_of(p: &Profile, settings: &BTreeMap<String, String>, unmatched: &[
     v
 }
 
-fn evaluate(rules: &[FindingRule], settings: &BTreeMap<String, String>) -> (Vec<Finding>, Vec<String>) {
+fn evaluate(
+    rules: &[FindingRule],
+    settings: &BTreeMap<String, String>,
+) -> (Vec<Finding>, Vec<String>) {
     let mut findings = Vec::new();
     let mut unmatched = Vec::new();
     let mut claimed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1036,9 +1207,16 @@ fn evaluate(rules: &[FindingRule], settings: &BTreeMap<String, String>) -> (Vec<
         }
         let hit = if r.when == "off" {
             // "off" means: every matching key is off (no upscaler at all)
-            if matching.iter().all(|(_, v)| is_off(v)) { matching.first().copied() } else { None }
+            if matching.iter().all(|(_, v)| is_off(v)) {
+                matching.first().copied()
+            } else {
+                None
+            }
         } else {
-            matching.iter().find(|(_, v)| condition(&r.when, v)).copied()
+            matching
+                .iter()
+                .find(|(_, v)| condition(&r.when, v))
+                .copied()
         };
         if let Some((k, v)) = hit {
             claimed.insert(k.clone());
@@ -1110,7 +1288,14 @@ pub fn read_unknown(hints: &[String]) -> Vec<GameResult> {
     let profs = profiles();
     let known_exes: Vec<String> = profs.iter().flat_map(|p| p.processes.clone()).collect();
     let known_ids: Vec<u32> = profs.iter().filter_map(|p| p.steam_appid).collect();
-    crate::autoread::scan(&[], hints, &known_exes, &known_ids, &steam_roots(), &steam_libraries())
+    crate::autoread::scan(
+        &[],
+        hints,
+        &known_exes,
+        &known_ids,
+        &steam_roots(),
+        &steam_libraries(),
+    )
 }
 
 /// Every setting name a profile uses, so the "read vs used" count is honest.
@@ -1140,11 +1325,19 @@ fn profile_patterns(p: &Profile) -> Vec<String> {
 /// Reads every game with a profile, then games without one: those running
 /// now (`running`) and those only known by program name (`hints`, e.g.
 /// the game from the last test).
-pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hints: &[String], sys: &mut Option<sysinfo::System>) -> Vec<GameResult> {
+pub fn scan(
+    procs: &[(String, f32)],
+    running: &[crate::hardware::GameProc],
+    hints: &[String],
+    sys: &mut Option<sysinfo::System>,
+) -> Vec<GameResult> {
     crate::logger::activity("game scan");
     let roots = steam_roots();
     let libs = steam_libraries();
-    crate::logger::info_changed("steamlibs", format!("Steam libraries found: {}", libs.len()));
+    crate::logger::info_changed(
+        "steamlibs",
+        format!("Steam libraries found: {}", libs.len()),
+    );
     let mut out = Vec::new();
     // Minecraft has its own reader (every launcher and modpack).
     out.extend(crate::minecraft::scan(sys));
@@ -1152,12 +1345,12 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
         let mut installed = false;
         let mut hint = String::new();
         let mut install_lib: Option<PathBuf> = None;
-        if let Some(id) = p.steam_appid {
-            if let Some(lib) = steam_installed(id, &libs) {
-                installed = true;
-                hint = format!("Steam library {}", shown(&lib));
-                install_lib = Some(lib);
-            }
+        if let Some(id) = p.steam_appid
+            && let Some(lib) = steam_installed(id, &libs)
+        {
+            installed = true;
+            hint = format!("Steam library {}", shown(&lib));
+            install_lib = Some(lib);
         }
         // Check the library the game is installed in first.
         let mut ordered_libs: Vec<PathBuf> = install_lib.iter().cloned().collect();
@@ -1175,9 +1368,14 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
                 }
             }
         }
-        let running = procs.iter().any(|(n, _)| p.processes.iter().any(|w| process_matches(n, w)));
+        let running = procs
+            .iter()
+            .any(|(n, _)| p.processes.iter().any(|w| process_matches(n, w)));
         let platform_note = if cfg!(not(windows)) && !p.linux_supported {
-            Some(format!("{} doesn't run on Linux yet, so this profile is Windows-only for now.", p.name))
+            Some(format!(
+                "{} doesn't run on Linux yet, so this profile is Windows-only for now.",
+                p.name
+            ))
         } else {
             None
         };
@@ -1198,8 +1396,10 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
                 if let (Some(rel), Some(id)) = (&sf.proton, p.steam_appid) {
                     for lib in &ordered_libs {
                         candidates.push(
-                            lib.join(format!("steamapps/compatdata/{id}/pfx/drive_c/users/steamuser"))
-                                .join(rel),
+                            lib.join(format!(
+                                "steamapps/compatdata/{id}/pfx/drive_c/users/steamuser"
+                            ))
+                            .join(rel),
                         );
                     }
                 }
@@ -1215,16 +1415,21 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
             // Fallback: look for the file by name anywhere in the game's
             // Proton user folder (some games save somewhere unexpected).
             #[cfg(not(windows))]
-            if found.is_none() {
-                if let (Some(rel), Some(id)) = (&sf.proton, p.steam_appid) {
-                    let fname = std::path::Path::new(rel).file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default();
-                    for lib in &ordered_libs {
-                        let base = lib.join(format!("steamapps/compatdata/{id}/pfx/drive_c/users/steamuser"));
-                        if let Some(hit) = find_file(&base, &fname, 9, &mut 0) {
-                            note = Some(format!("Found in an unexpected place: {}", shown(&hit)));
-                            found = Some(hit);
-                            break;
-                        }
+            if found.is_none()
+                && let (Some(rel), Some(id)) = (&sf.proton, p.steam_appid)
+            {
+                let fname = std::path::Path::new(rel)
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+                for lib in &ordered_libs {
+                    let base = lib.join(format!(
+                        "steamapps/compatdata/{id}/pfx/drive_c/users/steamuser"
+                    ));
+                    if let Some(hit) = find_file(&base, &fname, 9, &mut 0) {
+                        note = Some(format!("Found in an unexpected place: {}", shown(&hit)));
+                        found = Some(hit);
+                        break;
                     }
                 }
             }
@@ -1239,7 +1444,11 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
                         error: None,
                         searched: searched.clone(),
                         note: note.clone(),
-                        modified: std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64),
+                        modified: std::fs::metadata(&path)
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64),
                         real_path: Some(path.clone()),
                         inline_text: None,
                     };
@@ -1264,13 +1473,19 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
                             p.name,
                             fr.shown_path,
                             fr.settings_count,
-                            fr.error.as_ref().map(|e| format!(", {e}")).unwrap_or_default()
+                            fr.error
+                                .as_ref()
+                                .map(|e| format!(", {e}"))
+                                .unwrap_or_default()
                         ),
                     );
                     files.push(fr);
                 }
                 None => {
-                    let first = candidates.first().map(|c| shown(c)).unwrap_or_else(|| "(no location for this system)".into());
+                    let first = candidates
+                        .first()
+                        .map(|c| shown(c))
+                        .unwrap_or_else(|| "(no location for this system)".into());
                     files.push(FileResult {
                         shown_path: first,
                         found: false,
@@ -1292,27 +1507,61 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
         } else {
             evaluate(&p.findings, &settings)
         };
-        let unreadable = if settings.is_empty() { Vec::new() } else { unreadable_of(&p, &settings, &unmatched) };
+        let unreadable = if settings.is_empty() {
+            Vec::new()
+        } else {
+            unreadable_of(&p, &settings, &unmatched)
+        };
         // Setting names only help when something couldn't be read.
-        let key_names: Vec<String> = if unreadable.is_empty() { Vec::new() } else { settings.keys().take(400).cloned().collect() };
+        let key_names: Vec<String> = if unreadable.is_empty() {
+            Vec::new()
+        } else {
+            settings.keys().take(400).cloned().collect()
+        };
         let mut current = current_settings(&p.findings, &settings, &findings);
         // Effects that cost stream bitrate (film grain, motion blur...), found
         // by the automatic reader when the profile doesn't list them.
-        let covered: Vec<String> = current.iter().map(|c| c.setting.clone()).chain(p.tunables.iter().map(|t| t.setting.clone())).collect();
+        let covered: Vec<String> = current
+            .iter()
+            .map(|c| c.setting.clone())
+            .chain(p.tunables.iter().map(|t| t.setting.clone()))
+            .collect();
         let extra = crate::autoread::bitrate_effects(&settings, &p.name, &covered);
         let extra_used = extra.len();
         current.extend(extra);
         let preset = preset_state(&p, &settings);
         let tunables = tunable_states(&p, &settings);
-        let fps_cap = if p.fps_limit { fps_cap_of(&p.findings, &settings) } else { None };
-        let proton = files.iter().any(|f| f.found && f.real_path.as_ref().map(|r| r.to_string_lossy().contains("compatdata")).unwrap_or(false));
+        let fps_cap = if p.fps_limit {
+            fps_cap_of(&p.findings, &settings)
+        } else {
+            None
+        };
+        let proton = files.iter().any(|f| {
+            f.found
+                && f.real_path
+                    .as_ref()
+                    .map(|r| r.to_string_lossy().contains("compatdata"))
+                    .unwrap_or(false)
+        });
         let (display_res, display_hz) = display_of(&p, &settings);
         let pats = profile_patterns(&p);
-        let settings_used = settings.keys().filter(|k| pats.iter().any(|pt| key_matches(k, pt))).count() + extra_used;
+        let settings_used = settings
+            .keys()
+            .filter(|k| pats.iter().any(|pt| key_matches(k, pt)))
+            .count()
+            + extra_used;
         if installed || running || files.iter().any(|f| f.found) {
             crate::logger::info_changed(
                 &format!("game:{}", p.id),
-                format!("{}: installed={} running={} findings={} unmatched rules={:?} unreadable={:?}", p.name, installed, running, findings.len(), unmatched, unreadable),
+                format!(
+                    "{}: installed={} running={} findings={} unmatched rules={:?} unreadable={:?}",
+                    p.name,
+                    installed,
+                    running,
+                    findings.len(),
+                    unmatched,
+                    unreadable
+                ),
             );
         }
         out.push(GameResult {
@@ -1344,7 +1593,11 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
             settings_read: settings.len(),
             settings_used,
             read_gap: None,
-            launcher: if p.steam_appid.is_some() && installed { "Steam".into() } else { String::new() },
+            launcher: if p.steam_appid.is_some() && installed {
+                "Steam".into()
+            } else {
+                String::new()
+            },
             motion: p.motion.clone(),
         });
     }
@@ -1352,7 +1605,14 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
     let profs = profiles();
     let known_exes: Vec<String> = profs.iter().flat_map(|p| p.processes.clone()).collect();
     let known_ids: Vec<u32> = profs.iter().filter_map(|p| p.steam_appid).collect();
-    out.extend(crate::autoread::scan(running, hints, &known_exes, &known_ids, &roots, &libs));
+    out.extend(crate::autoread::scan(
+        running,
+        hints,
+        &known_exes,
+        &known_ids,
+        &roots,
+        &libs,
+    ));
     out
 }
 
@@ -1369,8 +1629,14 @@ mod tests {
     fn cyberpunk_style_json() {
         let j = r#"{"version":3,"data":[{"group_name":"/graphics/raytracing","options":[{"name":"RayTracing","type":"Bool","value":true},{"name":"RayTracedPathTracing","value":false}]},{"group_name":"/graphics/dlss","options":[{"name":"DLSS","value":"Off"}]}]}"#;
         let m = parse("json", j).unwrap();
-        assert_eq!(m.get("graphics/raytracing/RayTracing").map(|s| s.as_str()), Some("true"));
-        let p = profiles().into_iter().find(|p| p.id == "cyberpunk2077").unwrap();
+        assert_eq!(
+            m.get("graphics/raytracing/RayTracing").map(|s| s.as_str()),
+            Some("true")
+        );
+        let p = profiles()
+            .into_iter()
+            .find(|p| p.id == "cyberpunk2077")
+            .unwrap();
         let (f, _) = evaluate(&p.findings, &m);
         assert!(f.iter().any(|x| x.rule_id == "raytracing"));
         assert!(!f.iter().any(|x| x.rule_id == "pathtracing"));
@@ -1390,10 +1656,21 @@ mod tests {
 
     #[test]
     fn kv_and_lines() {
-        let m = parse("kv", "\"video.cfg\"\n{\n\t\"setting.mat_vsync\"\t\t\"1\"\n}\n").unwrap();
+        let m = parse(
+            "kv",
+            "\"video.cfg\"\n{\n\t\"setting.mat_vsync\"\t\t\"1\"\n}\n",
+        )
+        .unwrap();
         assert_eq!(m.get("setting.mat_vsync").map(|s| s.as_str()), Some("1"));
-        let m2 = parse("lines", "Graphics Settings\n{\n  \"vSync\": true,\n  depthOfField = false\n}\n").unwrap();
-        assert_eq!(m2.get("Graphics Settings/vSync").map(|s| s.as_str()), Some("true"));
+        let m2 = parse(
+            "lines",
+            "Graphics Settings\n{\n  \"vSync\": true,\n  depthOfField = false\n}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            m2.get("Graphics Settings/vSync").map(|s| s.as_str()),
+            Some("true")
+        );
     }
 
     #[test]
@@ -1402,7 +1679,10 @@ mod tests {
         let m = parse("json", j).unwrap();
         assert_eq!(m.get("spec_control_vsync").map(|s| s.as_str()), Some("0"));
         assert!(!m.contains_key("spec_control_vsync/version"));
-        let p = profiles().into_iter().find(|p| p.id == "halo_infinite").unwrap();
+        let p = profiles()
+            .into_iter()
+            .find(|p| p.id == "halo_infinite")
+            .unwrap();
         let (f, _) = evaluate(&p.findings, &m);
         let ids: Vec<_> = f.iter().map(|x| x.rule_id.as_str()).collect();
         assert!(!ids.contains(&"vsync"));
@@ -1419,14 +1699,23 @@ mod tests {
             {"name":"DLSS","value":"Quality"},{"name":"DLSS_NewSharpness","value":0.5},
             {"name":"FSR2","value":"Off"},{"name":"FSR3","value":"Off"},{"name":"FSR4","value":"Off"},{"name":"XESS","value":"Off"}]}]}"#;
         let m = parse("json", j).unwrap();
-        let p = profiles().into_iter().find(|p| p.id == "cyberpunk2077").unwrap();
+        let p = profiles()
+            .into_iter()
+            .find(|p| p.id == "cyberpunk2077")
+            .unwrap();
         let (f, _) = evaluate(&p.findings, &m);
         let keys: Vec<_> = f.iter().map(|x| x.key.as_str()).collect();
         let mut dedup = keys.clone();
         dedup.dedup();
         assert_eq!(keys.len(), dedup.len());
-        assert!(f.iter().any(|x| x.rule_id == "pathtracing" && x.key.ends_with("RayTracedPathTracing")));
-        assert!(f.iter().any(|x| x.rule_id == "raytracing" && x.key.ends_with("/RayTracing")));
+        assert!(
+            f.iter()
+                .any(|x| x.rule_id == "pathtracing" && x.key.ends_with("RayTracedPathTracing"))
+        );
+        assert!(
+            f.iter()
+                .any(|x| x.rule_id == "raytracing" && x.key.ends_with("/RayTracing"))
+        );
         assert!(!f.iter().any(|x| x.rule_id == "upscaler_off"));
         // Path tracing only in photo mode must not count.
         let m2 = parse("json", r#"{"data":[{"group_name":"/graphics/raytracing","options":[{"name":"RayTracedPathTracing","value":false},{"name":"RayTracedPathTracingForPhotoMode","value":true}]}]}"#).unwrap();
@@ -1447,16 +1736,34 @@ mod current_tests {
 
     #[test]
     fn cyberpunk_fps_limit_and_values() {
-        let p = profiles().into_iter().find(|p| p.id == "cyberpunk2077").unwrap();
+        let p = profiles()
+            .into_iter()
+            .find(|p| p.id == "cyberpunk2077")
+            .unwrap();
         let mut s = BTreeMap::new();
-        s.insert("video/display/MaximumFPS_OnOff".to_string(), "true".to_string());
-        s.insert("video/display/MaximumFPS_Value".to_string(), "240".to_string());
+        s.insert(
+            "video/display/MaximumFPS_OnOff".to_string(),
+            "true".to_string(),
+        );
+        s.insert(
+            "video/display/MaximumFPS_Value".to_string(),
+            "240".to_string(),
+        );
         s.insert("video/display/VSync".to_string(), "false".to_string());
-        s.insert("graphics/raytracing/RayTracedPathTracing".to_string(), "true".to_string());
+        s.insert(
+            "graphics/raytracing/RayTracedPathTracing".to_string(),
+            "true".to_string(),
+        );
         s.insert("graphics/presets/DLSS".to_string(), "Quality".to_string());
         let (f, unmatched) = evaluate(&p.findings, &s);
-        assert!(!unmatched.contains(&"fps_uncapped".to_string()), "FPS limit key must match now");
-        assert!(!f.iter().any(|x| x.rule_id == "fps_uncapped"), "capped at 240 is not uncapped");
+        assert!(
+            !unmatched.contains(&"fps_uncapped".to_string()),
+            "FPS limit key must match now"
+        );
+        assert!(
+            !f.iter().any(|x| x.rule_id == "fps_uncapped"),
+            "capped at 240 is not uncapped"
+        );
         let cur = current_settings(&p.findings, &s, &f);
         let fps = cur.iter().find(|c| c.rule_id == "fps_uncapped").unwrap();
         assert_eq!(fps.setting, "FPS limit");
@@ -1467,11 +1774,20 @@ mod current_tests {
         let up = cur.iter().find(|c| c.rule_id == "upscaler_off").unwrap();
         assert!(up.value.contains("Quality"), "{}", up.value);
         // Uncapped
-        s.insert("video/display/MaximumFPS_OnOff".to_string(), "false".to_string());
+        s.insert(
+            "video/display/MaximumFPS_OnOff".to_string(),
+            "false".to_string(),
+        );
         let (f, _) = evaluate(&p.findings, &s);
         assert!(f.iter().any(|x| x.rule_id == "fps_uncapped"));
         let cur = current_settings(&p.findings, &s, &f);
-        assert_eq!(cur.iter().find(|c| c.rule_id == "fps_uncapped").unwrap().value, "Off");
+        assert_eq!(
+            cur.iter()
+                .find(|c| c.rule_id == "fps_uncapped")
+                .unwrap()
+                .value,
+            "Off"
+        );
     }
 }
 
@@ -1484,9 +1800,15 @@ mod real_file_tests {
     fn cyberpunk_real_user_file() {
         let text = include_str!("testdata/cyberpunk_usersettings.json");
         let m = parse("json", text).unwrap();
-        let p = profiles().into_iter().find(|p| p.id == "cyberpunk2077").unwrap();
+        let p = profiles()
+            .into_iter()
+            .find(|p| p.id == "cyberpunk2077")
+            .unwrap();
         let (f, unmatched) = evaluate(&p.findings, &m);
-        assert!(unmatched.is_empty(), "every rule should find its setting: {unmatched:?}");
+        assert!(
+            unmatched.is_empty(),
+            "every rule should find its setting: {unmatched:?}"
+        );
         assert!(unreadable_of(&p, &m, &unmatched).is_empty());
         // Ray tracing is off; DLSS is on; capped at 240.
         assert!(!f.iter().any(|x| x.effect == "rt_on"));
@@ -1494,7 +1816,10 @@ mod real_file_tests {
         assert!(!f.iter().any(|x| x.rule_id == "fps_uncapped"));
         assert_eq!(fps_cap_of(&p.findings, &m), Some(240));
         let cur = current_settings(&p.findings, &m, &f);
-        assert_eq!(cur.iter().find(|c| c.rule_id == "vsync").unwrap().value, "Off");
+        assert_eq!(
+            cur.iter().find(|c| c.rule_id == "vsync").unwrap().value,
+            "Off"
+        );
         let ps = preset_state(&p, &m).unwrap();
         assert!(ps.custom);
         assert_eq!(ps.value, "Custom");
@@ -1518,9 +1843,17 @@ mod real_file_tests {
         m.extend(parse("kv", include_str!("testdata/cs2_machine_convars.vcfg")).unwrap());
         let p = profiles().into_iter().find(|p| p.id == "cs2").unwrap();
         let (f, unmatched) = evaluate(&p.findings, &m);
-        assert!(unreadable_of(&p, &m, &unmatched).is_empty(), "{:?}", unreadable_of(&p, &m, &unmatched));
+        assert!(
+            unreadable_of(&p, &m, &unmatched).is_empty(),
+            "{:?}",
+            unreadable_of(&p, &m, &unmatched)
+        );
         assert_eq!(fps_cap_of(&p.findings, &m), Some(400));
-        assert!(!f.iter().any(|x| x.effect == "uncapped_fps" || x.effect == "vsync_on" || x.effect == "heavy"));
+        assert!(
+            !f.iter().any(|x| x.effect == "uncapped_fps"
+                || x.effect == "vsync_on"
+                || x.effect == "heavy")
+        );
         let cur = current_settings(&p.findings, &m, &f);
         assert!(cur.iter().any(|c| c.rule_id == "cmaa"), "CMAA2 shown");
         let rx = cur.iter().find(|c| c.rule_id == "reflex").unwrap();
@@ -1532,26 +1865,62 @@ mod real_file_tests {
         assert_eq!(get("particles").now, "Low");
         assert_eq!(get("shader").now, "Low");
         assert_eq!(get("textures").now, "Low");
-        assert!(t.iter().all(|x| x.change_to.is_none()), "everything is already low");
+        assert!(
+            t.iter().all(|x| x.change_to.is_none()),
+            "everything is already low"
+        );
         assert_eq!(display_of(&p, &m).0.as_deref(), Some("2560x1440"));
         // Very High particles and High AO would be lowered.
         m.insert("setting.videocfg_particle_detail".into(), "3".into());
         m.insert("setting.videocfg_ao_detail".into(), "2".into());
         let t = tunable_states(&p, &m);
-        assert_eq!(t.iter().find(|x| x.id == "particles").unwrap().change_to.as_deref(), Some("Medium"));
-        assert_eq!(t.iter().find(|x| x.id == "ao").unwrap().change_to.as_deref(), Some("Disabled"));
+        assert_eq!(
+            t.iter()
+                .find(|x| x.id == "particles")
+                .unwrap()
+                .change_to
+                .as_deref(),
+            Some("Medium")
+        );
+        assert_eq!(
+            t.iter()
+                .find(|x| x.id == "ao")
+                .unwrap()
+                .change_to
+                .as_deref(),
+            Some("Disabled")
+        );
     }
 
     #[test]
     fn preset_steps_down_and_main_switch() {
-        let p = profiles().into_iter().find(|p| p.id == "cyberpunk2077").unwrap();
+        let p = profiles()
+            .into_iter()
+            .find(|p| p.id == "cyberpunk2077")
+            .unwrap();
         let mut m = BTreeMap::new();
-        m.insert("graphics/presets/QuickPresets".to_string(), "Ultra".to_string());
+        m.insert(
+            "graphics/presets/QuickPresets".to_string(),
+            "Ultra".to_string(),
+        );
         let ps = preset_state(&p, &m).unwrap();
         assert!(!ps.custom);
         assert_eq!(ps.lower.as_deref(), Some("High"));
         // A rule that needs a main switch is ignored while the switch is off.
-        let rule = FindingRule { id: "x".into(), keys: vec!["sub$".into()], when: "truthy".into(), effect: "heavy".into(), label: "Sub is on".into(), menu: String::new(), change_to: None, gain: None, cost: None, setting: None, value_keys: vec![], requires: Some("main$".into()) };
+        let rule = FindingRule {
+            id: "x".into(),
+            keys: vec!["sub$".into()],
+            when: "truthy".into(),
+            effect: "heavy".into(),
+            label: "Sub is on".into(),
+            menu: String::new(),
+            change_to: None,
+            gain: None,
+            cost: None,
+            setting: None,
+            value_keys: vec![],
+            requires: Some("main$".into()),
+        };
         let mut s = BTreeMap::new();
         s.insert("a/main".to_string(), "false".to_string());
         s.insert("a/sub".to_string(), "true".to_string());
@@ -1567,33 +1936,77 @@ mod new_profile_tests {
 
     #[test]
     fn xml_and_wildcards() {
-        let m = parse_xml("<?xml version=\"1.0\"?>\n<Settings><graphics><Grass_Quality value=\"3\" /><VSync value=\"0\"/></graphics><config><RayTracingQuality>2</RayTracingQuality></config></Settings>");
-        assert_eq!(m.get("Settings/graphics/Grass_Quality").map(|s| s.as_str()), Some("3"));
-        assert_eq!(m.get("Settings/config/RayTracingQuality").map(|s| s.as_str()), Some("2"));
+        let m = parse_xml(
+            "<?xml version=\"1.0\"?>\n<Settings><graphics><Grass_Quality value=\"3\" /><VSync value=\"0\"/></graphics><config><RayTracingQuality>2</RayTracingQuality></config></Settings>",
+        );
+        assert_eq!(
+            m.get("Settings/graphics/Grass_Quality").map(|s| s.as_str()),
+            Some("3")
+        );
+        assert_eq!(
+            m.get("Settings/config/RayTracingQuality")
+                .map(|s| s.as_str()),
+            Some("2")
+        );
         assert!(wild_match("options.4.cod24.cst", "options*.cst"));
         assert!(!wild_match("config.ini", "options*.cst"));
         let gta = profiles().into_iter().find(|p| p.id == "gta5").unwrap();
         let t = tunable_states(&gta, &m);
         let grass = t.iter().find(|x| x.id == "grass").unwrap();
-        assert_eq!((grass.now.as_str(), grass.change_to.as_deref()), ("Ultra", Some("Very High")));
-        let er = profiles().into_iter().find(|p| p.id == "elden_ring").unwrap();
-        assert!(evaluate(&er.findings, &m).0.iter().any(|f| f.rule_id == "raytracing"));
+        assert_eq!(
+            (grass.now.as_str(), grass.change_to.as_deref()),
+            ("Ultra", Some("Very High"))
+        );
+        let er = profiles()
+            .into_iter()
+            .find(|p| p.id == "elden_ring")
+            .unwrap();
+        assert!(
+            evaluate(&er.findings, &m)
+                .0
+                .iter()
+                .any(|f| f.rule_id == "raytracing")
+        );
     }
 
     #[test]
     fn minecraft_options() {
-        let m = parse("lines", "version:3953\nmaxFps:260\nenableVsync:false\nrenderDistance:32\ngraphicsMode:2\n").unwrap();
-        let p = profiles().into_iter().find(|p| p.id == "minecraft").unwrap();
+        let m = parse(
+            "lines",
+            "version:3953\nmaxFps:260\nenableVsync:false\nrenderDistance:32\ngraphicsMode:2\n",
+        )
+        .unwrap();
+        let p = profiles()
+            .into_iter()
+            .find(|p| p.id == "minecraft")
+            .unwrap();
         let (f, unmatched) = evaluate(&p.findings, &m);
         assert!(unmatched.is_empty());
         let ids: Vec<_> = f.iter().map(|x| x.rule_id.as_str()).collect();
-        assert!(ids.contains(&"fps_uncapped") && ids.contains(&"render_distance") && ids.contains(&"fabulous") && !ids.contains(&"vsync"));
+        assert!(
+            ids.contains(&"fps_uncapped")
+                && ids.contains(&"render_distance")
+                && ids.contains(&"fabulous")
+                && !ids.contains(&"vsync")
+        );
     }
 
     #[test]
     fn new_profiles_are_marked_unverified() {
-        for id in ["valorant", "apex", "warzone", "league", "minecraft", "marvel_rivals", "elden_ring", "gta5"] {
-            let p = profiles().into_iter().find(|p| p.id == id).unwrap_or_else(|| panic!("{id} missing"));
+        for id in [
+            "valorant",
+            "apex",
+            "warzone",
+            "league",
+            "minecraft",
+            "marvel_rivals",
+            "elden_ring",
+            "gta5",
+        ] {
+            let p = profiles()
+                .into_iter()
+                .find(|p| p.id == id)
+                .unwrap_or_else(|| panic!("{id} missing"));
             assert!(p.verified.starts_with("Unverified"), "{id}");
         }
     }
@@ -1607,21 +2020,56 @@ mod cities_tests {
     #[test]
     fn cities_real_settings_coc() {
         let m = parse("coc", include_str!("testdata/cities2_settings.coc")).unwrap();
-        assert_eq!(m.get("Graphics Settings/DepthOfFieldQualitySettings/enabled").map(|s| s.as_str()), Some("true"));
-        assert_eq!(m.get("Graphics Settings/ShadowsQualitySettings/directionalShadowResolution").map(|s| s.as_str()), Some("4096"));
-        assert_eq!(m.get("General Settings/autoSave").map(|s| s.as_str()), Some("true"));
-        let p = profiles().into_iter().find(|p| p.id == "cities_skylines_2").unwrap();
+        assert_eq!(
+            m.get("Graphics Settings/DepthOfFieldQualitySettings/enabled")
+                .map(|s| s.as_str()),
+            Some("true")
+        );
+        assert_eq!(
+            m.get("Graphics Settings/ShadowsQualitySettings/directionalShadowResolution")
+                .map(|s| s.as_str()),
+            Some("4096")
+        );
+        assert_eq!(
+            m.get("General Settings/autoSave").map(|s| s.as_str()),
+            Some("true")
+        );
+        let p = profiles()
+            .into_iter()
+            .find(|p| p.id == "cities_skylines_2")
+            .unwrap();
         assert!(!p.fps_limit);
         let (f, unmatched) = evaluate(&p.findings, &m);
-        assert!(unreadable_of(&p, &m, &unmatched).is_empty(), "missing = default in this file");
-        assert!(!f.iter().any(|x| x.rule_id == "gi"), "global illumination is already off");
+        assert!(
+            unreadable_of(&p, &m, &unmatched).is_empty(),
+            "missing = default in this file"
+        );
+        assert!(
+            !f.iter().any(|x| x.rule_id == "gi"),
+            "global illumination is already off"
+        );
         let t = tunable_states(&p, &m);
         let get = |id: &str| t.iter().find(|x| x.id == id).unwrap();
-        assert_eq!((get("dof").now.as_str(), get("dof").change_to.as_deref()), ("On", Some("Off")));
+        assert_eq!(
+            (get("dof").now.as_str(), get("dof").change_to.as_deref()),
+            ("On", Some("Off"))
+        );
         assert_eq!(get("motionblur").change_to.as_deref(), Some("Off"));
         assert_eq!(get("clouds").change_to.as_deref(), Some("Off"));
-        assert_eq!((get("shadows").now.as_str(), get("shadows").change_to.as_deref()), ("4096", Some("2048")));
-        assert_eq!((get("outlines").now.as_str(), get("outlines").change_to.as_deref()), ("8x", Some("4x")));
+        assert_eq!(
+            (
+                get("shadows").now.as_str(),
+                get("shadows").change_to.as_deref()
+            ),
+            ("4096", Some("2048"))
+        );
+        assert_eq!(
+            (
+                get("outlines").now.as_str(),
+                get("outlines").change_to.as_deref()
+            ),
+            ("8x", Some("4x"))
+        );
         assert_eq!(display_of(&p, &m), (None, Some(60.0)));
     }
 }

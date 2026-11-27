@@ -70,10 +70,10 @@ impl Log for Logger {
     }
 
     fn flush(&self) {
-        if let Ok(mut g) = self.inner.lock() {
-            if let Some(f) = g.file.as_mut() {
-                let _ = f.flush();
-            }
+        if let Ok(mut g) = self.inner.lock()
+            && let Some(f) = g.file.as_mut()
+        {
+            let _ = f.flush();
         }
     }
 }
@@ -92,9 +92,18 @@ pub fn init_named(name: &str) {
     if cur.exists() {
         let _ = std::fs::rename(&cur, &prev);
     }
-    let file = OpenOptions::new().create(true).write(true).truncate(true).open(&cur).ok();
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&cur)
+        .ok();
     let logger = LOGGER.get_or_init(|| Logger {
-        inner: Mutex::new(Inner { ring: VecDeque::with_capacity(RING_LINES), file, written: 0 }),
+        inner: Mutex::new(Inner {
+            ring: VecDeque::with_capacity(RING_LINES),
+            file,
+            written: 0,
+        }),
     });
     let _ = log::set_logger(logger);
     log::set_max_level(LevelFilter::Debug);
@@ -105,13 +114,21 @@ pub fn init_named(name: &str) {
 pub fn recent(n: usize) -> Vec<String> {
     LOGGER
         .get()
-        .and_then(|l| l.inner.lock().ok().map(|g| g.ring.iter().rev().take(n).rev().cloned().collect()))
+        .and_then(|l| {
+            l.inner
+                .lock()
+                .ok()
+                .map(|g| g.ring.iter().rev().take(n).rev().cloned().collect())
+        })
         .unwrap_or_default()
 }
 
 pub fn set_detailed(on: bool) {
     DETAILED.store(on, Ordering::Relaxed);
-    log::info!("Detailed logging {}", if on { "turned on" } else { "turned off" });
+    log::info!(
+        "Detailed logging {}",
+        if on { "turned on" } else { "turned off" }
+    );
 }
 
 /// Saved reports and old crash files are removed after 14 days.
@@ -121,16 +138,20 @@ fn cleanup_old_files() {
         if let Ok(rd) = std::fs::read_dir(dir) {
             for e in rd.flatten() {
                 let p = e.path();
-                let keep = p.file_name().map(|n| n.to_string_lossy().contains(".keep")).unwrap_or(false);
+                let keep = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().contains(".keep"))
+                    .unwrap_or(false);
                 if keep {
                     continue;
                 }
-                if let Ok(m) = e.metadata() {
-                    if let Ok(age) = m.modified().and_then(|t| t.elapsed().map_err(std::io::Error::other)) {
-                        if age > limit {
-                            let _ = std::fs::remove_file(&p);
-                        }
-                    }
+                if let Ok(m) = e.metadata()
+                    && let Ok(age) = m
+                        .modified()
+                        .and_then(|t| t.elapsed().map_err(std::io::Error::other))
+                    && age > limit
+                {
+                    let _ = std::fs::remove_file(&p);
                 }
             }
         }
@@ -142,7 +163,8 @@ fn cleanup_old_files() {
 
 static LAST_ACTIVITY: Mutex<String> = Mutex::new(String::new());
 
-static LAST_BY_KEY: std::sync::LazyLock<Mutex<std::collections::HashMap<String, String>>> = std::sync::LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static LAST_BY_KEY: std::sync::LazyLock<Mutex<std::collections::HashMap<String, String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 /// Logs a line only when it differs from the last one with the same key, so
 /// checks that repeat every few seconds don't flood the log.
@@ -172,14 +194,20 @@ pub fn install_crash_handler() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let what = LAST_ACTIVITY.lock().map(|g| g.clone()).unwrap_or_default();
-        let loc = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_default();
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_default();
         let msg = info
             .payload()
             .downcast_ref::<&str>()
             .map(|s| s.to_string())
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "unknown".into());
-        let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
+        let thread = std::thread::current()
+            .name()
+            .unwrap_or("unnamed")
+            .to_string();
         let body = crate::util::scrub(&format!(
             "Stream Preflight crash\nversion: {} ({})\ntime: {}\nthread: {}\nwas doing: {}\nwhere: {}\nmessage: {}\n\nrecent log:\n{}\n",
             crate::util::VERSION,
@@ -191,7 +219,9 @@ pub fn install_crash_handler() {
             msg,
             recent(80).join("\n")
         ));
-        let path = crate::util::dirs().logs.join(format!("crash-{}.txt", crate::util::now_stamp()));
+        let path = crate::util::dirs()
+            .logs
+            .join(format!("crash-{}.txt", crate::util::now_stamp()));
         let _ = std::fs::write(&path, body);
         log::error!("Crash in thread {thread} at {loc}: {msg}");
         default(info);

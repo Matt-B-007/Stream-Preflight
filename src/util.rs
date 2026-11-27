@@ -8,12 +8,18 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Label shown in the app while we are in private testing.
 /// "2.1% of one core" from a share of the whole CPU (how Preflight measures itself).
 pub fn one_core(pct_of_all: f32) -> String {
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f32;
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1) as f32;
     let v = pct_of_all * cores;
-    if v < 0.1 { "under 0.1% of one core".into() } else { format!("{v:.1}% of one core") }
+    if v < 0.1 {
+        "under 0.1% of one core".into()
+    } else {
+        format!("{v:.1}% of one core")
+    }
 }
 
-pub const BUILD_LABEL: &str = "Beta 5";
+pub const BUILD_LABEL: &str = "Beta 7";
 
 /// Folders the app is allowed to write to. Everything lives under the
 /// user's normal per-app data folder; nothing is written anywhere else.
@@ -51,7 +57,15 @@ pub fn dirs() -> &'static Dirs {
         for d in [&config, &data, &logs, &reports, &previews, &streams, &tests] {
             let _ = std::fs::create_dir_all(d);
         }
-        Dirs { config, data, logs, reports, previews, streams, tests }
+        Dirs {
+            config,
+            data,
+            logs,
+            reports,
+            previews,
+            streams,
+            tests,
+        }
     })
 }
 
@@ -62,7 +76,11 @@ pub fn now_local() -> String {
 /// "Nov 13, 19:16" for a unix time.
 pub fn fmt_local(t: i64) -> String {
     use chrono::TimeZone;
-    chrono::Local.timestamp_opt(t, 0).single().map(|d| d.format("%b %-d, %H:%M").to_string()).unwrap_or_default()
+    chrono::Local
+        .timestamp_opt(t, 0)
+        .single()
+        .map(|d| d.format("%b %-d, %H:%M").to_string())
+        .unwrap_or_default()
 }
 
 pub fn now_stamp() -> String {
@@ -99,15 +117,15 @@ pub fn scrub(text: &str) -> String {
             out = out.replace(&h.replace('\\', "/"), "<home>");
         }
     }
-    if let Some(u) = user_name() {
-        if u.len() >= 3 {
-            for (a, b) in [
-                (format!("\\Users\\{u}"), "\\Users\\<user>".to_string()),
-                (format!("/Users/{u}"), "/Users/<user>".to_string()),
-                (format!("/home/{u}"), "/home/<user>".to_string()),
-            ] {
-                out = out.replace(&a, &b);
-            }
+    if let Some(u) = user_name()
+        && u.len() >= 3
+    {
+        for (a, b) in [
+            (format!("\\Users\\{u}"), "\\Users\\<user>".to_string()),
+            (format!("/Users/{u}"), "/Users/<user>".to_string()),
+            (format!("/home/{u}"), "/home/<user>".to_string()),
+        ] {
+            out = out.replace(&a, &b);
         }
     }
     out = scrub_secrets(&out);
@@ -125,7 +143,10 @@ pub fn scrub_steam_ids(s: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         // userdata/<digits> or userdata\<digits>
-        if (s[i..].starts_with("userdata/") || s[i..].starts_with("userdata\\")) && i + 9 < b.len() && b[i + 9].is_ascii_digit() {
+        if (s[i..].starts_with("userdata/") || s[i..].starts_with("userdata\\"))
+            && i + 9 < b.len()
+            && b[i + 9].is_ascii_digit()
+        {
             let mut j = i + 9;
             while j < b.len() && b[j].is_ascii_digit() {
                 j += 1;
@@ -159,7 +180,15 @@ pub fn scrub_steam_ids(s: &str) -> String {
 fn scrub_secrets(s: &str) -> String {
     // Only key/value lines whose KEY names a secret, e.g. `password=...`
     // or `"stream_key": "..."`. The value is replaced; the key is kept.
-    let keys = ["password", "passwd", "token", "stream_key", "streamkey", "secret", "authentication"];
+    let keys = [
+        "password",
+        "passwd",
+        "token",
+        "stream_key",
+        "streamkey",
+        "secret",
+        "authentication",
+    ];
     let mut lines = Vec::new();
     for line in s.lines() {
         let cut = line.find(['=', ':']);
@@ -188,7 +217,9 @@ fn scrub_ipv4(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         // try to match d{1,3}(.d{1,3}){3}
-        if bytes[i].is_ascii_digit() && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != '.') {
+        if bytes[i].is_ascii_digit()
+            && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != '.')
+        {
             let mut j = i;
             let mut parts = 0;
             let mut ok = true;
@@ -202,7 +233,11 @@ fn scrub_ipv4(s: &str) -> String {
                     ok = false;
                     break;
                 }
-                let n: u32 = bytes[start..j].iter().collect::<String>().parse().unwrap_or(999);
+                let n: u32 = bytes[start..j]
+                    .iter()
+                    .collect::<String>()
+                    .parse()
+                    .unwrap_or(999);
                 if n > 255 {
                     ok = false;
                     break;
@@ -289,29 +324,21 @@ pub fn fmt_bytes(b: u64) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn scrubs_ip_and_mac_and_secrets() {
-        let s = "connect 192.168.1.20 ok; mac aa:bb:cc:dd:ee:ff\npassword=hunter2\n\"stream_key\": \"live_abc\"\n\"key\": \"FrameRateLimit\"\nversion 1.2.3";
-        let r = scrub(s);
-        assert!(r.contains("<ip-address>"));
-        assert!(r.contains("<mac-address>"));
-        assert!(!r.contains("hunter2"));
-        assert!(r.contains("version 1.2.3"));
-        assert!(!r.contains("live_abc"));
-        assert!(r.contains("FrameRateLimit"));
-    }
-}
-
 /// The app used to be called "Stream Pre-Flight Check". The first time the new
 /// name runs, its settings, saved password, history and stream summaries are
 /// moved over so nothing is lost. Only ever Preflight's own folders.
 fn migrate_old_folders(new: &Option<directories::ProjectDirs>) {
     let Some(new) = new else { return };
-    let Some(old) = directories::ProjectDirs::from("", "", "StreamPreFlightCheck") else { return };
-    let pairs = [(old.config_dir().to_path_buf(), new.config_dir().to_path_buf()), (old.data_dir().to_path_buf(), new.data_dir().to_path_buf())];
+    let Some(old) = directories::ProjectDirs::from("", "", "StreamPreFlightCheck") else {
+        return;
+    };
+    let pairs = [
+        (
+            old.config_dir().to_path_buf(),
+            new.config_dir().to_path_buf(),
+        ),
+        (old.data_dir().to_path_buf(), new.data_dir().to_path_buf()),
+    ];
     for (from, to) in pairs {
         if from == to || !from.exists() || to.exists() {
             continue;
@@ -325,10 +352,10 @@ fn migrate_old_folders(new: &Option<directories::ProjectDirs>) {
         }
     }
     // On Windows config and data share one parent folder; tidy the empty old one.
-    if let Some(p) = old.config_dir().parent() {
-        if p.to_string_lossy().contains("StreamPreFlightCheck") {
-            let _ = std::fs::remove_dir(p);
-        }
+    if let Some(p) = old.config_dir().parent()
+        && p.to_string_lossy().contains("StreamPreFlightCheck")
+    {
+        let _ = std::fs::remove_dir(p);
     }
 }
 
@@ -344,4 +371,20 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scrubs_ip_and_mac_and_secrets() {
+        let s = "connect 192.168.1.20 ok; mac aa:bb:cc:dd:ee:ff\npassword=hunter2\n\"stream_key\": \"live_abc\"\n\"key\": \"FrameRateLimit\"\nversion 1.2.3";
+        let r = scrub(s);
+        assert!(r.contains("<ip-address>"));
+        assert!(r.contains("<mac-address>"));
+        assert!(!r.contains("hunter2"));
+        assert!(r.contains("version 1.2.3"));
+        assert!(!r.contains("live_abc"));
+        assert!(r.contains("FrameRateLimit"));
+    }
 }
