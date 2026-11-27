@@ -20,6 +20,8 @@ pub enum TrayState {
     Testing,
     /// Streaming; post-flight is recording numbers.
     Live,
+    /// Connected and not live, with fixes left from the last check.
+    NeedsFixes,
 }
 
 impl TrayState {
@@ -29,6 +31,7 @@ impl TrayState {
             TrayState::Watching => "Watching OBS",
             TrayState::Testing => "Testing",
             TrayState::Live => "Live",
+            TrayState::NeedsFixes => "Things to fix",
         }
     }
 }
@@ -53,8 +56,9 @@ pub fn icon_rgba(view: &TrayView, size: u32) -> Vec<u8> {
     let (r, g, b) = match view.state {
         TrayState::Idle => (0x9A, 0xA4, 0xB2),
         TrayState::Watching => (0xC6, 0xF3, 0x6B),
-        TrayState::Testing => (0xF5, 0xB9, 0x42),
+        TrayState::Testing => (0x5E, 0xF0, 0xB5),
         TrayState::Live => (0xF0, 0x5A, 0x5A),
+        TrayState::NeedsFixes => (0xF5, 0xB9, 0x42),
     };
     let n = size as usize;
     let mut out = vec![0u8; n * n * 4];

@@ -6,7 +6,14 @@ use std::sync::OnceLock;
 pub const APP_NAME: &str = "Stream Preflight";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Label shown in the app while we are in private testing.
-pub const BUILD_LABEL: &str = "Beta 4";
+/// "2.1% of one core" from a share of the whole CPU (how Preflight measures itself).
+pub fn one_core(pct_of_all: f32) -> String {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f32;
+    let v = pct_of_all * cores;
+    if v < 0.1 { "under 0.1% of one core".into() } else { format!("{v:.1}% of one core") }
+}
+
+pub const BUILD_LABEL: &str = "Beta 5";
 
 /// Folders the app is allowed to write to. Everything lives under the
 /// user's normal per-app data folder; nothing is written anywhere else.

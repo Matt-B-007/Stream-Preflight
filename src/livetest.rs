@@ -58,6 +58,11 @@ pub struct TestResult {
     pub own_ram_mb: Option<f32>,
     #[serde(skip)]
     pub recording_path: Option<String>,
+    /// The user's own recording that was already running when the test began
+    /// (recording while streaming). Used only to show the viewer preview; it's
+    /// never treated as a test recording, so it's never offered for deletion.
+    #[serde(skip)]
+    pub live_rec_path: Option<String>,
     pub recording_size: Option<u64>,
     /// Original (before-encoding) frames from OBS, with their position in
     /// the recording.
@@ -156,7 +161,12 @@ pub fn start(cfg: TestConfig, ctx: eframe::egui::Context) -> TestHandle {
                         s.phase = Phase::Finished;
                     }
                     Err(e) => {
-                        log::warn!("Live test ended: {e}");
+                        // Stopping is the user's choice, not a problem.
+                        if e.starts_with("Stopped") {
+                            log::info!("Live test ended: {e}");
+                        } else {
+                            log::warn!("Live test ended: {e}");
+                        }
                         s.phase = Phase::Failed(e);
                     }
                 }
@@ -181,6 +191,7 @@ fn run(cfg: &TestConfig, st: &Arc<Mutex<TestState>>, stop: &Arc<AtomicBool>, ctx
         set_phase(st, Phase::WaitingForRecord);
         ctx.request_repaint();
         let wait = Instant::now();
+        let mut seen: Option<(bool, bool)> = None;
         loop {
             if stop.load(Ordering::Relaxed) {
                 return Err(CANCELLED.into());
@@ -201,7 +212,11 @@ fn run(cfg: &TestConfig, st: &Arc<Mutex<TestState>>, stop: &Arc<AtomicBool>, ctx
             if rec && (!cfg.need_stream || streaming) {
                 break;
             }
-            ctx.request_repaint();
+            // Redraw only when something changed (the spinner ticks by itself once a second).
+            if seen != Some((rec, streaming)) {
+                seen = Some((rec, streaming));
+                ctx.request_repaint();
+            }
             if wait.elapsed().as_secs_f32() > WAIT_FOR_RECORD_SECONDS {
                 return Err("Stopped watching for a recording after an hour.".into());
             }
@@ -428,6 +443,14 @@ fn run(cfg: &TestConfig, st: &Arc<Mutex<TestState>>, stop: &Arc<AtomicBool>, ctx
     }
     if let Some(c) = client.as_mut() {
         let _ = c.subscribe_volume(false);
+        // Recording while streaming: the recording started before the test, so OBS
+        // never told us its file. Find it for the viewer preview only.
+        if r.recording_path.is_none() {
+            r.live_rec_path = newest_recording(c);
+            if let Some(p) = &r.live_rec_path {
+                log::info!("Using the recording that was already running for the preview ({})", crate::util::scrub(p));
+            }
+        }
     }
 
     r.seconds = start.elapsed().as_secs_f32();
@@ -543,4 +566,47 @@ fn grab_shot(c: &mut Client, scene: &str, size: Option<(u64, u64)>, i: usize) ->
     std::fs::write(&path, bytes).ok()?;
     log::info!("Preview frame {i} grabbed at {} ms into the recording", (before + after) / 2);
     Some(PreviewShot { rec_ms: (before + after) / 2, path })
+}
+
+/// The newest video in OBS's recording folder, if OBS is recording right now
+/// and the file was written to in the last minute (the running recording).
+fn newest_recording(c: &mut Client) -> Option<String> {
+    let st = c.request("GetRecordStatus", json!({})).ok()?;
+    if st["outputActive"].as_bool() != Some(true) {
+        return None;
+    }
+    let dir = c.request("GetRecordDirectory", json!({})).ok()?["recordDirectory"].as_str()?.to_string();
+    newest_video_in(std::path::Path::new(&dir), 60)
+}
+
+pub fn newest_video_in(dir: &std::path::Path, max_age_secs: u64) -> Option<String> {
+    let now = std::time::SystemTime::now();
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|e| {
+            let n = e.file_name().to_string_lossy().to_lowercase();
+            [".mkv", ".mp4", ".mov", ".flv", ".ts"].iter().any(|x| n.ends_with(x))
+        })
+        .filter_map(|e| {
+            let m = e.metadata().ok()?.modified().ok()?;
+            (now.duration_since(m).map(|d| d.as_secs()).unwrap_or(0) <= max_age_secs).then(|| (m, e.path()))
+        })
+        .max_by_key(|(m, _)| *m)
+        .map(|(_, p)| p.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod live_rec_tests {
+    #[test]
+    fn finds_the_file_being_written() {
+        let d = std::env::temp_dir().join(format!("sp-rec-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&d);
+        std::fs::write(d.join("notes.txt"), "x").unwrap();
+        std::fs::write(d.join("2026-11-26 07-58-00.mov"), "x").unwrap();
+        let got = super::newest_video_in(&d, 60).unwrap();
+        assert!(got.ends_with(".mov"));
+        assert!(super::newest_video_in(&d.join("missing"), 60).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }

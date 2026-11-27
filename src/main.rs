@@ -22,6 +22,7 @@ mod report;
 mod streamwatch;
 mod theme;
 mod tray;
+mod traymode;
 mod twopc;
 mod pairing;
 mod install;
@@ -32,6 +33,16 @@ mod util;
 mod winsys;
 
 fn main() {
+    let tray_only = std::env::args().any(|a| a == "--tray");
+    if tray_only && cfg!(target_os = "linux") {
+        // Tray icon and OBS watcher, no window (see traymode.rs).
+        logger::init_named("preflight-tray");
+        logger::install_crash_handler();
+        log::info!("{} {} starting in the tray", util::APP_NAME, util::VERSION);
+        traymode::run();
+        log::logger().flush();
+        return;
+    }
     logger::init();
     logger::install_crash_handler();
     log::info!("{} {} ({}) starting on {}", util::APP_NAME, util::VERSION, util::BUILD_LABEL, std::env::consts::OS);
@@ -83,6 +94,8 @@ fn main() {
     }
 
     install::tidy_after_update();
+    // Only one Preflight watches OBS: a tray-only copy steps aside for the window.
+    traymode::ask_tray_to_exit();
     // Linux: app menu entry and icon (so KDE/GNOME show the icon), automatically.
     let menu_added = desktop::ensure();
     // Windows "Installed apps › Uninstall" starts Preflight with --uninstall.

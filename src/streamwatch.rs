@@ -67,6 +67,44 @@ pub struct StreamLog {
     /// label, (skipped, total) when first seen, and latest.
     #[serde(default)]
     pub outputs: Vec<(String, (u64, u64), (u64, u64))>,
+    /// OBS's own recording during the stream: seconds recorded (longest
+    /// seen), how many times it started, and the average recording rate.
+    #[serde(default)]
+    pub rec_seconds: f32,
+    #[serde(default)]
+    pub rec_starts: u32,
+    #[serde(default)]
+    pub rec_kbps: Option<f32>,
+}
+
+/// OBS's recording right now (asked every 5 seconds while live).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RecStatus {
+    pub active: bool,
+    pub paused: bool,
+    pub seconds: f32,
+    /// How fast the recording file grows, in kbps (once it's been measured).
+    pub kbps: Option<f32>,
+    /// Bytes written so far (for the rate).
+    pub bytes: u64,
+}
+
+/// Reads GetRecordStatus. None if OBS didn't answer.
+pub fn read_record(c: &mut crate::obs::Client) -> Option<RecStatus> {
+    let v = c.request("GetRecordStatus", json!({})).ok()?;
+    Some(RecStatus {
+        active: v["outputActive"].as_bool().unwrap_or(false),
+        paused: v["outputPaused"].as_bool().unwrap_or(false),
+        seconds: v["outputDuration"].as_u64().unwrap_or(0) as f32 / 1000.0,
+        kbps: None,
+        bytes: v["outputBytes"].as_u64().unwrap_or(0),
+    })
+}
+
+/// kbps from two (seconds, bytes) readings of the same recording.
+pub fn rec_rate(a: (f32, u64), b: (f32, u64)) -> Option<f32> {
+    let dt = b.0 - a.0;
+    (dt >= 4.0 && b.1 > a.1).then(|| (b.1 - a.1) as f32 * 8.0 / 1000.0 / dt)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -74,10 +112,18 @@ pub struct LiveStatus {
     pub elapsed: f32,
     pub kbps: Option<f32>,
     pub dropped_pct: f32,
+    /// OBS's recording, if OBS answered.
+    pub rec: Option<RecStatus>,
+    /// Frames the encoder skipped since the stream started, as a percentage.
+    pub enc_skipped_pct: Option<f32>,
+    /// Every active output (stream, recording, plugins), read every 10 seconds.
+    pub outputs: Vec<crate::obs::OutputInfo>,
 }
 
 #[derive(Default)]
 pub struct WatchState {
+    /// Connected to OBS right now.
+    pub connected: bool,
     pub live: Option<LiveStatus>,
     /// A stream that just ended; the app takes it to show a notice.
     pub finished: Option<StreamLog>,
@@ -87,6 +133,20 @@ pub struct WatchHandle {
     pub state: Arc<Mutex<WatchState>>,
     pub stop: Arc<AtomicBool>,
     pub cmd: Sender<Cmd>,
+    /// Set when the watcher has saved its work and finished.
+    pub stopped: Arc<AtomicBool>,
+}
+
+impl WatchHandle {
+    /// Stops watching and waits (up to `max`) until an unfinished stream is saved,
+    /// so another Preflight process can pick it up without losing anything.
+    pub fn stop_and_wait(&self, max: Duration) {
+        self.stop.store(true, Ordering::Relaxed);
+        let t = Instant::now();
+        while !self.stopped.load(Ordering::Relaxed) && t.elapsed() < max {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
 
 /// Asks the hub for an OBS snapshot, waiting up to 10 seconds.
@@ -118,13 +178,17 @@ fn current_path() -> std::path::PathBuf {
 pub fn start(cfg: WatchConfig, ctx: eframe::egui::Context) -> WatchHandle {
     let state = Arc::new(Mutex::new(WatchState::default()));
     let stop = Arc::new(AtomicBool::new(false));
-    let (st, sp) = (state.clone(), stop.clone());
+    let stopped = Arc::new(AtomicBool::new(false));
+    let (st, sp, done) = (state.clone(), stop.clone(), stopped.clone());
     let (cmd, rx) = channel();
     std::thread::Builder::new()
         .name("obs-hub".into())
-        .spawn(move || run(cfg, st, sp, rx, ctx))
+        .spawn(move || {
+            run(cfg, st, sp, rx, ctx);
+            done.store(true, Ordering::Relaxed);
+        })
         .expect("spawn OBS hub");
-    WatchHandle { state, stop, cmd }
+    WatchHandle { state, stop, cmd, stopped }
 }
 
 fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds: Receiver<Cmd>, ctx: eframe::egui::Context) {
@@ -140,6 +204,11 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
     let mut sys = None;
     let mut last_save = Instant::now();
     let mut tick = 0u32;
+    // The recording's (seconds, bytes) when its rate was last measured, and the rate.
+    let mut rec_mark: Option<(f32, u64)> = None;
+    let mut rec_kbps: Option<f32> = None;
+    let mut rec_was_on = false;
+    let mut live_outputs: Vec<crate::obs::OutputInfo> = Vec::new();
     let me = sysinfo::get_current_pid().ok();
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f32;
 
@@ -157,6 +226,9 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
                 save_current(l);
             }
             return;
+        }
+        if let Ok(mut g) = st.lock() {
+            g.connected = client.is_some();
         }
         if client.is_none() && Instant::now() >= next_try {
             connect(&mut client, &mut last_err);
@@ -238,6 +310,10 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
             mon = Some(Monitor::new());
             sys = crate::hardware::new_system();
             tick = 0;
+            rec_was_on = false;
+            rec_mark = None;
+            rec_kbps = None;
+            live_outputs.clear();
         }
         if !active {
             if let Some(l) = log.take() {
@@ -290,9 +366,38 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
         let kbps = l.samples.last().filter(|p| t - p.t > 0.5).map(|p| smp.bytes.saturating_sub(p.bytes) as f32 * 8.0 / 1000.0 / (t - p.t));
         let dropped_pct = if smp.net_total > 0 { smp.net_dropped as f32 * 100.0 / smp.net_total as f32 } else { 0.0 };
         l.samples.push(smp);
-        // Every 10 samples: frames skipped by each output (recording too).
+        // Recording: asked every sample, so starting or stopping it mid-stream shows within 5 s.
+        let mut rec = read_record(c);
+        if let Some(r) = rec.as_mut() {
+            if r.active {
+                if !rec_was_on {
+                    l.rec_starts += 1;
+                    rec_mark = None;
+                }
+                l.rec_seconds = l.rec_seconds.max(r.seconds);
+                if !r.paused {
+                    match rec_mark {
+                        Some(m) if r.seconds - m.0 >= 30.0 => {
+                            if let Some(k) = rec_rate(m, (r.seconds, r.bytes)) {
+                                rec_kbps = Some(k);
+                                l.rec_kbps = Some(k);
+                            }
+                            rec_mark = Some((r.seconds, r.bytes));
+                        }
+                        None => rec_mark = Some((r.seconds, r.bytes)),
+                        _ => {}
+                    }
+                }
+                r.kbps = rec_kbps;
+            }
+            rec_was_on = r.active;
+        }
+        // Every 2 samples (10 s): each output for the Live page; every 10, the log's totals.
+        if tick % 2 == 0 {
+            live_outputs = crate::obs::read_outputs(c).into_iter().filter(|o| o.active).collect();
+        }
         if tick % 10 == 0 {
-            for o in crate::obs::read_outputs(c).into_iter().filter(|o| o.active && o.label != "Stream") {
+            for o in live_outputs.iter().filter(|o| o.label != "Stream").cloned() {
                 if let (Some(d), Some(tot)) = (o.skipped, o.total) {
                     let label = o.label.clone();
                     match l.outputs.iter_mut().find(|x| x.0 == label) {
@@ -315,7 +420,11 @@ fn run(cfg: WatchConfig, st: Arc<Mutex<WatchState>>, stop: Arc<AtomicBool>, cmds
             last_save = Instant::now();
         }
         if let Ok(mut g) = st.lock() {
-            g.live = Some(LiveStatus { elapsed: t, kbps, dropped_pct });
+            let enc_skipped_pct = l.samples.first().zip(l.samples.last()).and_then(|(a, b)| {
+                let tot = b.enc_total.saturating_sub(a.enc_total);
+                (tot > 0).then(|| b.enc_skipped.saturating_sub(a.enc_skipped) as f32 * 100.0 / tot as f32)
+            });
+            g.live = Some(LiveStatus { elapsed: t, kbps, dropped_pct, rec, enc_skipped_pct, outputs: live_outputs.clone() });
         }
         ctx.request_repaint();
         tick += 1;
@@ -410,6 +519,11 @@ pub struct PostFlight {
     pub enc_avg: Option<f32>,
     pub own_cpu_avg: Option<f32>,
     pub own_mb_max: Option<f32>,
+    /// Preflight's memory at the start and end of the stream (to spot growth).
+    pub own_mb_start: Option<f32>,
+    pub own_mb_end: Option<f32>,
+    /// "Recorded 5h 11m · about 28 Mbps" when OBS recorded during the stream.
+    pub recording: Option<String>,
     pub kbps_series: Vec<f32>,
     pub moments: Vec<Moment>,
     pub advice: Vec<Advice>,
@@ -483,6 +597,16 @@ pub fn summarize(l: &StreamLog) -> PostFlight {
     p.enc_avg = avg(l.samples.iter().filter_map(|s| s.enc).collect());
     p.own_cpu_avg = avg(l.samples.iter().filter_map(|s| s.own_cpu).collect());
     p.own_mb_max = l.samples.iter().filter_map(|s| s.own_mb).fold(None, |a, b| Some(a.map_or(b, |x: f32| x.max(b))));
+    p.own_mb_start = l.samples.iter().find_map(|s| s.own_mb);
+    p.own_mb_end = l.samples.iter().rev().find_map(|s| s.own_mb);
+    p.recording = (l.rec_starts > 0).then(|| {
+        format!(
+            "Recorded {}{}{}",
+            fmt_duration(l.rec_seconds),
+            l.rec_kbps.map(|k| format!(" · about {:.0} Mbps", k / 1000.0)).unwrap_or_default(),
+            if l.rec_starts > 1 { format!(" · started {} times", l.rec_starts) } else { String::new() }
+        )
+    });
     let mut was = false;
     for s in &l.samples {
         if s.reconnecting && !was {
@@ -651,5 +775,27 @@ mod tests {
         assert!(p.advice.iter().any(|a| a.title.contains("bitrate")));
         assert!(!p.moments.is_empty());
         assert!(p.moments[0].t >= 480.0);
+    }
+}
+
+#[cfg(test)]
+mod rec_tests {
+    use super::*;
+
+    #[test]
+    fn recording_rate_and_auto_record() {
+        assert_eq!(rec_rate((10.0, 1_000_000), (40.0, 106_000_000)), Some(28000.0));
+        assert_eq!(rec_rate((10.0, 5), (12.0, 9)), None, "too short to measure");
+        assert!(crate::obs::parse_auto_record("[General]\nX=1\n[BasicWindow]\nRecordWhenStreaming=true\n"));
+        assert!(!crate::obs::parse_auto_record("[BasicWindow]\nRecordWhenStreaming=false\n"));
+        assert!(!crate::obs::parse_auto_record("[Other]\nRecordWhenStreaming=true\n"), "only the BasicWindow section counts");
+        let mut l = StreamLog::default();
+        l.rec_starts = 1;
+        l.rec_seconds = 3600.0 * 5.0 + 660.0;
+        l.rec_kbps = Some(28000.0);
+        l.samples = vec![StreamSample { t: 0.0, own_mb: Some(198.0), ..Default::default() }, StreamSample { t: 5.0, own_mb: Some(249.0), ..Default::default() }];
+        let p = summarize(&l);
+        assert_eq!((p.own_mb_start, p.own_mb_end), (Some(198.0), Some(249.0)));
+        assert_eq!(p.recording.as_deref(), Some("Recorded 5h 11m · about 28 Mbps"));
     }
 }

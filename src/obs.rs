@@ -203,6 +203,9 @@ pub struct AudioInput {
     pub role: String,
     pub muted: Option<bool>,
     pub volume_db: Option<f32>,
+    /// The device it captures ("default" or a device id). Only compared, never shown or reported.
+    #[serde(skip)]
+    pub device: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -460,6 +463,9 @@ pub struct ObsSnapshot {
     pub fps: Option<f32>,
     pub recording_uses_stream_settings: Option<bool>,
     pub recording_note: String,
+    /// OBS › Settings › Advanced › Recording › "Automatically record when streaming".
+    #[serde(default)]
+    pub auto_record: Option<bool>,
     pub recording_active: bool,
     pub streaming_active: bool,
     #[serde(skip)]
@@ -512,6 +518,12 @@ impl ObsSnapshot {
     pub fn mics(&self) -> Vec<&AudioInput> {
         self.audio.iter().filter(|a| a.role == "mic").collect()
     }
+    /// Two or more unmuted Desktop Audio sources capturing the same device: the game is heard twice.
+    pub fn doubled_desktop_audio(&self) -> usize {
+        let on: Vec<&AudioInput> = self.audio.iter().filter(|a| a.role == "desktop" && a.muted != Some(true)).collect();
+        on.iter().map(|a| on.iter().filter(|b| b.device == a.device).count()).max().unwrap_or(0)
+    }
+
     pub fn desktop_audio(&self) -> Vec<&AudioInput> {
         self.audio.iter().filter(|a| a.role == "desktop" || a.role == "app").collect()
     }
@@ -743,7 +755,12 @@ pub fn snapshot_live(c: &mut Client) -> ObsSnapshot {
                     let name = i["inputName"].as_str().unwrap_or("").to_string();
                     let muted = c.request("GetInputMute", json!({"inputName": name})).ok().and_then(|m| m["inputMuted"].as_bool());
                     let volume_db = c.request("GetInputVolume", json!({"inputName": name})).ok().and_then(|m| m["inputVolumeDb"].as_f64()).map(|v| v as f32);
-                    s.audio.push(AudioInput { name, kind, role: role.into(), muted, volume_db });
+                    let device = if role == "desktop" {
+                        c.request("GetInputSettings", json!({"inputName": name})).ok().and_then(|v| v["inputSettings"]["device_id"].as_str().map(|d| d.to_string())).unwrap_or_else(|| "default".into())
+                    } else {
+                        String::new()
+                    };
+                    s.audio.push(AudioInput { name, kind, role: role.into(), muted, volume_db, device });
                 }
             }
         }
@@ -759,6 +776,7 @@ pub fn snapshot_live(c: &mut Client) -> ObsSnapshot {
         s.fps,
         s.recording_uses_stream_settings
     ));
+    s.auto_record = auto_record_setting();
     s
 }
 
@@ -777,6 +795,34 @@ pub fn obs_config_dirs() -> Vec<PathBuf> {
         v.push(h.join(".var/app/com.obsproject.Studio/config/obs-studio"));
     }
     v.into_iter().filter(|p| p.join("basic/profiles").exists()).collect()
+}
+
+/// "Automatically record when streaming" from OBS's own settings file
+/// (user.ini, or global.ini before OBS 31). Read-only; OBS's default is off.
+pub fn auto_record_setting() -> Option<bool> {
+    for base in obs_config_dirs() {
+        for f in ["user.ini", "global.ini"] {
+            if let Ok(t) = std::fs::read_to_string(base.join(f)) {
+                return Some(parse_auto_record(&t));
+            }
+        }
+    }
+    None
+}
+
+pub fn parse_auto_record(ini: &str) -> bool {
+    let mut sect = "";
+    for line in ini.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            sect = l;
+        } else if sect == "[BasicWindow]" {
+            if let Some(v) = l.strip_prefix("RecordWhenStreaming=") {
+                return v.trim().eq_ignore_ascii_case("true");
+            }
+        }
+    }
+    false
 }
 
 fn profile_dir_by_name(name: &str) -> Option<PathBuf> {
@@ -939,6 +985,7 @@ pub fn snapshot_saved() -> Option<ObsSnapshot> {
     nvenc_defaults(&mut s);
     finish_rec(&mut s);
     crate::logger::info_changed("obs-profile", format!("Read saved OBS profile: {} mode, encoder {}", s.output_mode, s.encoder_kind));
+    s.auto_record = auto_record_setting();
     Some(s)
 }
 
@@ -1138,5 +1185,25 @@ mod tests {
         assert_eq!(super::source_label("pipewire-window-capture-source"), "Window capture");
         assert_eq!(super::source_label("xshm_input"), "Display capture");
         assert_eq!(super::source_label("game_capture"), "Game capture");
+    }
+}
+
+#[cfg(test)]
+mod audio_tests {
+    use super::*;
+
+    fn desk(device: &str, muted: bool) -> AudioInput {
+        AudioInput { name: String::new(), kind: "pulse_output_capture".into(), role: "desktop".into(), muted: Some(muted), volume_db: Some(0.0), device: device.into() }
+    }
+
+    #[test]
+    fn doubled_desktop_audio() {
+        let mut s = ObsSnapshot::default();
+        s.audio = vec![desk("default", false), desk("default", false)];
+        assert_eq!(s.doubled_desktop_audio(), 2, "two captures of the same output, both on");
+        s.audio = vec![desk("default", false), desk("default", true)];
+        assert_eq!(s.doubled_desktop_audio(), 1, "one is muted");
+        s.audio = vec![desk("default", false), desk("headset", false)];
+        assert_eq!(s.doubled_desktop_audio(), 1, "different devices");
     }
 }

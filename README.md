@@ -30,7 +30,7 @@ The finished app lives in this repository's `download/` folder:
 | `download/stream-preflight-linux.gz` | The newest stable version (once there is one) |
 | `download/beta/stream-preflight-linux.gz` | The newest beta |
 
-Stream Preflight reads `version.txt` once a day (you can turn that off in **Settings › Updates & about**). When there's a newer version, a banner offers **Update now**: it downloads the file, checks it against the checksum, swaps it in and restarts. Your settings stay. No GitHub Releases or tags are used.
+Stream Preflight reads `version.txt` once a day (you can turn that off in **Settings › Updates & about**). When there's a newer version, a banner offers **Update now**: it downloads the file, checks it against the checksum, swaps it in and restarts. Your settings stay. Installs and updates never depend on GitHub Releases or tags; those are only a record of each version.
 
 - **Betas** are named after the next version: `v0.1.0-beta.4` comes before `v0.1.0`. Beta builds look for betas automatically.
 - **Include beta versions** in Settings turns beta updates on or off. Any version with a dash counts as a beta.
@@ -41,6 +41,7 @@ Stream Preflight reads `version.txt` once a day (you can turn that off in **Sett
 1. Set `version` in `Cargo.toml` (for example `0.1.0-beta.5`) and build: `cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.31`.
 2. Run `scripts/make-download.sh target/x86_64-unknown-linux-gnu/release/stream-preflight`. It puts the build in `download/` (or `download/beta/`) and updates `download/version.txt`.
 3. Upload the repository to GitHub. That's it: the install line and the in-app updater pick it up within a few minutes.
+4. Optional: add a tag with the same name (`v0.1.0-beta.5`), from git or with **Releases › Draft a new release › Create new tag**. The **Release** workflow checks that the tag, `Cargo.toml` and `download/version.txt` match, then publishes a GitHub Release with the notes from this changelog and the app attached. You can run the same check yourself first: `scripts/check-release.sh v0.1.0-beta.5`.
 
 ### OBS setup
 
@@ -48,16 +49,16 @@ In OBS: **Tools › WebSocket Server Settings › Enable WebSocket server**. Cop
 
 ## What it does
 
-- **Pre-flight**: a guided check before you stream.
-  - **Test**: play while OBS records (or streams and records). Preflight measures your GPU, CPU, encoder, skipped and dropped frames, and audio levels. A checklist ticks itself as OBS starts.
-  - **Fix**: one change at a time, ordered by your style (Competitive, Balanced or Cinematic). Each fix says exactly where the setting is and notices when you've changed it.
-  - **Your setup**: OBS, game and PC settings side by side, video encoders in use, and one OBS setup that suits all your tested games.
-  - **Ready to go live**: mic, game audio, capture, webcam and the Twitch test flag, checked before you start.
-- **Post-flight**: a summary after each stream (bitrate, dropped frames and what caused them), and a history.
+- **Home**: a Get started card you can do in any order (nothing is locked), then one plain answer, your top fixes, last test and last stream. A bar at the top shows OBS, your game, style and platforms, each one click from changing.
+- **Test**: play while OBS records (or streams and records). Preflight measures your GPU, CPU, encoder, skipped and dropped frames, and audio levels. A checklist ticks itself as OBS starts.
+- **Fixes**: one change at a time, ordered by your style (Competitive, Balanced or Cinematic). Each fix says exactly where the setting is and notices when you've changed it. **Your setup** (from Home) shows OBS, game and PC settings side by side.
+- **Live**: bitrate, dropped and skipped frames, each output and your recording, while you stream.
+- **History**: a summary after each stream (bitrate, dropped frames, what caused them and your recording), and everything you tested and changed.
 - **Games**: profiles for popular games, plus an automatic reader for Unity, Unreal, Source and Godot games from Steam, Heroic, Lutris, Bottles, Epic and Game Pass, and Minecraft from any launcher.
 - **Several platforms**: Twitch, YouTube and Kick, through OBS plugins or a restream service.
 - **Two PCs**: connect to OBS on your streaming PC, with capture card checks (frame rate, resolution, colour range, MJPEG, HDR, refresh rate judder). **Paired mode** links Preflight on both PCs with a 6-digit code over your home network.
-- **System tray**: the icon shows idle, watching, testing or live, with notifications when a test finishes or a stream ends.
+- **System tray**: the icon shows OBS not connected, ready, things to fix, testing or live, with notifications when a test finishes or a stream ends. **Start at login** (off by default) and **start in the tray**. On KDE and GNOME Wayland, where a window can't hide itself, a small tray-only Preflight keeps watching OBS and opens the window when you click the icon.
+- **Light while you game**: no redrawing while minimized or in the tray, and at most once a second while the game is in front. Help shows Preflight's own processor and memory use.
 - **Updates**: from this repository's `download/` folder, checked against a SHA-256 checksum before installing. Turn on **Include beta versions** to get betas.
 
 ## Privacy

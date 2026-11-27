@@ -1,0 +1,42 @@
+# Runs only when a version tag (like v0.1.0-beta.5) arrives. It doesn't build
+# anything: the finished app is already in download/. It checks that every
+# version matches, then creates the GitHub Release with that version's notes.
+# Installs and in-app updates read download/ either way, so a missing tag or
+# a failed run never breaks anyone's install.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the versions match
+        run: sh scripts/check-release.sh "$GITHUB_REF_NAME"
+
+      - name: Notes from the changelog
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          awk -v head="## v$V" '$0 == head { f = 1; next } /^## / { if (f) exit } f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Stream Preflight $GITHUB_REF_NAME" > notes.md
+          printf '\nInstall or update with one line:\n\n    curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | sh\n' "$GITHUB_REPOSITORY" >> notes.md
+
+      - name: Gather the files
+        run: |
+          mkdir -p dist
+          cp "$DIR/stream-preflight-linux.gz" dist/
+          cp install.sh dist/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Stream Preflight ${{ github.ref_name }}
+          prerelease: ${{ env.PRE }}
+          body_path: notes.md
+          files: dist/*

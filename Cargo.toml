@@ -1,6 +1,6 @@
 [package]
 name = "stream-preflight"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 edition = "2024"
 description = "Stream Preflight: check your game, OBS and stream before you go live"
 repository = "https://github.com/Matt-B-007/Stream-Preflight"

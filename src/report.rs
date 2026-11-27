@@ -228,7 +228,7 @@ pub fn build_sections(i: &ReportInput) -> Vec<Section> {
         })
         .collect();
     s.push(Section { id: "games", title: "Game profiles (the settings Preflight checks, with their values)", include: true, content: pretty(&games) });
-    s.push(Section { id: "gamefiles", title: "Game settings files (full text, user name removed from paths)", include: true, content: game_files_text(i) });
+    s.push(Section { id: "gamefiles", title: "Game settings files (the tested game in full, user name removed from paths)", include: true, content: game_files_text(i) });
     s.push(Section { id: "network", title: "Network test", include: true, content: i.net.map(pretty).unwrap_or_else(|| "not run".into()) });
     s.push(Section { id: "test", title: "Last full test (raw measurements)", include: true, content: i.test.map(pretty).unwrap_or_else(|| "no test yet".into()) });
     s.push(Section { id: "analysis", title: "Score and issues shown", include: true, content: pretty(i.analysis) });
@@ -288,8 +288,19 @@ fn game_files_text(i: &ReportInput) -> String {
     let tested = i.test.and_then(|t| t.game_running.clone());
     let mut games: Vec<&GameResult> = i.games.iter().filter(|g| g.files.iter().any(|f| f.read_ok || f.found)).collect();
     games.sort_by_key(|g| (Some(&g.name) != tested.as_ref(), !g.running));
+    // Full text only for the game that matters (tested, running or picked); a
+    // summary for the rest keeps reports small (one game can be 3,000 lines).
+    let chosen = i.settings.last_preflight.as_ref().and_then(|p| p.game.clone());
+    let focus = |g: &GameResult| Some(&g.name) == tested.as_ref() || g.running || Some(&g.name) == chosen.as_ref();
+    let any_focus = games.iter().any(|g| focus(g));
     let mut out = String::new();
+    let mut skipped: Vec<String> = Vec::new();
     for g in games {
+        if any_focus && !focus(g) {
+            let n: usize = g.files.iter().filter(|f| f.read_ok).map(|f| f.settings_count).sum();
+            skipped.push(format!("{} ({n} settings read)", g.name));
+            continue;
+        }
         for f in g.files.iter().filter(|f| f.found) {
             if let Some(t) = &f.inline_text {
                 // Registry values: already decoded and made safe.
@@ -312,6 +323,9 @@ fn game_files_text(i: &ReportInput) -> String {
                 Err(e) => out.push_str(&format!("(couldn't open: {e})\n\n")),
             }
         }
+    }
+    if !skipped.is_empty() {
+        out.push_str(&format!("Not included (full text only for the game you tested or are playing): {}\n", skipped.join(", ")));
     }
     if out.is_empty() { "no game settings files found".into() } else { out }
 }

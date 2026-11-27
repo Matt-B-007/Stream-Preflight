@@ -164,6 +164,7 @@ pub fn impact_of(id: &str) -> &'static str {
         "bitrate_network" | "net_unsteady" => "Stops buffering for viewers",
         "bitrate_platform" => "The platform accepts your stream",
         "no_game_audio" => "Viewers hear the game",
+        "double_desktop_audio" => "Game sound heard once, without echo",
         "audio_balance" | "mic_quiet" => "Viewers hear you clearly",
         "display_capture" => "Keeps notifications and Discord private",
         "rec_format" => "Recordings survive crashes",
@@ -645,6 +646,11 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                     (first(&["rec_encoder", "enc_load"]), ok, "Adds work to the encoder".into())
                 }
                 "Recording format" => (first(&["rec_format"]), "Survives crashes".into(), "Plain MP4/MOV is lost if OBS crashes".into()),
+                "Auto-record when streaming" => (
+                    None,
+                    if o.auto_record == Some(true) { "Every stream is recorded too; Preflight watches both".into() } else { "Start recording yourself when you want a copy".into() },
+                    String::new(),
+                ),
                 "Enhanced Broadcasting" => (first(&["multitrack"]), "Your encoder has room for it".into(), "Several stream versions keep your encoder busy".into()),
                 _ => (None, String::new(), String::new()),
             };
@@ -669,9 +675,10 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
         }
         // Audio and capture
         let ga = find("no_game_audio");
+        let doubled = o.doubled_desktop_audio() >= 2;
         v.obs.push(SetupRow {
             setting: "Game audio".into(),
-            now: if o.desktop_audio().is_empty() { "None".into() } else { "Captured".into() },
+            now: if o.desktop_audio().is_empty() { "None".into() } else if doubled { "Captured twice".into() } else { "Captured".into() },
             suggested: if ga.is_some() { "Add Desktop Audio".into() } else { "Keep".into() },
             why: if ga.is_some() { "Viewers won't hear the game".into() } else { "Viewers hear the game".into() },
             tag: if ga.is_some() { tag_for(ga, false, st) } else { Tag::Keep },
@@ -685,11 +692,13 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                     Some(d) => format!("{:.0} dB under the game", (d - m).max(0.0)),
                     None => format!("Peaks at {m:.0} dB"),
                 };
+                // Without game sound in the test, the two can't be compared.
+                let compared = t.desktop_db.is_some();
                 v.obs.push(SetupRow {
                     setting: "Mic level".into(),
-                    now: if mi.is_none() { "Above the game".into() } else { now },
-                    suggested: if mi.is_some() { "Raise the mic".into() } else { "Keep".into() },
-                    why: if mi.is_some() { "Viewers may not hear you over the game".into() } else { "Viewers hear you clearly".into() },
+                    now: if mi.is_some() { now } else if compared { "Above the game".into() } else { "Couldn't compare".into() },
+                    suggested: if mi.is_some() { "Raise the mic".into() } else if compared { "Keep".into() } else { "Test with game sound".into() },
+                    why: if mi.is_some() { "Viewers may not hear you over the game".into() } else if compared { "Viewers hear you clearly".into() } else { format!("No game sound was heard during the test; your mic peaked at {m:.0} dB") },
                     tag: if mi.is_some() { tag_for(mi, false, st) } else { Tag::Keep },
                     menu: "OBS › Audio Mixer › your mic".into(),
                     issue_id: mi.map(|i| i.id.clone()),
@@ -706,11 +715,20 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
                 "PipeWire (screen or window)".to_string()
             };
             let portal_only = cap.is_none() && !o.uses_game_capture() && o.uses_portal_capture();
+            let has_vk = o.plugins.iter().any(|p| p.contains("vkcapture"));
             v.obs.push(SetupRow {
                 setting: "Game capture".into(),
                 now,
-                suggested: if cap.is_some() { "Capture just the game window".into() } else { "Keep".into() },
-                why: if cap.is_some() { "A whole-screen capture can show Discord and notifications".into() } else if portal_only { "Fine if you picked the game's window, not a screen".into() } else { "Only the game is shown".into() },
+                suggested: if cap.is_some() { "Capture just the game window".into() } else if portal_only && has_vk { "Keep, or try Game Capture".into() } else { "Keep".into() },
+                why: if cap.is_some() {
+                    "A whole-screen capture can show Discord and notifications".into()
+                } else if portal_only && has_vk {
+                    "Fine if you picked the game's window. You also have the vkcapture plugin: its Game Capture source shows only the game and is usually lighter".into()
+                } else if portal_only {
+                    "Fine if you picked the game's window, not a screen".into()
+                } else {
+                    "Only the game is shown".into()
+                },
                 tag: if cap.is_some() { tag_for(cap, false, st) } else { Tag::Keep },
                 menu: "OBS › Sources › your capture › Properties".into(),
                 issue_id: cap.map(|i| i.id.clone()),
@@ -1898,6 +1916,7 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
     if let Some(free) = o.disk_free_mb {
         let (kbps, measured) = match c.test.and_then(|t| t.recording_size.map(|s| (s, t.seconds))) {
             Some((size, secs)) if secs > 30.0 => (size as f32 * 8.0 / 1000.0 / secs, true),
+            _ if c.st.rec_kbps_seen.is_some() => (c.st.rec_kbps_seen.unwrap_or(6000.0), true),
             _ => {
                 let est = if !separate {
                     o.bitrate_kbps.map(|b| b as f32)
@@ -1917,7 +1936,7 @@ fn recording(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             status: if hours < 1.5 { Status::Bad } else if hours < 3.0 { Status::Warn } else { Status::Ok },
             label: if hours < 3.0 { "Low".into() } else { "Plenty".into() },
             metric: format!("About {} of recording", fmt_hours(hours)),
-            note: format!("{} free, recording at about {:.0} Mbps{}.", crate::util::fmt_bytes((free * 1_048_576.0) as u64), kbps / 1000.0, if measured { " (measured from your test)" } else { " (estimated)" }),
+            note: format!("{} free, recording at about {:.0} Mbps{}.", crate::util::fmt_bytes((free * 1_048_576.0) as u64), kbps / 1000.0, if measured { " (measured from your recordings)" } else { " (estimated)" }),
             measured,
         });
         if hours < 3.0 {
@@ -2069,6 +2088,9 @@ fn recommended(c: &Ctx, a: &Analysis) -> Vec<RecRow> {
     let f = o.rec_format.to_lowercase();
     if !f.is_empty() {
         row("Recording format", format_label(&f), "Hybrid MP4, Hybrid MOV or MKV".into(), format!("{out} › Recording Format"), f != "mp4" && f != "mov");
+    }
+    if let Some(a) = o.auto_record {
+        row("Auto-record when streaming", if a { "On".into() } else { "Off".into() }, "Your choice".into(), "OBS › Settings › Advanced › Recording".into(), true);
     }
     if o.multitrack == Some(true) {
         let busy = c.test.and_then(|t| t.enc_avg).map(|e| e >= 85.0).unwrap_or(false);
@@ -2287,6 +2309,12 @@ fn game_load(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
 
     let game_label = guess.as_deref().map(|g| format!("The game ({g})")).unwrap_or_else(|| "Your game".into());
     let (status, label, metric, note) = match (target, gpu_avg) {
+        (None, Some(_)) if unknown_game && guess.is_none() => (
+            Status::Unknown,
+            "No game running".into(),
+            "—".into(),
+            "No game was running during the test, so the game's load wasn't measured. Start your game, then test again.".into(),
+        ),
         (None, Some(ga)) if unknown_game => {
             if gpu_maxed {
                 (if obs_kept_up { Status::Warn } else { Status::Bad }, "GPU maxed".into(), maxed_text.clone(), format!("{game_label} wasn't one Preflight knows, so the advice is general."))
@@ -2572,6 +2600,25 @@ fn audio(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             },
             who: "Anyone who wants viewers to hear the game.".into(),
             learn: "OBS captures picture and sound separately. Desktop Audio sends everything your PC plays; an application capture sends one program.".into(),
+            measured: false,
+            options: opts,
+        });
+    }
+    let doubled = o.doubled_desktop_audio();
+    if o.connected && doubled >= 2 {
+        let mut opts = vec![
+            opt("mute", "Mute or remove one of them", "OBS › Audio Mixer › the extra Desktop Audio › mute (or Settings › Audio › Global Audio Devices › Desktop Audio 2 › Disabled)", "The game is heard once, at the level you set", "None"),
+            opt("keep", "Keep both", "Nothing to change", "Fine if one is only in a scene you don't use while gaming", "If both are live, game sound is louder and can echo"),
+        ];
+        suggest(&mut opts, "mute");
+        issues.push(Issue {
+            id: "double_desktop_audio".into(),
+            priority: Priority::Low,
+            area: "Audio".into(),
+            title: format!("{doubled} Desktop Audio sources capture the same sound, so viewers may hear the game twice."),
+            why: "Both are unmuted and set to the same output device. Game sound gets louder and can sound doubled or echoey.".into(),
+            who: "Anyone with more than one Desktop Audio source.".into(),
+            learn: "OBS mixes every unmuted source. Two captures of the same speakers add the same sound together.".into(),
             measured: false,
             options: opts,
         });
@@ -2930,7 +2977,7 @@ mod quality_tests {
         o.rec_preset = "p5".into();
         o.rec_format = "hybrid_mov".into();
         o.recording_uses_stream_settings = Some(false);
-        o.audio = vec![crate::obs::AudioInput { name: String::new(), kind: "pulse_input_capture".into(), role: "mic".into(), muted: Some(false), volume_db: Some(0.0) }];
+        o.audio = vec![crate::obs::AudioInput { name: String::new(), kind: "pulse_input_capture".into(), role: "mic".into(), muted: Some(false), volume_db: Some(0.0), device: String::new() }];
         let t = TestResult { gpu_avg: Some(97.6), output_total: 8158, output_skipped: 2, render_total: 8158, render_skipped: 2, mic_db: Some(-47.0), cpu_avg: 18.0, seconds: 137.0, ..Default::default() };
         let st = Settings { monitor_hz: 480, ..Settings::default() };
         let a = analyze(&st, None, &[], Some(&o), None, Some(&t), true);
@@ -3010,7 +3057,7 @@ mod quality_tests {
     fn setup_view_covers_every_issue() {
         let mut o = snap();
         o.rate_control = "VBR".into();
-        o.audio = vec![crate::obs::AudioInput { name: String::new(), kind: "pulse_input_capture".into(), role: "mic".into(), muted: Some(false), volume_db: None }];
+        o.audio = vec![crate::obs::AudioInput { name: String::new(), kind: "pulse_input_capture".into(), role: "mic".into(), muted: Some(false), volume_db: None, device: String::new() }];
         let t = TestResult { gpu_avg: Some(97.0), output_total: 1000, output_skipped: 20, render_total: 1000, seconds: 120.0, hogs: vec![crate::hardware::Hog { label: "Dropbox".into(), cpu: 30.0 }], ..Default::default() };
         let mut st = Settings::default();
         st.kept_issues.push("rate_control".into());

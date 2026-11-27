@@ -176,16 +176,22 @@ fn one() -> f64 {
 }
 
 pub fn profiles() -> Vec<Profile> {
-    PROFILE_FILES
-        .iter()
-        .filter_map(|s| match serde_json::from_str::<Profile>(s) {
-            Ok(p) => Some(p),
-            Err(e) => {
-                log::error!("Built-in game profile failed to load: {e}");
-                None
-            }
+    // Parsed once; every scan and poll reuses them.
+    static CACHE: std::sync::OnceLock<Vec<Profile>> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            PROFILE_FILES
+                .iter()
+                .filter_map(|s| match serde_json::from_str::<Profile>(s) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        log::error!("Built-in game profile failed to load: {e}");
+                        None
+                    }
+                })
+                .collect()
         })
-        .collect()
+        .clone()
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -909,9 +915,10 @@ fn current_settings(rules: &[FindingRule], settings: &BTreeMap<String, String>, 
             menu: r.menu.clone(),
             value,
             flagged: flagged.is_some(),
-            change_to: r.change_to.clone(),
-            gain: r.gain.clone(),
-            cost: r.cost.clone(),
+            // The fix text only applies when the rule fired (8x MSAA → 4x), never to a setting that's already fine.
+            change_to: r.change_to.clone().filter(|_| flagged.is_some()),
+            gain: r.gain.clone().filter(|_| flagged.is_some()),
+            cost: r.cost.clone().filter(|_| flagged.is_some()),
         });
     }
     out
@@ -1197,7 +1204,12 @@ pub fn scan(procs: &[(String, f32)], running: &[crate::hardware::GameProc], hint
                     }
                 }
             }
-            let searched: Vec<String> = candidates.iter().map(|c| shown(c)).collect();
+            let mut searched: Vec<String> = Vec::new();
+            for c in candidates.iter().map(|c| shown(c)) {
+                if !searched.contains(&c) {
+                    searched.push(c);
+                }
+            }
             let mut note = None;
             let mut found = candidates.iter().find(|c| c.is_file()).cloned();
             // Fallback: look for the file by name anywhere in the game's

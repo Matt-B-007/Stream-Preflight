@@ -36,6 +36,8 @@ pub fn run(recordings: &[PathBuf], remove_program: bool) -> Result<(), String> {
     let folders: Vec<PathBuf> = own_folders().into_iter().map(|(_, p)| p).filter(|p| p.to_string_lossy().to_lowercase().contains("streampreflight")).collect();
     let exe = if remove_program { program_file().filter(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase().contains("preflight")).unwrap_or(false)) } else { None };
     log::info!("Removing Preflight's own files (program too: {remove_program})");
+    // "Start at login" (the Linux entry is also in desktop::files()).
+    let _ = crate::desktop::set_autostart(false, false);
     #[cfg(windows)]
     {
         crate::install::windows_unregister();

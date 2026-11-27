@@ -19,4 +19,4 @@ jobs:
       - name: Test
         run: cargo test --locked
       - name: Check the install script
-        run: sh -n install.sh && sh -n scripts/make-download.sh
+        run: sh -n install.sh && sh -n scripts/make-download.sh && sh -n scripts/check-release.sh

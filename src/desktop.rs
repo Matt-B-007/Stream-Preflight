@@ -25,7 +25,65 @@ pub fn files() -> Vec<std::path::PathBuf> {
     for (s, _) in ICONS {
         v.push(base.join(format!("icons/hicolor/{s}x{s}/apps/{APP_ID}.png")));
     }
+    if let Some(a) = autostart_file() {
+        v.push(a);
+    }
     v
+}
+
+/// ~/.config/autostart/stream-preflight.desktop: "Start at login".
+#[cfg(not(windows))]
+pub fn autostart_file() -> Option<std::path::PathBuf> {
+    let cfg = match std::env::var("XDG_CONFIG_HOME") {
+        Ok(d) if !d.is_empty() => std::path::PathBuf::from(d),
+        _ => crate::util::home_dir()?.join(".config"),
+    };
+    Some(cfg.join(format!("autostart/{APP_ID}.desktop")))
+}
+
+/// The program to start at login: the installed copy if there is one.
+fn login_exe() -> Option<std::path::PathBuf> {
+    crate::install::target().filter(|t| t.exists()).or_else(|| std::env::current_exe().ok())
+}
+
+/// Turns "Start at login" on or off. Writes or removes Preflight's own
+/// autostart entry only. `tray` starts it in the tray, with no window.
+#[cfg(not(windows))]
+pub fn set_autostart(on: bool, tray: bool) -> Result<(), String> {
+    let f = autostart_file().ok_or("No home folder")?;
+    if !on {
+        let _ = std::fs::remove_file(&f);
+        return Ok(());
+    }
+    let exe = login_exe().ok_or("Couldn't find the program")?;
+    let es = exe.to_string_lossy();
+    let quoted = if es.contains(' ') { format!("\"{es}\"") } else { es.to_string() };
+    let args = if tray { " --tray" } else { "" };
+    if let Some(d) = f.parent() {
+        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(
+        &f,
+        format!("[Desktop Entry]\nType=Application\nName=Stream Preflight\nComment=Watches OBS so your streams are checked\nExec={quoted}{args}\nIcon={APP_ID}\nTerminal=false\nX-GNOME-Autostart-enabled=true\nX-KDE-autostart-after=panel\n"),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Windows: the per-user Run entry (HKCU), Preflight's own value only.
+#[cfg(windows)]
+pub fn set_autostart(on: bool, tray: bool) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    let mut c = std::process::Command::new("reg");
+    if on {
+        let exe = login_exe().ok_or("Couldn't find the program")?;
+        let val = format!("\"{}\"{}", exe.display(), if tray { " --tray" } else { "" });
+        c.args(["add", key, "/v", "StreamPreflight", "/t", "REG_SZ", "/d", &val, "/f"]);
+    } else {
+        c.args(["delete", key, "/v", "StreamPreflight", "/f"]);
+    }
+    let ok = c.creation_flags(0x0800_0000).status().map(|s| s.success()).unwrap_or(false);
+    if ok || !on { Ok(()) } else { Err("Windows didn't accept the startup entry".into()) }
 }
 
 #[cfg(windows)]

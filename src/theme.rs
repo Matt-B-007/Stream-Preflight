@@ -235,30 +235,63 @@ pub fn edge_color(t: f32, alpha: u8) -> Color32 {
 
 /// The window background: deep navy, a green glow top right, a violet glow
 /// bottom left, and a faint lime grid. Painted once behind everything.
+/// Set while Preflight's window is hidden in the tray.
+pub static HIDDEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Asks for a redraw in `ms`, but at most once a second while another window
+/// (the game) is in front, and not at all while minimized or in the tray.
+/// New readings and OBS events still wake the window when they arrive.
+pub fn repaint_in(ctx: &egui::Context, ms: u64) {
+    let (focused, minimized) = ctx.input(|i| (i.viewport().focused.unwrap_or(true), i.viewport().minimized.unwrap_or(false)));
+    if minimized || HIDDEN.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let ms = if focused { ms } else { ms.max(1000) };
+    ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+}
+
 pub fn paint_backdrop(ctx: &egui::Context) {
+    // Built once per window size and reused every frame: the same glows and
+    // grid, without rebuilding about 800 shapes each time the window redraws.
     let rect = ctx.content_rect();
-    let p = ctx.layer_painter(egui::LayerId::background());
-    p.rect_filled(rect, 0.0, BG);
-    glow(&p, egui::pos2(rect.max.x - rect.width() * 0.12, rect.min.y), rect.width() * 0.5, Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 46));
-    glow(&p, egui::pos2(rect.min.x + rect.width() * 0.35, rect.max.y + 40.0), rect.width() * 0.45, Color32::from_rgba_unmultiplied(0x78, 0x5A, 0xFF, 46));
+    let key = egui::Id::unique("preflight_backdrop");
+    let cached: Option<(egui::Rect, std::sync::Arc<egui::epaint::Mesh>)> = ctx.data(|d| d.get_temp(key));
+    let mesh = match cached {
+        Some((r, m)) if r == rect => m,
+        _ => {
+            let m = std::sync::Arc::new(backdrop_mesh(rect));
+            ctx.data_mut(|d| d.insert_temp(key, (rect, m.clone())));
+            m
+        }
+    };
+    ctx.layer_painter(egui::LayerId::background()).add(egui::Shape::Mesh(mesh));
+}
+
+fn backdrop_mesh(rect: egui::Rect) -> egui::epaint::Mesh {
+    use egui::epaint::Mesh;
+    let mut m = Mesh::default();
+    m.add_colored_rect(rect, BG);
+    glow(&mut m, egui::pos2(rect.max.x - rect.width() * 0.12, rect.min.y), rect.width() * 0.5, Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 46));
+    glow(&mut m, egui::pos2(rect.min.x + rect.width() * 0.35, rect.max.y + 40.0), rect.width() * 0.45, Color32::from_rgba_unmultiplied(0x78, 0x5A, 0xFF, 46));
     let line = Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 7);
     let step = 28.0;
     let mut x = rect.min.x;
     while x < rect.max.x {
-        p.line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], Stroke::new(1.0, line));
+        m.add_colored_rect(egui::Rect::from_min_max(egui::pos2(x - 0.5, rect.min.y), egui::pos2(x + 0.5, rect.max.y)), line);
         x += step;
     }
     let mut y = rect.min.y;
     while y < rect.max.y {
-        p.line_segment([egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)], Stroke::new(1.0, line));
+        m.add_colored_rect(egui::Rect::from_min_max(egui::pos2(rect.min.x, y - 0.5), egui::pos2(rect.max.x, y + 0.5)), line);
         y += step;
     }
+    m
 }
 
 /// A soft round glow: a fan whose centre is coloured and edge transparent.
-fn glow(p: &egui::Painter, c: egui::Pos2, r: f32, col: Color32) {
-    use egui::epaint::{Mesh, Vertex, WHITE_UV};
-    let mut m = Mesh::default();
+fn glow(m: &mut egui::epaint::Mesh, c: egui::Pos2, r: f32, col: Color32) {
+    use egui::epaint::{Vertex, WHITE_UV};
+    let base = m.vertices.len() as u32;
     let rings = [(0.0, 1.0), (0.35, 0.7), (0.7, 0.3), (1.0, 0.0)];
     let seg = 48;
     for (ri, (f, a)) in rings.iter().enumerate() {
@@ -276,16 +309,15 @@ fn glow(p: &egui::Painter, c: egui::Pos2, r: f32, col: Color32) {
     for k in 0..seg as u32 {
         let a = 1 + k;
         let b = 1 + (k + 1) % seg as u32;
-        m.indices.extend_from_slice(&[0, a, b]);
+        m.indices.extend_from_slice(&[base, base + a, base + b]);
     }
     for i in 1..rings.len() - 1 {
-        let (r0, r1) = (ring(i) as u32, ring(i + 1) as u32);
+        let (r0, r1) = (base + ring(i) as u32, base + ring(i + 1) as u32);
         for k in 0..seg as u32 {
             let k1 = (k + 1) % seg as u32;
             m.indices.extend_from_slice(&[r0 + k, r1 + k, r1 + k1, r0 + k, r1 + k1, r0 + k1]);
         }
     }
-    p.add(egui::Shape::mesh(m));
 }
 
 /// Points around a rounded rectangle, clockwise from the top left.

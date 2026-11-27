@@ -41,7 +41,8 @@ impl Log for Logger {
         }
         let target = r.target();
         // Only keep our own lines plus warnings from libraries.
-        let ours = target.starts_with("stream_preflight_check");
+        // The crate name (it was stream_preflight_check before the rename).
+        let ours = target.starts_with(env!("CARGO_CRATE_NAME"));
         if !ours && r.level() > Level::Warn {
             return;
         }
@@ -78,10 +79,16 @@ impl Log for Logger {
 }
 
 pub fn init() {
+    init_named("preflight");
+}
+
+/// `name`.log (and `name`.previous.log). Tray-only mode keeps its own log so
+/// handing over to the window doesn't push the window's log aside.
+pub fn init_named(name: &str) {
     let dir = &crate::util::dirs().logs;
     // Keep the previous session's log, replace the one before it.
-    let cur = dir.join("preflight.log");
-    let prev = dir.join("preflight.previous.log");
+    let cur = dir.join(format!("{name}.log"));
+    let prev = dir.join(format!("{name}.previous.log"));
     if cur.exists() {
         let _ = std::fs::rename(&cur, &prev);
     }
@@ -210,4 +217,13 @@ pub fn pending_crashes() -> Vec<std::path::PathBuf> {
         .unwrap_or_default();
     v.sort();
     v
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn crate_name_matches_module_paths() {
+        // Our log lines come from targets like "stream_preflight::app".
+        assert!(module_path!().starts_with(env!("CARGO_CRATE_NAME")));
+    }
 }

@@ -397,7 +397,8 @@ impl Monitor {
                     }
                 }
             }
-            if NOT_GAMES.iter().any(|x| name.starts_with(x)) || name.contains("wine") || name.contains("preloader") {
+            // Games use hundreds of MB of graphics memory; small programs aren't the game.
+            if is_not_game(&name) || mem < 256 * 1024 * 1024 {
                 continue;
             }
             if best.as_ref().map(|b| mem > b.0).unwrap_or(true) {
@@ -620,7 +621,7 @@ pub fn game_processes(sys: &mut Option<System>) -> Vec<GameProc> {
         let Some(path) = path else { continue };
         let ps = path.to_string_lossy().replace('\\', "/").to_lowercase();
         let exe = base_name(&path.to_string_lossy());
-        if exe.is_empty() || NOT_GAMES.iter().any(|x| exe.starts_with(x)) || exe.contains("wine") || exe.contains("preloader") || exe.contains("crashhandler") || exe.contains("crashreport") || exe.ends_with(".sh") {
+        if exe.is_empty() || is_not_game(&exe) || exe.ends_with(".sh") {
             continue;
         }
         let looks_like_game = ps.contains("/steamapps/common/")
@@ -640,11 +641,48 @@ pub fn game_processes(sys: &mut Option<System>) -> Vec<GameProc> {
     out
 }
 
-/// Programs that use the GPU but aren't games.
+/// Programs that use the GPU but aren't games (matched at the start of the name).
 const NOT_GAMES: &[&str] = &[
     "obs", "kwin", "gnome-shell", "xwayland", "xorg", "plasmashell", "steamwebhelper", "steam", "firefox", "chrome", "chromium", "brave", "discord",
-    "electron", "stream-preflight", "code", "mutter", "hyprland", "sway", "kded", "spotify", "explorer.exe", "dwm.exe", "msedge",
+    "electron", "stream-preflight", "mutter", "hyprland", "sway", "kded", "spotify", "explorer.exe", "dwm.exe", "msedge",
+    // Desktop and system programs
+    "krunner", "ksmserver", "kscreenlocker", "ksplash", "systemsettings", "dolphin", "konsole", "okular", "gwenview", "spectacle",
+    "kdeconnect", "kwalletd", "baloo", "akonadi", "xdg-desktop-portal", "pipewire", "wireplumber", "nautilus", "gnome-", "nvidia-settings",
+    "corectrl", "mangohud", "gamescope", "gamemode", "kitty", "alacritty", "wezterm",
+    // Browsers, chat and media
+    "vivaldi", "librewolf", "thorium", "floorp", "waterfox", "vesktop", "telegram", "slack",
+    "thunderbird", "obsidian", "vlc", "mpv", "celluloid", "haruna", "zen-browser",
+    // Launchers (the game runs as its own program)
+    "heroic", "lutris", "bottles", "legendary", "epicgameslauncher", "galaxyclient", "eadesktop", "ubisoftconnect", "battle.net", "riotclientservices",
 ];
+
+/// Words anywhere in a name that mean "not a game": web views, helpers, crash reporters.
+const NOT_GAME_PARTS: &[&str] = &["webkit", "webprocess", "webview", "webhelper", "webengine", "crashpad", "crashhandler", "crashreport", "wine", "preloader"];
+
+/// Short names that only count as an exact match (so "code" doesn't catch Code Vein).
+const NOT_GAMES_EXACT: &[&str] = &["code", "code-oss", "codium", "zen", "foot", "kate", "teams", "zoom", "signal", "lact", "opera", "zed"];
+
+/// True for programs that use the GPU but aren't games (browsers, web views, desktop parts, launchers).
+pub fn is_not_game(name: &str) -> bool {
+    let n = name.to_lowercase();
+    let base = n.trim_end_matches(".exe").trim_end_matches("-bin");
+    NOT_GAMES.iter().any(|x| n.starts_with(x)) || NOT_GAME_PARTS.iter().any(|x| n.contains(x)) || NOT_GAMES_EXACT.contains(&base)
+}
+
+#[cfg(test)]
+mod not_game_tests {
+    use super::is_not_game;
+
+    #[test]
+    fn web_views_and_desktop_programs_are_not_games() {
+        for n in ["webkitwebprocess", "WebKitNetworkProcess", "steamwebhelper", "firefox", "plasmashell", "code", "zen-bin", "msedgewebview2.exe", "heroic", "xdg-desktop-portal-kde"] {
+            assert!(is_not_game(n), "{n}");
+        }
+        for n in ["cs2", "cyberpunk2077.exe", "portal2.exe", "codevein-win64-shipping.exe", "zenlesszonezero.exe", "mcc-win64-shipping.exe", "haloinfinite.exe", "cities2.exe", "opera_gx_game.exe"] {
+            assert!(!is_not_game(n), "{n}");
+        }
+    }
+}
 
 pub fn find_hogs(procs: &[(String, f32)]) -> Vec<Hog> {
     let mut out: Vec<Hog> = Vec::new();

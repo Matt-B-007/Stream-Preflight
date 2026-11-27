@@ -152,6 +152,17 @@ pub struct Settings {
     pub pc_role: String,
     /// "Looks like two PCs" was answered (so it's not asked again).
     pub two_pc_asked: bool,
+    /// How fast OBS's recording grew during the last stream that recorded (kbps),
+    /// so "recording space" uses a real number instead of a guess.
+    pub rec_kbps_seen: Option<f32>,
+    /// Start Preflight when you log in (off by default), and whether it starts in the tray.
+    pub start_at_login: bool,
+    pub start_in_tray: bool,
+    /// When you go live while Preflight is in the tray: open the Live page (true)
+    /// or stay in the tray and just change the icon (false).
+    pub live_opens_window: bool,
+    /// Fixes left at the last check, so the tray icon can say "things to fix".
+    pub last_fix_count: u32,
     /// Paired mode: linked with Preflight on the other PC over the home network.
     pub paired: bool,
     /// The other PC's name as it introduced itself (no address kept here).
@@ -230,6 +241,11 @@ impl Default for Settings {
             updates_beta_set: false,
             pc_role: "one".into(),
             two_pc_asked: false,
+            rec_kbps_seen: None,
+            start_at_login: false,
+            start_in_tray: true,
+            live_opens_window: false,
+            last_fix_count: 0,
             paired: false,
             paired_name: String::new(),
             other_monitor_hz: 0,
@@ -268,6 +284,14 @@ impl Settings {
             self.settings_version = SETTINGS_VERSION;
         }
         self.text_scale = self.text_scale.clamp(0.8, 1.6);
+        // Earlier versions could save a web view or desktop program as a "game".
+        let before = self.game_memory.len() + self.style_by_game.len() + self.kept_by_game.len();
+        self.game_memory.retain(|g, _| !crate::hardware::is_not_game(g));
+        self.style_by_game.retain(|g, _| !crate::hardware::is_not_game(g));
+        self.kept_by_game.retain(|g, _| !crate::hardware::is_not_game(g));
+        if self.game_memory.len() + self.style_by_game.len() + self.kept_by_game.len() < before {
+            log::info!("Removed saved entries for programs that aren't games");
+        }
     }
 
     pub fn save(&self) {

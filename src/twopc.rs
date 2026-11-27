@@ -70,7 +70,9 @@ impl CaptureInfo {
             "v4l2_input" => {
                 // Linux: resolution and frame rate are packed integers.
                 if let Some(r) = st["resolution"].as_i64().filter(|r| *r > 0) {
-                    c.res = Some(((r >> 16) as u32, (r & 0xFFFF) as u32));
+                    // OBS packs (width << 32) | height, like the frame rate. Very old
+                    // builds used 16 bits; accept both.
+                    c.res = Some(if r >> 32 > 0 { ((r >> 32) as u32, (r & 0xFFFF_FFFF) as u32) } else { ((r >> 16) as u32, (r & 0xFFFF) as u32) });
                 }
                 if let Some(f) = st["framerate"].as_i64().filter(|f| *f > 0) {
                     let (num, den) = ((f >> 32) as f64, (f & 0xFFFF_FFFF) as f64);
@@ -169,6 +171,8 @@ mod tests {
     fn windows_capture_card_settings() {
         let c = CaptureInfo::from_settings("dshow_input", &json!({"resolution": "1920x1080", "frame_interval": 166667, "video_format": 500, "color_range": "Full"}), Some(0), true);
         assert_eq!(c.res, Some((1920, 1080)));
+        let old = CaptureInfo::from_settings("v4l2_input", &json!({"resolution": (1280i64 << 16) | 720}), None, true);
+        assert_eq!(old.res, Some((1280, 720)));
         assert!((c.fps.unwrap() - 60.0).abs() < 0.1);
         assert_eq!(c.format, "MJPEG");
         assert_eq!(c.range, "full");
@@ -177,11 +181,14 @@ mod tests {
 
     #[test]
     fn linux_capture_card_settings() {
-        let res = (1920i64 << 16) | 1080;
+        // The real value from a user's report: 1920 << 32 | 1080.
+        let res = (1920i64 << 32) | 1080;
         let fr = (1i64 << 32) | 60;
         let yuyv = u32::from_le_bytes(*b"YUYV") as u64;
         let c = CaptureInfo::from_settings("v4l2_input", &json!({"resolution": res, "framerate": fr, "pixelformat": yuyv, "color_range": 1}), None, true);
         assert_eq!(c.res, Some((1920, 1080)));
+        let old = CaptureInfo::from_settings("v4l2_input", &json!({"resolution": (1280i64 << 16) | 720}), None, true);
+        assert_eq!(old.res, Some((1280, 720)));
         assert!((c.fps.unwrap() - 60.0).abs() < 0.1);
         assert_eq!(c.format, "YUYV");
         assert_eq!(c.range, "partial");

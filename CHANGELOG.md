@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.1.0-beta.5
+
+**Easier to find your way**
+- Opens on **Home**. No forced welcome: a **Get started** card (how you stream, connect OBS, start your game, first test) you can do in any order, tick off by itself, or hide.
+- Home leads with one plain answer, then your top fixes, last test and last stream.
+- A simpler sidebar: **Home, Test, Fixes, Live, History**, plus Settings and Help. Alt+1 to Alt+5 jump between them; Ctrl+B folds it.
+- A **top bar** for OBS, your game, style and platforms, each one click from changing, and whether you're live.
+- Nothing is locked: pages that need OBS show a note with a Connect OBS button.
+
+**Lighter while you game (same look)**
+- No redrawing while minimized or in the tray; at most once a second while another window is in front. Animations step once a second.
+- The background is built once and reused. Game settings files are only re-read when something changed. Game profiles are loaded once.
+- Help shows Preflight's own processor and memory use; stream summaries record memory at the start and end.
+
+**Recording while streaming**
+- The Live page asks OBS every 5 seconds whether it's recording (this fixes Hybrid MOV and MP4 recordings showing as "Not recording"), with the recording's timer and rate.
+- The Live page's encoder and "Each output" numbers now come live from OBS, not from before the stream.
+- The stream summary says whether you recorded, for how long and at what rate; Recording space uses that real rate.
+- Your setup shows OBS's "Automatically record when streaming" setting.
+
+**Tray and startup**
+- Start at login (off by default) and start in the tray. When you go live: stay in the tray, or open the Live page.
+- The tray icon shows OBS not connected, ready, things to fix, testing or live.
+- On KDE/GNOME Wayland, going to the tray closes the window and a small tray-only Preflight keeps watching OBS; clicking the icon opens the window again.
+
+**Fixes from bug reports**
+- Web views, browsers, launchers and desktop programs are no longer taken for games; old entries like "webkitwebprocess" are removed. A test with no game says so instead of scoring the game.
+- Linux capture cards show the right resolution (OBS packs it in 32-bit halves).
+- Two Desktop Audio sources on the same device are flagged (viewers may hear the game twice).
+- Mic vs game says "Couldn't compare" when no game sound was heard.
+- The all-games preset advice and the Fix list agree.
+- Mentions the vkcapture Game Capture source when that plugin is installed.
+- Settings that are already fine no longer carry fix text (CS2 MSAA).
+- Logs keep normal activity again (they only kept warnings since the rename); stopping a test is no longer logged as a warning.
+- Viewer preview uses the recording that was already running when you test during a stream (it's never offered for deletion).
+- Reports include game settings files in full only for the game you tested or are playing.
+
+**Releases**
+- A Release workflow publishes a GitHub Release when a version tag arrives, after checking that the tag, Cargo.toml and download/version.txt match. Installs never depend on it.
+
 ## v0.1.0-beta.4
 
 - **Install from the repository**: the finished app now lives in the repo's `download/` folder, so a new version is just an upload. No GitHub Releases, tags or workflows.

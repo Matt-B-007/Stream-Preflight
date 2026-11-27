@@ -86,7 +86,8 @@ pub fn combine(tests: &[TestResult], games: &[GameResult], obs: Option<&ObsSnaps
         if rank(&motion) > rank(&f.motion) {
             f.motion = motion.clone();
         }
-        f.busy |= skipped > 0.1 || t.gpu_avg.map(|g| g >= 85.0).unwrap_or(false);
+        // Same thresholds as the per-game preset advice (0.5% skipped or GPU 85%+).
+        f.busy |= skipped > 0.5 || t.gpu_avg.map(|g| g >= 85.0).unwrap_or(false);
         f.tested.push(GameLine { game: name, gpu_avg: t.gpu_avg, maxed_pct: maxed, skipped_pct: skipped, motion, verdict, needs_room });
     }
     f.heaviest = f.tested.iter().max_by(|a, b| (a.maxed_pct, a.gpu_avg.unwrap_or(0.0)).partial_cmp(&(b.maxed_pct, b.gpu_avg.unwrap_or(0.0))).unwrap()).map(|l| l.game.clone());
@@ -99,7 +100,19 @@ pub fn combine(tests: &[TestResult], games: &[GameResult], obs: Option<&ObsSnaps
         if let (Some(b), Some(base), Some(out)) = (o.bitrate_kbps, o.base_res, o.output_res) {
             let fps = o.fps.unwrap_or(60.0);
             let best = crate::analysis::best_height(base, b, fps, &f.motion, &o.codec, 2160);
-            let preset = if o.encoder_kind.contains("NVENC") { if f.busy { " · P5" } else { " · P6 or P7" } } else { "" };
+            // Matches the Fix list: P5 when a game keeps the GPU busy, P6 or P7 otherwise.
+            // Name the busy game so it doesn't read as a contradiction while testing a lighter one.
+            let preset = if !o.encoder_kind.contains("NVENC") {
+                String::new()
+            } else if f.busy {
+                let busy_game = f.tested.iter().filter(|l| l.skipped_pct > 0.5 || l.gpu_avg.map(|g| g >= 85.0).unwrap_or(false)).map(|l| l.game.clone()).next();
+                match busy_game {
+                    Some(g) => format!(" · P5 ({g} keeps the GPU busy; P6 or P7 is fine in lighter games)"),
+                    None => " · P5".into(),
+                }
+            } else {
+                " · P6 or P7".into()
+            };
             f.setup = format!("{}p{} · {b} kbps{preset}", best.1, fps.round() as u32);
             if out.1 > best.1 && f.tested.len() > 1 {
                 let fast = f.tested.iter().filter(|l| l.motion == f.motion).map(|l| l.game.clone()).collect::<Vec<_>>().join(", ");
