@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The app window: menu, first-run setup, the guided pre-flight, results,
 //! history, settings, help, and the one-box problem report.
 
@@ -268,6 +269,12 @@ pub struct App {
     install_remove_old: bool,
     open_uninstall: bool,
     stable_confirm: bool,
+    /// Go back: the version kept from before the last update, the confirm
+    /// step, and the result.
+    prev_version: Option<String>,
+    rollback_confirm: bool,
+    rollback_rx: Option<Receiver<Result<(String, std::path::PathBuf), String>>>,
+    rollback_done: Option<Result<(String, std::path::PathBuf), String>>,
     /// "Later" on the update banner (this session only).
     update_later: bool,
     update_notified: bool,

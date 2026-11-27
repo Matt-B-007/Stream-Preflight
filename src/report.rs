@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Diagnostics: a self-test of every part of the app, and a privacy-safe
 //! bug report the user previews (and can trim) before saving.
 

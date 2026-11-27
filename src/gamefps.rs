@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The game's own frame rate, measured without touching the game.
 //!
 //! - Windows: Intel PresentMon, if it's installed, reads the system's

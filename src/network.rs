@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Network test: measures upload speed and how steady it is, using
 //! Cloudflare's public speed-test endpoints. Sends only random test data.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -11,7 +12,8 @@ const DOWN_URL: &str = "https://speed.cloudflare.com/__down?bytes=0";
 pub const MAX_TEST_SECONDS: f32 = 15.0;
 pub const MAX_TEST_BYTES: u64 = 120 * 1024 * 1024;
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct NetResult {
     pub ok: bool,
     pub error: Option<String>,
@@ -29,7 +31,40 @@ pub struct NetResult {
     pub stopped_early: bool,
 }
 
+/// A good result is reused for this long, so each scan or restart doesn't use data again.
+pub const REUSE_SECS: i64 = 6 * 60 * 60;
+
+fn saved_path() -> std::path::PathBuf {
+    crate::util::dirs().data.join("network.json")
+}
+
+/// The last good result, if it's recent enough to reuse.
+pub fn load_recent() -> Option<NetResult> {
+    let n: NetResult = serde_json::from_str(&std::fs::read_to_string(saved_path()).ok()?).ok()?;
+    n.reusable(crate::util::unix_now()).then_some(n)
+}
+
+/// Keeps a good result for the next scan. Only speeds and times are stored.
+pub fn save(n: &NetResult) {
+    if !n.ok {
+        return;
+    }
+    let p = saved_path();
+    if let Ok(json) = serde_json::to_string(n) {
+        let tmp = p.with_extension("json.tmp");
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, &p);
+        }
+    }
+}
+
 impl NetResult {
+    /// Good, and tested within the last 6 hours (and not in the future).
+    pub fn reusable(&self, now: i64) -> bool {
+        let age = now - self.tested_at;
+        self.ok && (0..REUSE_SECS).contains(&age)
+    }
+
     /// The highest video bitrate that should stay safe on this connection.
     /// Whether the slowest moments come close to what a stream at
     /// `bitrate_kbps` needs. Big swings on a very fast line don't matter.
@@ -233,5 +268,31 @@ pub fn limits(p: crate::config::Platform) -> PlatformLimits {
             max_kbps_1080p60: 8000,
             note: "Kick accepts up to about 8000 kbps.",
         },
+    }
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+
+    #[test]
+    fn reuses_good_results_for_six_hours() {
+        let now = 1_000_000;
+        let n = |ok, ago| NetResult {
+            ok,
+            tested_at: now - ago,
+            ..Default::default()
+        };
+        assert!(n(true, 60).reusable(now));
+        assert!(n(true, REUSE_SECS - 1).reusable(now));
+        assert!(!n(true, REUSE_SECS).reusable(now));
+        assert!(!n(false, 60).reusable(now));
+        assert!(
+            !n(true, -60).reusable(now),
+            "a clock change must not keep it forever"
+        );
+        let back: NetResult =
+            serde_json::from_str(&serde_json::to_string(&n(true, 5)).unwrap()).unwrap();
+        assert_eq!(back.tested_at, now - 5);
     }
 }

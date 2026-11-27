@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Test: the checklist, live readings, test recordings and the viewer preview.
 
 use super::*;

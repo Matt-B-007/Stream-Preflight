@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! OBS Studio connector. Uses OBS's built-in WebSocket server (v5) to READ
 //! settings and stats. It never changes anything in OBS and never starts or
 //! stops recording or streaming. When OBS is closed it reads the saved

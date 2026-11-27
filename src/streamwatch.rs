@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The OBS hub: Preflight's one shared connection to OBS. It answers
 //! "read OBS now" requests from the rest of the app, and while you're live
 //! it quietly watches OBS's stream stats (read-only) for the post-flight

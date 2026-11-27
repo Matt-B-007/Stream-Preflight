@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Linux: puts Preflight in the app menu with its icon, automatically, on
 //! every launch. KDE and GNOME (on Wayland especially) take the window and
 //! taskbar icon from this menu entry, matched by the app id. Only Preflight's

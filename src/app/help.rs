@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Help, the problem report box and what goes into a report.
 
 use super::*;
@@ -731,7 +732,21 @@ impl App {
                 None => theme::small(ui, "Preflight right now: measuring…"),
             }
             ui.add_space(4.0);
-            ui.label(RichText::new("New in v0.1.0-beta.7").strong());
+            ui.label(RichText::new("New in v0.1.0-beta.8").strong());
+            for s in [
+                "Updates come from signed GitHub Releases: an update installs only if its checksum and the maintainer's signature are valid and it passes its own self-test",
+                "Go back: the version you had before an update is kept (Settings › Updates & about)",
+                "Only one window: opening Preflight again brings the open window to the front",
+                "Command line: --version, --self-test, --report, --update, --rollback and --uninstall",
+                "The upload speed test is reused for 6 hours, even after a restart, so it doesn't run on every scan",
+                "Game audio shows Unknown until OBS is connected, instead of a guess",
+                "The recommended NVENC preset is worded the same everywhere, for example \"P6 or P7 (P5 for a GPU-heavy game)\"",
+                "Stream Preflight is now licensed under the GPL, version 3 or later",
+            ] {
+                theme::small(ui, format!("• {s}"));
+            }
+            ui.add_space(4.0);
+            ui.label(RichText::new("From v0.1.0-beta.7").strong());
             theme::small(
                 ui,
                 "• More tidying inside the code, and stricter automatic checks before each release. Nothing looks or works differently.",

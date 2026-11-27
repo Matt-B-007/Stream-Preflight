@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Windows-only system calls: graphics adapter list (DXGI), GPU usage
 //! (performance counters) and password encryption (Data Protection API).
 

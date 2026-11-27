@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Paired mode: Preflight on the gaming PC and Preflight on the streaming PC
 //! share what each can see, over the home network only.
 //!

@@ -1,8 +1,7 @@
-# Runs only when a version tag (like v0.1.0-beta.5) arrives. It doesn't build
-# anything: the finished app is already in download/. It checks that every
-# version matches, then creates the GitHub Release with that version's notes.
-# Installs and in-app updates read download/ either way, so a missing tag or
-# a failed run never breaks anyone's install.
+# Runs when a version tag (like v0.1.0-beta.8) arrives. Fails closed: the
+# release is made as a DRAFT and only published after every check, the build,
+# the self-test, the checksums and the signature all succeed. If any step
+# fails, the last step says whether a draft was left behind to delete.
 name: Release
 
 on:
@@ -11,34 +10,116 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    name: Build, sign and publish (draft first)
+    runs-on: ubuntu-24.04
+    env:
+      MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
     steps:
+      - name: Stop if the signing secret is missing
+        run: |
+          if [ -z "$MINISIGN_SECRET_KEY" ]; then
+            echo "::error::MINISIGN_SECRET_KEY secret is missing, so this release can't be signed. Add it in Settings > Secrets and variables > Actions, then re-run."
+            exit 1
+          fi
+
       - name: Get the code
         uses: actions/checkout@v6
 
-      - name: Check tag, Cargo.toml and download/version.txt match (scripts/check-release.sh)
-        run: sh scripts/check-release.sh "$GITHUB_REF_NAME"
+      - name: Install the pinned Rust (rust-toolchain.toml, with rustfmt and clippy)
+        run: rustup toolchain install
 
-      - name: Notes from the changelog
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install pinned tools (shellcheck 0.11.0, PyYAML 6.0.3, Zig 0.17.1, cargo-zigbuild 0.24.1, minisign)
         run: |
-          V="${GITHUB_REF_NAME#v}"
-          awk -v head="## v$V" '$0 == head { f = 1; next } /^## / { if (f) exit } f' CHANGELOG.md > notes.md
-          [ -s notes.md ] || echo "Stream Preflight $GITHUB_REF_NAME" > notes.md
-          printf '\nInstall or update with one line:\n\n    curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | sh\n' "$GITHUB_REPOSITORY" >> notes.md
+          python3 -m venv "$RUNNER_TEMP/tools"
+          "$RUNNER_TEMP/tools/bin/pip" install --quiet shellcheck-py==0.11.0.1 pyyaml==6.0.3 ziglang==0.17.1
+          echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --locked --version 0.24.1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq minisign
 
-      - name: Gather the files
+      - name: Install cargo-deny 0.22.2
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.22.2
+
+      - name: Run all checks (scripts/check.sh)
+        run: sh scripts/check.sh
+
+      - name: Check the tag, Cargo.toml and the changelog agree (scripts/check-release.sh)
+        run: sh scripts/check-release.sh "$TAG"
+
+      - name: Build the Linux release (cargo zigbuild, runs on glibc 2.31 and newer)
+        run: cargo zigbuild --release --locked --target x86_64-unknown-linux-gnu.2.31
+
+      - name: Self-test the release build (--self-test --quick)
+        run: target/x86_64-unknown-linux-gnu/release/stream-preflight --self-test --quick
+
+      - name: Package (stream-preflight-linux.gz, install.sh, SHA256SUMS)
         run: |
           mkdir -p dist
-          cp "$DIR/stream-preflight-linux.gz" dist/
-          cp install.sh dist/
+          gzip -9 -n -c target/x86_64-unknown-linux-gnu/release/stream-preflight > dist/stream-preflight-linux.gz
+          cp install.sh dist/install.sh
+          cd dist
+          sha256sum stream-preflight-linux.gz install.sh > SHA256SUMS
+          cat SHA256SUMS
 
-      - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Sign SHA256SUMS (minisign)
+        run: |
+          key="$RUNNER_TEMP/minisign.key"
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key"
+          chmod 600 "$key"
+          minisign -S -s "$key" -m dist/SHA256SUMS -t "Stream Preflight $TAG" < /dev/null
+          rm -f "$key"
+
+      - name: Verify the signature against both embedded public keys (scripts/verify-signature.sh)
+        run: sh scripts/verify-signature.sh dist/SHA256SUMS
+
+      - name: Release notes from the changelog
+        run: sh scripts/release-notes.sh "$TAG" > notes.md
+
+      - name: Attest build provenance (public repositories only)
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v4
         with:
-          name: Stream Preflight ${{ github.ref_name }}
-          prerelease: ${{ env.PRE }}
-          body_path: notes.md
-          files: dist/*
+          subject-path: dist/stream-preflight-linux.gz
+
+      - name: Create a draft release and upload the files
+        run: |
+          if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -q true; then
+            echo "Removing an unfinished draft of $TAG from an earlier run."
+            gh release delete "$TAG" --yes
+          elif gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG is already published. Make a new version instead of re-releasing this one."
+            exit 1
+          fi
+          pre=""
+          case "$TAG" in
+            *-*) pre="--prerelease" ;;
+          esac
+          gh release create "$TAG" --draft --verify-tag $pre \
+            --title "Stream Preflight $TAG" --notes-file notes.md \
+            dist/stream-preflight-linux.gz dist/install.sh dist/SHA256SUMS dist/SHA256SUMS.minisig
+
+      - name: Publish the release
+        run: gh release edit "$TAG" --draft=false
+
+      - name: Say whether a draft was left behind
+        if: ${{ failure() }}
+        run: |
+          if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -q true; then
+            msg="A DRAFT release $TAG was left behind. Delete it on GitHub (Releases > $TAG > Delete), or just re-run this workflow: it replaces unfinished drafts."
+          else
+            msg="No draft release was left behind."
+          fi
+          echo "$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"

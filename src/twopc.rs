@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Two-PC setups: a gaming PC sends its picture to a streaming PC (capture
 //! card or NDI), and OBS runs on the streaming PC. Preflight reads only what
 //! OBS reports about its capture sources (never video), and the OBS address

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Shared helpers: app folders, time, and privacy scrubbing.
 
 use std::path::PathBuf;
@@ -19,7 +20,7 @@ pub fn one_core(pct_of_all: f32) -> String {
     }
 }
 
-pub const BUILD_LABEL: &str = "Beta 7";
+pub const BUILD_LABEL: &str = "Beta 8";
 
 /// Folders the app is allowed to write to. Everything lives under the
 /// user's normal per-app data folder; nothing is written anywhere else.

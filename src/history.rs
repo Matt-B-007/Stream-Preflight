@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Local history: readiness scores, internet results, saved setups, and the
 //! original value of every game setting we've seen. Stays on this PC.
 

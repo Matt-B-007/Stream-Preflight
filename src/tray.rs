@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The system tray icon: shows what Preflight is doing (idle, watching,
 //! testing, live, or needs you), opens the window, and shows notifications.
 //!

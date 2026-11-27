@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Your setup: every setting side by side.
 
 use super::*;
@@ -42,7 +43,8 @@ pub(super) fn setup_table(
                 Tag::Change => 0,
                 Tag::Optional => 1,
                 Tag::Kept => 2,
-                Tag::Keep => 3,
+                Tag::Unknown => 3,
+                Tag::Keep => 4,
             });
             for r in sorted {
                 ui.add(egui::Separator::default().spacing(10.0));
@@ -90,7 +92,7 @@ pub(super) fn setup_table(
                                             *act = Some(format!("unkeep:{id}"));
                                         }
                                     }
-                                    Tag::Keep => {}
+                                    Tag::Keep | Tag::Unknown => {}
                                 }
                             }
                             let (txt, col) = match r.tag {
@@ -98,6 +100,7 @@ pub(super) fn setup_table(
                                 Tag::Change => (r.suggested.clone(), WARN),
                                 Tag::Optional => (format!("Optional: {}", r.suggested), INFO),
                                 Tag::Kept => ("Kept as is".to_string(), MUTED),
+                                Tag::Unknown => (r.suggested.clone(), MUTED),
                             };
                             ui.add(
                                 egui::Label::new(RichText::new(txt).color(col))

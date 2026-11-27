@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Tray-only mode (`stream-preflight --tray`): the tray icon and the OBS
 //! watcher, with no window. On KDE/GNOME Wayland an app can't hide its own
 //! window, so "Start in tray", "Minimize to tray" and "Close to tray" run
@@ -79,15 +80,38 @@ fn spawn_self(args: &[&str]) -> bool {
     c.spawn().is_ok()
 }
 
-/// From the window: start the tray-only mode (the window then closes).
+/// From the window: start the tray-only mode (the window then closes, and
+/// the tray-only copy waits for that instead of stepping aside).
 pub fn start_tray_process() -> bool {
-    spawn_self(&["--tray"])
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    std::process::Command::new(exe)
+        .arg("--tray")
+        .env(crate::instance::RESTART_ENV, "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok()
 }
 
 /// Runs the tray-only mode until the user opens the window or quits.
 pub fn run() {
     if running_tray().is_some() {
         log::info!("Tray-only Preflight is already running");
+        return;
+    }
+    // Handed over by a window that's closing: wait for it to go.
+    if std::env::var_os(crate::instance::RESTART_ENV).is_some() {
+        let t = std::time::Instant::now();
+        while crate::instance::window_running() && t.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    // A window already has the tray icon and watches OBS.
+    if crate::instance::window_running() {
+        log::info!("A Preflight window is open, so the tray-only mode isn't needed");
         return;
     }
     let st = crate::config::Settings::load();

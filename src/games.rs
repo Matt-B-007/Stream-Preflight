@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Game profiles: data files that say where each game keeps its settings,
 //! how to read them, and which settings cost the most performance.
 //! Settings files are only ever READ, never written.
@@ -5,6 +6,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+/// How many built-in profiles there are (the quick self-test checks they all load).
+pub fn profile_file_count() -> usize {
+    PROFILE_FILES.len()
+}
 
 const PROFILE_FILES: &[&str] = &[
     include_str!("profiles/fortnite.json"),

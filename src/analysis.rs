@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Turns everything we measured into a readiness score, a status for each
 //! check, and a list of issues. Each issue offers options with trade-offs;
 //! the user's priorities decide which one is marked "Suggested".
@@ -131,6 +132,8 @@ pub enum Tag {
     Optional,
     /// The user chose to keep it as it is.
     Kept,
+    /// Can't be checked right now (for example, OBS isn't connected).
+    Unknown,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -251,6 +254,16 @@ pub fn preset_rank(p: &str) -> Option<u8> {
         "p6" | "medium" | "tu2" => Some(6),
         "p7" | "slow" | "slower" | "veryslow" | "placebo" | "tu1" => Some(7),
         _ => None,
+    }
+}
+
+/// The recommended NVENC preset, worded the same everywhere (Setup table, fleet line):
+/// "P6 or P7", "P6 or P7 (P5 for <busy game>)", or "P5" when every game keeps the GPU busy.
+pub fn nvenc_preset_words(busy_game: Option<&str>, all_busy: bool) -> String {
+    match busy_game {
+        _ if all_busy => "P5".into(),
+        Some(g) => format!("P6 or P7 (P5 for {g})"),
+        None => "P6 or P7".into(),
     }
 }
 
@@ -681,9 +694,10 @@ pub fn setup_text(a: &Analysis) -> String {
                 Tag::Change => "CHANGE",
                 Tag::Optional => "optional",
                 Tag::Kept => "kept as is",
+                Tag::Unknown => "unknown",
                 Tag::Keep => "ok",
             };
-            if matches!(r.tag, Tag::Keep | Tag::Kept) {
+            if matches!(r.tag, Tag::Keep | Tag::Kept | Tag::Unknown) {
                 t.push_str(&format!("- {}: {} ({tag})\n", r.setting, r.now));
             } else {
                 t.push_str(&format!(
@@ -961,33 +975,46 @@ fn setup_view(c: &Ctx, a: &Analysis, issues: &[Issue]) -> SetupView {
         // Audio and capture
         let ga = find("no_game_audio");
         let doubled = o.doubled_desktop_audio() >= 2;
-        v.obs.push(SetupRow {
-            setting: "Game audio".into(),
-            now: if o.desktop_audio().is_empty() {
-                "None".into()
-            } else if doubled {
-                "Captured twice".into()
-            } else {
-                "Captured".into()
-            },
-            suggested: if ga.is_some() {
-                "Add Desktop Audio".into()
-            } else {
-                "Keep".into()
-            },
-            why: if ga.is_some() {
-                "Viewers won't hear the game".into()
-            } else {
-                "Viewers hear the game".into()
-            },
-            tag: if ga.is_some() {
-                tag_for(ga, false, st)
-            } else {
-                Tag::Keep
-            },
-            menu: "OBS › Settings › Audio › Desktop Audio".into(),
-            issue_id: ga.map(|i| i.id.clone()),
-        });
+        if !o.connected && o.desktop_audio().is_empty() {
+            // Saved OBS files don't always list global audio, so "None" could be wrong.
+            v.obs.push(SetupRow {
+                setting: "Game audio".into(),
+                now: "Unknown".into(),
+                suggested: "Connect OBS to check".into(),
+                why: "OBS isn't connected, so its audio sources can't be checked".into(),
+                tag: Tag::Unknown,
+                menu: "OBS › Settings › Audio › Desktop Audio".into(),
+                issue_id: None,
+            });
+        } else {
+            v.obs.push(SetupRow {
+                setting: "Game audio".into(),
+                now: if o.desktop_audio().is_empty() {
+                    "None".into()
+                } else if doubled {
+                    "Captured twice".into()
+                } else {
+                    "Captured".into()
+                },
+                suggested: if ga.is_some() {
+                    "Add Desktop Audio".into()
+                } else {
+                    "Keep".into()
+                },
+                why: if ga.is_some() {
+                    "Viewers won't hear the game".into()
+                } else {
+                    "Viewers hear the game".into()
+                },
+                tag: if ga.is_some() {
+                    tag_for(ga, false, st)
+                } else {
+                    Tag::Keep
+                },
+                menu: "OBS › Settings › Audio › Desktop Audio".into(),
+                issue_id: ga.map(|i| i.id.clone()),
+            });
+        }
         if let Some(t) = c.test
             && let Some(m) = t.mic_db
         {
@@ -3343,9 +3370,12 @@ fn recommended(c: &Ctx, a: &Analysis) -> Vec<RecRow> {
         let (sug, okp) = if o.encoder_kind.contains("NVENC") {
             (
                 if headroom {
-                    "P6 or P7".to_string()
+                    nvenc_preset_words(None, false)
                 } else {
-                    "P5".to_string()
+                    let g = c
+                        .test
+                        .and_then(|t| t.game_running.clone().or_else(|| t.game_guess.clone()));
+                    nvenc_preset_words(g.as_deref(), g.is_none())
                 },
                 preset_rank(&o.preset)
                     .map(|r| (if headroom { r >= 6 } else { r >= 4 }) && !(r >= 6 && skipped))
@@ -3710,6 +3740,19 @@ fn network(c: &Ctx, a: &mut Analysis, issues: &mut Vec<Issue>) {
             },
         });
     }
+    // A saved result from an earlier scan: say how old it is.
+    let age = crate::util::unix_now() - n.tested_at;
+    let note = if n.tested_at > 0 && age >= 15 * 60 {
+        let h = age / 3600;
+        let when = if h >= 1 {
+            format!("{h} hour{} ago", if h == 1 { "" } else { "s" })
+        } else {
+            format!("{} minutes ago", age / 60)
+        };
+        format!("{note} (Tested {when}; tests again after 6 hours.)")
+    } else {
+        note
+    };
     a.checks.push(Check {
         name: "Network".into(),
         status,
@@ -5089,6 +5132,42 @@ mod quality_tests {
             .find(|i| i.id == "gpu_maxed")
             .expect("maxed for a third of the test must be flagged");
         assert!(g.title.contains("% of the test"), "{}", g.title);
+    }
+
+    #[test]
+    fn game_audio_unknown_without_obs() {
+        let mut o = snap();
+        o.connected = false;
+        o.audio.clear();
+        let a = analyze(&Settings::default(), None, &[], Some(&o), None, None, false);
+        let r = a
+            .setup
+            .obs
+            .iter()
+            .find(|r| r.setting == "Game audio")
+            .unwrap();
+        assert_eq!(r.tag, Tag::Unknown);
+        assert_eq!(r.now, "Unknown");
+        o.connected = true;
+        let a = analyze(&Settings::default(), None, &[], Some(&o), None, None, false);
+        let r = a
+            .setup
+            .obs
+            .iter()
+            .find(|r| r.setting == "Game audio")
+            .unwrap();
+        assert_eq!(r.now, "None");
+        assert_ne!(r.tag, Tag::Unknown);
+    }
+
+    #[test]
+    fn preset_words_match_everywhere() {
+        assert_eq!(nvenc_preset_words(None, false), "P6 or P7");
+        assert_eq!(
+            nvenc_preset_words(Some("SHRED A BILLION"), false),
+            "P6 or P7 (P5 for SHRED A BILLION)"
+        );
+        assert_eq!(nvenc_preset_words(Some("X"), true), "P5");
     }
 
     #[test]

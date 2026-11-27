@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Reads the settings of games Preflight has no hand-made profile for.
 //!
 //! It works out where the game is installed (Steam, Heroic, Lutris, Bottles,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The frame around every screen: sidebar, top status bar, Next bar, banners and toasts.
 
 use super::*;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Minecraft (Java and Bedrock) and modpacks from any launcher: the
 //! official launcher, CurseForge, Prism, MultiMC, Modrinth, ATLauncher and
 //! GDLauncher. Read-only. The running game is found from its launch details

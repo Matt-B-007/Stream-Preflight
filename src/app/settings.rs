@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Settings and the uninstall dialog.
 
 use super::*;
@@ -723,7 +724,7 @@ impl App {
                         .changed();
                     theme::small(
                         ui,
-                        "Reads one small public file in the GitHub repository (Matt-B-007/Stream-Preflight). Nothing about you or your PC is sent.",
+                        "Reads GitHub's public list of releases for Matt-B-007/Stream-Preflight; nothing about you or your PC is sent. An update is only installed when it's signed by the maintainer and passes its own self-test.",
                     );
                     if ui
                         .checkbox(&mut self.st.updates_beta, "Include beta versions")
@@ -854,6 +855,81 @@ impl App {
                         }
                         Some(Err(e)) => theme::muted(ui, e),
                         None => {}
+                    }
+                    // Go back to the version kept from before the last update.
+                    ui.add_space(8.0);
+                    if let Some(Ok(r)) = self.rollback_rx.as_ref().map(|rx| rx.try_recv()) {
+                        if r.is_ok() {
+                            self.prev_version = crate::update::previous_version();
+                        }
+                        self.rollback_done = Some(r);
+                        self.rollback_rx = None;
+                    }
+                    if let Some(m) = crate::update::managed_install() {
+                        theme::small(ui, m);
+                    } else if self.rollback_rx.is_some() {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Going back…");
+                        });
+                    } else if let Some(Ok((v, p))) = &self.rollback_done {
+                        ui.label(
+                            RichText::new(format!(
+                                "v{v} is back in place. Restart Preflight to use it."
+                            ))
+                            .color(GOOD),
+                        );
+                        if outlined(ui, "Restart now").clicked() {
+                            let p = p.clone();
+                            if crate::install::launch(&p) {
+                                self.quitting = true;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                        }
+                    } else {
+                        if let Some(Err(e)) = &self.rollback_done {
+                            ui.label(RichText::new(e).color(BAD));
+                        }
+                        match self.prev_version.clone() {
+                            Some(pv) => {
+                                ui.horizontal_wrapped(|ui| {
+                                    if self.rollback_confirm {
+                                        ui.label(RichText::new(format!("Go back to v{pv}? Your settings stay, and you can return to v{} the same way.", crate::util::VERSION)).color(WARN));
+                                        if outlined(ui, "Yes, go back").clicked() {
+                                            self.rollback_confirm = false;
+                                            let (tx, rx) = channel();
+                                            std::thread::spawn(move || {
+                                                let _ = tx.send(crate::update::rollback());
+                                            });
+                                            self.rollback_rx = Some(rx);
+                                        }
+                                        if outlined(ui, "Cancel").clicked() {
+                                            self.rollback_confirm = false;
+                                        }
+                                    } else if outlined(ui, &format!("Go back to v{pv}")).clicked() {
+                                        self.rollback_confirm = true;
+                                    }
+                                });
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                    theme::small(
+                                        ui,
+                                        "Uses the copy kept on this PC from before the last update. Also from a terminal:",
+                                    );
+                                    // Monospace, so the two dashes don't join into one.
+                                    ui.label(
+                                        RichText::new("stream-preflight --rollback")
+                                            .monospace()
+                                            .size(12.0)
+                                            .color(TEXT_SOFT),
+                                    );
+                                });
+                            }
+                            None => theme::small(
+                                ui,
+                                "Go back: after an update, the version you had is kept here so you can return to it.",
+                            ),
+                        }
                     }
                 });
                 ui.add_space(10.0);

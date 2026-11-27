@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! "Remove Preflight from this PC": deletes only Preflight's own folders,
 //! the program file if asked, and test recordings the user ticks. Never
 //! touches OBS, games or anything else.
@@ -35,6 +36,16 @@ pub fn program_file() -> Option<PathBuf> {
 /// Removes everything chosen, then the app must close right away.
 /// Returns an error message if something couldn't be removed.
 pub fn run(recordings: &[PathBuf], remove_program: bool) -> Result<(), String> {
+    run_with(recordings, remove_program, true)
+}
+
+/// Like `run`, but settings, history and logs are kept unless `delete_settings`.
+/// The version kept for "Go back" is always removed with the program.
+pub fn run_with(
+    recordings: &[PathBuf],
+    remove_program: bool,
+    delete_settings: bool,
+) -> Result<(), String> {
     let mut errors = Vec::new();
     for r in recordings {
         if let Err(e) = std::fs::remove_file(r) {
@@ -42,8 +53,9 @@ pub fn run(recordings: &[PathBuf], remove_program: bool) -> Result<(), String> {
         }
     }
     // Only ever Preflight's own folders and program file.
-    let folders: Vec<PathBuf> = own_folders()
+    let mut folders: Vec<PathBuf> = own_folders()
         .into_iter()
+        .filter(|_| delete_settings)
         .map(|(_, p)| p)
         .filter(|p| {
             p.to_string_lossy()
@@ -51,6 +63,9 @@ pub fn run(recordings: &[PathBuf], remove_program: bool) -> Result<(), String> {
                 .contains("streampreflight")
         })
         .collect();
+    if remove_program && !delete_settings {
+        folders.push(crate::update::previous_dir());
+    }
     let exe = if remove_program {
         program_file().filter(|p| {
             p.file_name()

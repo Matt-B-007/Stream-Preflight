@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The page header, game switch and style handling shared by Test and Fixes.
 
 use super::*;

@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in Stream Preflight doesn't work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Please don't include stream keys, passwords or anything else private; Preflight never needs them.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Run `stream-preflight --version`, or see Settings › Updates & about.
+      placeholder: 0.1.0-beta.8
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Distribution and desktop, for example "CachyOS, KDE Plasma 6 Wayland".
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Bug report
+      description: |
+        Help › Save report (or `stream-preflight --report`) saves one on your PC. Read it first, then drag the file here.
+        User names, home folders, Steam IDs, scene and source names and addresses are already removed.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I'm on the newest version.
+        - label: This doesn't include a stream key, password or other private details.
+          required: true

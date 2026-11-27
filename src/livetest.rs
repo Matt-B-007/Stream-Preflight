@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The full test. The user presses Record in OBS themselves; we notice the
 //! recording start through the WebSocket connection and measure the PC and
 //! OBS once a second until they stop recording. We never control OBS.

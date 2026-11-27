@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The Connect OBS and How you stream pages (opened from Get started).
 
 use super::*;

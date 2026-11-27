@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Connected monitors with their current and highest refresh rates.
 //! Linux: KDE's kscreen-doctor, then xrandr. Windows: display settings API.
 

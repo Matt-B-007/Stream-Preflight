@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The app's state and background work: scans, polls, tests, OBS, fix tracking.
 
 use super::*;
@@ -242,6 +243,10 @@ impl App {
             install_remove_old: true,
             open_uninstall,
             stable_confirm: false,
+            prev_version: crate::update::previous_version(),
+            rollback_confirm: false,
+            rollback_rx: None,
+            rollback_done: None,
             update_later: false,
             update_notified: false,
             conn_rx: None,
@@ -632,12 +637,15 @@ impl App {
         let need_hw = self.hw.is_none();
         let hints = self.game_hints();
         let hub = self.watch.as_ref().map(|w| w.cmd.clone());
-        // Reuse a good upload result from the last 15 minutes instead of
-        // testing again on every scan.
+        // Reuse a good upload result from the last 6 hours (kept across restarts)
+        // instead of testing again on every scan.
+        if self.net.is_none() {
+            self.net = crate::network::load_recent();
+        }
         let fresh = self
             .net
             .as_ref()
-            .map(|n| n.ok && crate::util::unix_now() - n.tested_at < 15 * 60)
+            .map(|n| n.reusable(crate::util::unix_now()))
             .unwrap_or(false);
         let do_net = with_network && self.st.network_test_on_scan && !fresh;
         let c2 = ctx.clone();
@@ -805,7 +813,10 @@ impl App {
                         self.obs = s.map(|b| *b);
                         self.obs_error = e;
                     }
-                    ScanMsg::Net(n) => self.net = Some(n),
+                    ScanMsg::Net(n) => {
+                        crate::network::save(&n);
+                        self.net = Some(n);
+                    }
                     ScanMsg::Done => done = true,
                 }
                 changed = true;
@@ -885,6 +896,10 @@ impl App {
                     self.quitting = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
+            }
+            if r.is_ok() {
+                // The version you had is now kept for Go back.
+                self.prev_version = crate::update::previous_version();
             }
             self.update_done = Some(r);
         }

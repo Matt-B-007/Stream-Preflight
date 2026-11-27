@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! One stream setup for all your games: combines every game's saved test
 //! into one OBS setup that holds up in the heaviest game. When a game needs
 //! more room, the advice is an in-game change, not a different OBS setup.
@@ -144,25 +145,27 @@ pub fn combine(tests: &[TestResult], games: &[GameResult], obs: Option<&ObsSnaps
     {
         let fps = o.fps.unwrap_or(60.0);
         let best = crate::analysis::best_height(base, b, fps, &f.motion, &o.codec, 2160);
-        // Matches the Fix list: P5 when a game keeps the GPU busy, P6 or P7 otherwise.
-        // Name the busy game so it doesn't read as a contradiction while testing a lighter one.
+        // Same words as the Setup table (analysis::nvenc_preset_words).
+        // The busy game is named, so it doesn't read as a contradiction while testing a lighter one.
         let preset = if !o.encoder_kind.contains("NVENC") {
             String::new()
-        } else if f.busy {
-            let busy_game = f
-                .tested
-                .iter()
-                .filter(|l| l.skipped_pct > 0.5 || l.gpu_avg.map(|g| g >= 85.0).unwrap_or(false))
-                .map(|l| l.game.clone())
-                .next();
-            match busy_game {
-                Some(g) => {
-                    format!(" · P5 ({g} keeps the GPU busy; P6 or P7 is fine in lighter games)")
-                }
-                None => " · P5".into(),
-            }
         } else {
-            " · P6 or P7".into()
+            let busy = |l: &&GameLine| {
+                l.skipped_pct > 0.5 || l.gpu_avg.map(|g| g >= 85.0).unwrap_or(false)
+            };
+            let busy_game = f.tested.iter().find(busy).map(|l| l.game.clone());
+            let all_busy = f.busy && !f.tested.is_empty() && f.tested.iter().all(|l| busy(&l));
+            if f.busy || busy_game.is_some() {
+                format!(
+                    " · {}",
+                    crate::analysis::nvenc_preset_words(
+                        busy_game.as_deref(),
+                        all_busy || busy_game.is_none()
+                    )
+                )
+            } else {
+                format!(" · {}", crate::analysis::nvenc_preset_words(None, false))
+            }
         };
         f.setup = format!("{}p{} · {b} kbps{preset}", best.1, fps.round() as u32);
         if out.1 > best.1 && f.tested.len() > 1 {

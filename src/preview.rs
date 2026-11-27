@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Viewer preview: puts OBS's original frames (before encoding) next to the
 //! same moments from the test recording (after encoding, at your stream
 //! settings), and scores how closely they match.

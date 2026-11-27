@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Installing Preflight for this user (no admin rights needed), and putting
 //! it where the menu and, on Windows, "Installed apps" can find it.
 //!
@@ -95,8 +96,13 @@ pub fn install(remove_old: bool) -> Result<PathBuf, String> {
 }
 
 /// Starts the installed copy (after installing or updating).
+/// Starts `p` as the replacement for this window (after an update or Go back).
+/// It waits for this window to close instead of bringing it forward.
 pub fn launch(p: &std::path::Path) -> bool {
-    std::process::Command::new(p).spawn().is_ok()
+    std::process::Command::new(p)
+        .env(crate::instance::RESTART_ENV, "1")
+        .spawn()
+        .is_ok()
 }
 
 #[cfg(windows)]

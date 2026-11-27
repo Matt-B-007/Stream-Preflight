@@ -3,6 +3,6 @@
 stable_version=
 stable_sha256=
 stable_notes=
-beta_version=0.1.0-beta.7
-beta_sha256=c6600c6274e90442c761522f3f8f603c68474ead41052b7477d5141bb69c519d
-beta_notes=Behind-the-scenes cleanup and stricter release checks; nothing looks or works differently
+beta_version=0.1.0-beta.8
+beta_sha256=9157129c346711663b7478e4a3bbe98eef457fced14c08ec6574bd724d99c9e9
+beta_notes=

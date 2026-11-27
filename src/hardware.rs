@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Hardware scan and live system sampling. Everything here reads from the
 //! operating system or official vendor libraries. Nothing touches a game.
 

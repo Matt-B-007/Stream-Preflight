@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.0-beta.8
+
+Safer updates: signed GitHub Releases, a self-test before every swap, and a way to go back. Plus three fixes from the latest bug report.
+
+- **Signed releases**: each release is built by GitHub Actions from its tag, as a draft first. `SHA256SUMS` is signed with minisign and checked against both public keys before the release is published. The app installs an update only when the download matches `SHA256SUMS` and the signature comes from the main or the backup key; a release without its signature yet counts as "not ready yet". This version is installed by the old updater; from here on, signatures are required.
+- **Self-test before every swap**: an update is put next to the program, must pass `--self-test --quick`, and only then replaces it.
+- **Go back**: the version you had is kept. **Settings › Updates & about › Go back to vX**, or `stream-preflight --rollback`. Installs in `/usr` or `/opt` point you to your package manager instead.
+- **One window at a time**: opening Preflight again brings the open window to the front, instead of starting a second copy. Updates, the tray hand-over and the installer still restart it cleanly.
+- **Command line**: `--version`, `--self-test [--quick]`, `--report`, `--update`, `--rollback` and `--uninstall [--delete-settings]`.
+- **Installer options**: `--beta`, `--version X`, `--no-launch`, `--from-source` and `--uninstall`. It reads GitHub Releases, checks the checksum, and checks the signature when minisign is installed. While there's no signed release yet, it falls back to the `download/` folder.
+- **Upload test reused for 6 hours**, kept across restarts, so a quick re-check doesn't use data every time. The Network card says how old the result is.
+- **Game audio shows Unknown** when OBS isn't connected, instead of "None" marked Good.
+- **One wording for the NVENC preset** in the Setup table and the fleet line: "P6 or P7", "P6 or P7 (P5 for <busy game>)", or "P5" when every tested game keeps the GPU busy.
+- **Licence**: GPL-3.0-or-later, with SPDX headers in every source file and a dependency licence check (`cargo deny check licenses`) in `scripts/check.sh`. `check.sh` also runs the program's quick self-test and checks the issue templates.
+- **Repository docs**: CONTRIBUTING, SUPPORT, SECURITY and RELEASING, plus a bug report form and a pull request checklist.
+- **Last version in `download/`**: beta.8 is placed there one last time, so beta.4 to beta.7 can update to it. `download/` then stays frozen and will be deleted after two more releases.
+
 ## v0.1.0-beta.7
 
 The first clippy cleanup and a single check script, on their own so anything they break is easy to trace. Nothing looks or works differently.

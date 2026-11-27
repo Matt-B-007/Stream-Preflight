@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Small drawing helpers shared by every screen.
 
 use super::*;
@@ -140,6 +141,7 @@ pub(super) fn tag_pill(ui: &mut Ui, t: analysis::Tag) {
         analysis::Tag::Change => ("Change", WARN, Color32::from_rgb(0x3A, 0x2E, 0x10)),
         analysis::Tag::Optional => ("Optional", TEXT_SOFT, RAISED),
         analysis::Tag::Kept => ("Kept", MUTED, RAISED),
+        analysis::Tag::Unknown => ("Unknown", MUTED, RAISED),
     };
     theme::pill(ui, fg, bg, label);
 }

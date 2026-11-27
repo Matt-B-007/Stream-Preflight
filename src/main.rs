@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod analysis;
 mod app;
 mod autoread;
+mod cli;
 mod config;
 mod desktop;
 mod encoders;
@@ -12,6 +14,7 @@ mod games;
 mod hardware;
 mod history;
 mod install;
+mod instance;
 mod livetest;
 mod logger;
 mod minecraft;
@@ -33,8 +36,21 @@ mod util;
 mod winsys;
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    // Command-line flags (--version, --self-test, --report, --update, --rollback,
+    // --uninstall). They don't open a window or touch the window's log file.
+    if let Some(code) = cli::handle(&args) {
+        std::process::exit(code);
+    }
     let tray_only = std::env::args().any(|a| a == "--tray");
     if tray_only && cfg!(target_os = "linux") {
+        // Already covered by another tray-only copy or an open window: leave
+        // their logs alone and stop here (a hand-over waits in traymode::run).
+        if traymode::running_tray().is_some()
+            || (instance::window_running() && std::env::var_os(instance::RESTART_ENV).is_none())
+        {
+            return;
+        }
         // Tray icon and OBS watcher, no window (see traymode.rs).
         logger::init_named("preflight-tray");
         logger::install_crash_handler();
@@ -42,6 +58,29 @@ fn main() {
         traymode::run();
         log::logger().flush();
         return;
+    }
+    // One window at a time: a second launch brings the first one forward.
+    // (--install and --self-check never open a window, so they skip this.)
+    let windowless = args.iter().any(|a| a == "--install" || a == "--self-check");
+    match if windowless {
+        instance::Claim::Existing
+    } else {
+        instance::claim()
+    } {
+        instance::Claim::Existing if windowless => {}
+        instance::Claim::Existing => {
+            // Before the log starts, so the open window's log isn't touched.
+            println!("Stream Preflight is already open; bringing it forward.");
+            return;
+        }
+        #[cfg(unix)]
+        instance::Claim::First(l) => {
+            if let Some(l) = l {
+                instance::hold(l);
+            }
+        }
+        #[cfg(not(unix))]
+        instance::Claim::First => {}
     }
     logger::init();
     logger::install_crash_handler();
@@ -70,10 +109,6 @@ fn main() {
                 std::process::exit(1);
             }
         }
-    }
-    if std::env::args().any(|a| a == "--version") {
-        println!("{}", util::VERSION);
-        return;
     }
     if std::env::args().any(|a| a == "--self-check") {
         // Headless check used for testing builds: scan without a window.

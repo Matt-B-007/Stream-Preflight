@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Two PCs: roles, paired mode and the two-PC settings cards.
 
 use super::*;

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Every check CI runs, in the same order with the same flags. CI runs only
 # this script for checks, and StowLock runs it before pushing, so a pass here
 # is a pass there.
@@ -13,6 +14,7 @@ cd "$(dirname "$0")/.." || exit 1
 
 # The version CI pins. A different local version still runs, with a note.
 SHELLCHECK_CI_VERSION=0.11.0
+DENY_CI_VERSION=0.22.2
 
 # Colour only on a terminal, and only when NO_COLOR isn't set.
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -53,6 +55,9 @@ else
     if ! cargo clippy --version >/dev/null 2>&1; then
         need "clippy for the pinned Rust (rust-toolchain.toml)" "rustup" "run 'rustup toolchain install' in this folder"
     fi
+fi
+if ! command -v cargo-deny >/dev/null 2>&1; then
+    need "cargo-deny (checks dependency licences; CI uses $DENY_CI_VERSION)" "cargo-deny" "cargo install cargo-deny --locked --version $DENY_CI_VERSION"
 fi
 if ! command -v shellcheck >/dev/null 2>&1; then
     need "shellcheck (CI uses $SHELLCHECK_CI_VERSION)" "shellcheck" "pip install shellcheck-py==$SHELLCHECK_CI_VERSION.1"
@@ -107,6 +112,18 @@ if ! cargo test --locked; then
     fail "tests"
 fi
 
+step "Program self-test (target/debug/stream-preflight --self-test --quick)"
+if [ ! -x target/debug/stream-preflight ]; then
+    fail "self-test: the program wasn't built"
+elif ! target/debug/stream-preflight --self-test --quick; then
+    fail "self-test"
+fi
+
+step "Dependency licences (cargo deny check licenses)"
+if ! cargo deny check licenses; then
+    fail "a dependency's licence isn't on the allow-list in deny.toml"
+fi
+
 have="$(shellcheck --version | sed -n 's/^version: //p')"
 step "Check shell scripts (sh -n or bash -n, then shellcheck $have)"
 if [ "$have" != "$SHELLCHECK_CI_VERSION" ]; then
@@ -126,8 +143,8 @@ for f in install.sh uninstall.sh get.sh scripts/*.sh tools/*; do
     fi
 done
 
-step "Check workflow files (YAML parses)"
-for f in .github/workflows/*.yml; do
+step "Check GitHub files (YAML parses)"
+for f in .github/workflows/*.yml .github/ISSUE_TEMPLATE/*.yml; do
     [ -f "$f" ] || continue
     printf '  %s\n' "$f"
     if ! python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$f"; then

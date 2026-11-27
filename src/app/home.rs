@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Home: the Get started card, then one plain answer and the latest results.
 
 use super::*;

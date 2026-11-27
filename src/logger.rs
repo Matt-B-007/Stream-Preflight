@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Logging: a small rolling log file plus an in-memory buffer for bug
 //! reports. Every line is tagged with its component and scrubbed of
 //! personal information before it is stored.

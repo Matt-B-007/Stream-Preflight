@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Every video encoder on this PC: what it is, what it can encode, and
 //! whether something is using it right now. Read-only: NVML on NVIDIA,
 //! per-process DRM usage files on Linux for AMD and Intel, and Windows'

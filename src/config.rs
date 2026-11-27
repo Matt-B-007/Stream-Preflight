@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! User settings. Stored as JSON with a format version so later updates
 //! can migrate them without losing anything.
 

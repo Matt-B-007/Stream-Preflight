@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Puts a finished Linux build into download/ so the one-line install and the
 # in-app updater can find it. Run from the repository folder:
 #

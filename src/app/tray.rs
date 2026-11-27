@@ -1,11 +1,25 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The system tray: status, hiding to the tray, and the Wayland hand-over.
 
 use super::*;
 
 impl App {
     pub(super) fn tray_logic(&mut self, ctx: &egui::Context) {
+        // Another launch asked this window to come forward.
+        if crate::instance::take_show_request() {
+            if self.hidden {
+                self.show_from_tray(ctx);
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            // Wayland may refuse focus; this at least flashes the taskbar entry.
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+                egui::UserAttentionType::Informational,
+            ));
+        }
         if !self.tray_tried {
             self.tray_tried = true;
+            crate::instance::serve(ctx.clone());
             self.tray = crate::tray::Tray::start(ctx.clone());
             if let Some(t) = &mut self.tray
                 && self.win_hwnd != 0
