@@ -136,7 +136,6 @@ pub fn run() {
     let watch = streamwatch::start(cfg, ctx);
     log::info!("Tray-only mode: watching OBS with no window");
     let mut was_live = false;
-    let mut last_view = TrayView::default();
     let open_window = loop {
         std::thread::sleep(Duration::from_millis(1000));
         if handoff_file().exists() {
@@ -167,7 +166,7 @@ pub fn run() {
                 tray.notify(
                     "Stream ended",
                     &format!(
-                        "{} · {}. Open Preflight for your post-flight summary.",
+                        "{} · {}. Open Preflight for your stream summary.",
                         streamwatch::fmt_duration(p.duration),
                         p.grade
                     ),
@@ -179,10 +178,9 @@ pub fn run() {
         }
         was_live = live.is_some();
         let view = view_for(connected, live.as_ref(), st.last_fix_count);
-        if view != last_view {
-            tray.set(view.clone());
-            last_view = view;
-        }
+        // Every pass, not only on a change: a new picture is held for 400 ms
+        // and needs a second call to appear. (Nothing is redrawn when it's the same.)
+        let _ = tray.set(view.clone());
     };
     // Hand over: save an unfinished stream so the next Preflight carries on with it.
     watch.stop_and_wait(Duration::from_secs(3));

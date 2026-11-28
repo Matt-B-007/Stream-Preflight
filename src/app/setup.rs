@@ -34,10 +34,13 @@ impl App {
         ui.horizontal(|ui| {
             draw_logo(ui, 34.0);
             ui.label(theme::caps("Stream Preflight", 16.0, pal().text));
-            if single.is_some() {
-                return;
-            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Help and Settings are top right on every screen, this one too.
+                self.ui_top_right(ui);
+                if single.is_some() {
+                    return;
+                }
+                ui.add_space(12.0);
                 for (i, l) in [(3u8, "How you stream"), (2, "Connect OBS"), (1, "Welcome")] {
                     let col = if n == i {
                         pal().accent

@@ -5,7 +5,8 @@ use crate::analysis::Status;
 use eframe::egui::{self, Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 
 // ---------------------------------------------------------------------------
-// Colour tokens. Every colour in the app comes from here (house standard v1.3):
+// Colour tokens. Every colour in the app comes from here (house standard,
+// colour update v1.3: the navy "hull" neutrals shared by the five apps):
 // navy neutrals, lime for text and links (#3F6212 in the light theme), status
 // colours that mean the same everywhere, and filled buttons with dark ink on
 // lime (dark theme) or white on #3F6212 (light theme). The contrast test at
@@ -61,16 +62,16 @@ const fn rgb(h: u32) -> Color32 {
 
 pub const DARK: Palette = Palette {
     bg: rgb(0x0C1016),
-    sidebar: rgb(0x090C11),
-    card: rgb(0x121822),
-    inset: rgb(0x0E131B),
+    sidebar: rgb(0x080B10),
+    card: rgb(0x131922),
+    inset: rgb(0x0F141C),
     control: rgb(0x1A212C),
-    hover: rgb(0x222B38),
-    border: rgb(0x232C3A),
-    border_strong: rgb(0x334052),
-    text: rgb(0xECEFF4),
-    text_soft: rgb(0xC6CEDA),
-    muted: rgb(0x9CA8BA),
+    hover: rgb(0x212A37),
+    border: rgb(0x263040),
+    border_strong: rgb(0x344155),
+    text: rgb(0xE8EDF4),
+    text_soft: rgb(0xC7D0DC),
+    muted: rgb(0x9AA6B8),
     accent: rgb(0xC6F36B),
     accent_bg: rgb(0x232D17),
     fill: rgb(0xC6F36B),
@@ -90,17 +91,17 @@ pub const DARK: Palette = Palette {
 };
 
 pub const LIGHT: Palette = Palette {
-    bg: rgb(0xF6F7F8),
-    sidebar: rgb(0xEEF0F2),
+    bg: rgb(0xF5F7FA),
+    sidebar: rgb(0xEDF1F5),
     card: rgb(0xFFFFFF),
-    inset: rgb(0xF4F6F8),
-    control: rgb(0xF1F3F5),
-    hover: rgb(0xE6E9ED),
-    border: rgb(0xE2E5E9),
-    border_strong: rgb(0xC9CED6),
-    text: rgb(0x111317),
-    text_soft: rgb(0x2E343E),
-    muted: rgb(0x555C69),
+    inset: rgb(0xF3F6F9),
+    control: rgb(0xF1F4F8),
+    hover: rgb(0xE9EEF4),
+    border: rgb(0xDCE3EB),
+    border_strong: rgb(0xC5CEDA),
+    text: rgb(0x0F1620),
+    text_soft: rgb(0x2B3645),
+    muted: rgb(0x556274),
     accent: rgb(0x3F6212),
     accent_bg: rgb(0xEAF3DA),
     fill: rgb(0x3F6212),
@@ -114,7 +115,7 @@ pub const LIGHT: Palette = Palette {
     on_bad: rgb(0xFFFFFF),
     info: rgb(0x0369A1),
     amber: rgb(0xD97706),
-    faint: Color32::from_rgba_premultiplied(4, 6, 1, 14),
+    faint: Color32::from_rgba_premultiplied(3, 5, 1, 12),
     placeholder: rgb(0x9AA1AD),
     dark: false,
 };
@@ -258,6 +259,9 @@ pub fn apply(ctx: &egui::Context) {
         s.spacing.slider_width = 280.0;
         s.spacing.window_margin = Margin::same(24);
         s.spacing.menu_margin = Margin::same(8);
+        // Scrollbars get their own space, so cards never run underneath them.
+        s.spacing.scroll = egui::style::ScrollStyle::solid();
+        s.spacing.scroll.bar_width = 8.0;
         // 120 ms (fast) animations; "Reduce motion" turns them off.
         s.animation_time = 0.12;
         use egui::{FontFamily, FontId, TextStyle};
@@ -688,19 +692,13 @@ pub fn glow_button(ui: &mut Ui, text: &str) -> egui::Response {
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     let p = ui.painter();
     let hot = resp.hovered();
+    // House standard: glow 0 0 12px in the accent at about 35%, only here.
     p.add(
         egui::epaint::Shadow {
-            offset: [0, 4],
-            blur: if hot { 28 } else { 20 },
+            offset: [0, 0],
+            blur: if hot { 16 } else { 12 },
             spread: 0,
-            color: alpha(
-                c.fill,
-                if c.dark {
-                    if hot { 110 } else { 70 }
-                } else {
-                    50
-                },
-            ),
+            color: alpha(c.fill, if hot { 110 } else { 89 }),
         }
         .as_shape(rect, CornerRadius::same(8)),
     );
@@ -1010,6 +1008,34 @@ mod contrast_tests {
     /// The colours the house standard fixes for Stream Preflight.
     #[test]
     fn house_standard_colours() {
+        // v1.3 hull neutrals, dark then light.
+        for (c, bg, sidebar, card, control, hover, border, text, muted) in [
+            (
+                DARK, 0x0C1016, 0x080B10, 0x131922, 0x1A212C, 0x212A37, 0x263040, 0xE8EDF4,
+                0x9AA6B8,
+            ),
+            (
+                LIGHT, 0xF5F7FA, 0xEDF1F5, 0xFFFFFF, 0xF1F4F8, 0xE9EEF4, 0xDCE3EB, 0x0F1620,
+                0x556274,
+            ),
+        ] {
+            assert_eq!(
+                [
+                    c.bg, c.sidebar, c.card, c.control, c.hover, c.border, c.text, c.muted
+                ],
+                [bg, sidebar, card, control, hover, border, text, muted].map(rgb)
+            );
+        }
+        // Text at least 12.3:1 and muted at least 5.0:1 on the worst surface.
+        for c in [DARK, LIGHT] {
+            for s in [c.bg, c.sidebar, c.card, c.control, c.hover] {
+                assert!(contrast(c.text, s) >= 12.3);
+                assert!(contrast(c.muted, s) >= 5.0);
+            }
+            // Ink or white on the filled accent button.
+            assert!(contrast(c.on_fill, c.fill) >= 5.1);
+        }
+        assert!(contrast(DARK.on_fill, DARK.fill) >= 7.2);
         assert_eq!(DARK.accent, rgb(0xC6F36B));
         assert_eq!(LIGHT.accent, rgb(0x3F6212));
         assert_eq!(DARK.fill, rgb(0xC6F36B));

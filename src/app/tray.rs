@@ -126,12 +126,19 @@ impl App {
             status
         };
         if let Some(t) = &mut self.tray {
-            t.set(crate::tray::TrayView {
+            let waiting = t.set(crate::tray::TrayView {
                 state,
                 attention,
                 problem,
                 status,
             });
+            // A hidden window draws rarely: wake up to finish the 400 ms hold,
+            // so the icon doesn't change late.
+            if waiting {
+                ctx.request_repaint_after(std::time::Duration::from_millis(
+                    crate::tray::HOLD_MS + 50,
+                ));
+            }
         }
     }
 

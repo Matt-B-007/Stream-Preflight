@@ -61,7 +61,8 @@ Versions up to beta.7 update from the repository's `download/` folder. beta.8 is
 | `stream-preflight --report` | Saves a bug report (same privacy rules as the app) and prints where |
 | `stream-preflight --update` | Installs the newest version, with the same checks as **Update now** |
 | `stream-preflight --rollback` | Goes back to the version you had before the last update |
-| `stream-preflight --uninstall` | Removes the program and its menu entry, keeping settings (`--delete-settings` removes those too) |
+| `stream-preflight --uninstall` | Removes the program and its menu entry, keeping settings (`--delete-settings` removes those too). Asks first; `--yes` skips the question |
+| `stream-preflight --help` | Lists these options |
 
 Only one window opens at a time: starting Stream Preflight again brings the open window to the front.
 
@@ -111,7 +112,7 @@ Versions up to beta.8 used `~/.config/streampreflight` and `~/.local/share/strea
 ## Privacy
 
 - Nothing is sent anywhere automatically, and there's no analytics.
-- The only automatic network use: an optional daily update check (reads GitHub's public list of this project's releases), and an optional upload speed test during scans. Both can be turned off in Settings.
+- The only automatic network use: an optional daily update check (reads GitHub's public list of this project's releases), and an optional upload speed test during scans. If your PC's DNS can't find GitHub, the update check asks Cloudflare, then Google, for GitHub's address (only the name `api.github.com` is sent); **Settings › Updates** turns that off. Both can be turned off in Settings.
 - Never collected: stream keys, passwords, tokens, account names, emails, chat, audio, video, IP or MAC addresses, Wi-Fi names, serial numbers or product keys.
 - Bug reports are saved on your PC for you to look at first, and **Report a problem** shows exactly what's in them. Home folders (`~`), user and PC names (`<user>`, `<host>`), Steam IDs (`<steamid>`), IP and MAC addresses (`<ip>`, `<mac>`), keys and tokens (`<secret>`), player names, and OBS scene and source names are removed. Reports and logs delete themselves after 14 days.
 - The OBS password is encrypted with Windows' data protection on Windows, and stored in a file only you can read on Linux.

@@ -207,7 +207,7 @@ pub(super) fn go_row(
                 ui.label(RichText::new(detail).size(12.0).color(pal().muted));
                 if let Some(b) = button {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button(b).clicked() {
+                        if small_btn(ui, b).clicked() {
                             on_click();
                         }
                     });
@@ -470,8 +470,6 @@ pub(super) enum Icon {
     Fix,
     Live,
     History,
-    Settings,
-    Help,
     Expand,
 }
 
@@ -536,26 +534,6 @@ pub(super) fn paint_icon(p: &egui::Painter, c: egui::Pos2, icon: Icon, col: Colo
         Icon::History => {
             p.add(arc(0.0, 0.0, 8.5, 0.0, 360.0));
             p.add(line(vec![pt(0.0, -4.5), pt(0.0, 0.0), pt(3.0, 2.0)]));
-        }
-        Icon::Settings => {
-            p.circle_stroke(c, 3.0, s);
-            for k in 0..8 {
-                let a = (k as f32 * 45.0).to_radians();
-                p.add(line(vec![
-                    pt(5.5 * a.cos(), 5.5 * a.sin()),
-                    pt(8.5 * a.cos(), 8.5 * a.sin()),
-                ]));
-            }
-        }
-        Icon::Help => {
-            p.add(arc(0.0, 0.0, 8.5, 0.0, 360.0));
-            p.text(
-                c,
-                egui::Align2::CENTER_CENTER,
-                "?",
-                egui::FontId::proportional(13.0),
-                col,
-            );
         }
         Icon::Expand => {
             p.add(line(vec![pt(-2.0, -5.0), pt(3.0, 0.0), pt(-2.0, 5.0)]));
@@ -679,4 +657,39 @@ pub(super) fn slim_banner(
                 });
             });
         });
+}
+
+/// A dialog on a dimmed backdrop: nothing behind it can be clicked, it never
+/// grows taller than the window (the content scrolls instead), and Escape asks
+/// to close it. Returns what `add` returned, and whether to close.
+pub(super) fn modal<R>(
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    width: f32,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> (R, bool) {
+    let screen = ctx.content_rect();
+    let r = egui::Modal::new(egui::Id::unique(id)).show(ctx, |ui| {
+        ui.set_width(width.min(screen.width() - 64.0));
+        ui.label(RichText::new(title).size(16.0).strong());
+        ui.add_space(4.0);
+        // As tall as its content, up to the window's height; then it scrolls.
+        let max_h = (screen.height() - 140.0).max(200.0);
+        egui::ScrollArea::vertical()
+            .max_height(max_h)
+            .min_scrolled_height(max_h)
+            .show(ui, add)
+            .inner
+    });
+    // Escape closes it. A click outside doesn't: that would throw away what
+    // was typed into a report by accident.
+    let close = r.is_top_modal && ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    (r.inner, close)
+}
+
+/// A compact button for inside a row of text. (egui's own small button drops
+/// its padding, which squashed it to a sliver with this app's spacing.)
+pub(super) fn small_btn(ui: &mut Ui, text: impl Into<String>) -> egui::Response {
+    ui.add(egui::Button::new(RichText::new(text.into()).size(12.0)).min_size(Vec2::new(0.0, 26.0)))
 }

@@ -201,6 +201,9 @@ fn main() {
     ) {
         log::error!("Window could not start: {e}");
         eprintln!("Stream Preflight could not open its window: {e}");
+        logger::end_session();
+        log::logger().flush();
+        std::process::exit(1);
     }
     logger::end_session();
     log::logger().flush();

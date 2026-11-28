@@ -304,7 +304,41 @@ pub fn start_session() {
     let now = crate::util::unix_now().to_string();
     let _ = std::fs::write(marker_path(), crate::util::VERSION);
     let _ = std::fs::write(last_start_path(), now);
+    close_cleanly_on_signals();
 }
+
+/// Logging out, shutting down or `kill` ask the program to stop with a signal.
+/// That's a normal end, not a crash: the marker is removed before stopping.
+#[cfg(unix)]
+fn close_cleanly_on_signals() {
+    use std::os::unix::ffi::OsStrExt;
+    static MARKER: OnceLock<std::ffi::CString> = OnceLock::new();
+    extern "C" fn on_signal(sig: libc::c_int) {
+        // Only signal-safe calls: remove the marker, then stop the default way.
+        unsafe {
+            if let Some(p) = MARKER.get() {
+                libc::unlink(p.as_ptr());
+            }
+            libc::signal(sig, libc::SIG_DFL);
+            libc::raise(sig);
+        }
+    }
+    let Ok(path) = std::ffi::CString::new(marker_path().as_os_str().as_bytes()) else {
+        return;
+    };
+    let _ = MARKER.set(path);
+    for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        unsafe {
+            libc::signal(
+                sig,
+                on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t,
+            );
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn close_cleanly_on_signals() {}
 
 /// The marker is removed when the window closes normally.
 pub fn end_session() {

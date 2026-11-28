@@ -99,14 +99,18 @@ pub(super) fn home_stat(ui: &mut Ui, label: &str, value: &str, sub: &str) {
     ui.vertical(|ui| {
         ui.set_min_width(130.0);
         ui.label(theme::caps(label, 12.0, pal().muted));
-        ui.label(
-            RichText::new(value)
-                .monospace()
-                .size(22.0)
-                .color(pal().text),
-        );
+        // Numbers in the number font; words ("Mostly smooth") in the text
+        // font, which is narrower, so they don't run into the next column.
+        let words = value.chars().filter(|c| c.is_alphabetic()).count() > 3;
+        let v = RichText::new(value).color(pal().text);
+        ui.label(if words {
+            v.size(18.0).strong()
+        } else {
+            v.monospace().size(22.0)
+        });
         ui.label(RichText::new(sub).size(12.0).color(pal().text_soft));
     });
+    ui.add_space(12.0);
 }
 
 impl App {
@@ -319,11 +323,18 @@ impl App {
     pub(super) fn home_verdict(&mut self, ui: &mut Ui, active: bool) {
         let (imp, opt) = self.open_counts();
         let a = &self.analysis;
-        let (smooth, setup) = (a.smoothness, a.setup_score);
-        let head = if imp > 0 {
+        let (smooth, setup) = (a.smoothness, a.setup_shown());
+        let head = if setup.is_none() {
+            "Connect OBS to check your setup".to_string()
+        } else if imp > 0 {
             format!(
-                "{imp} thing{} to fix before you go live",
-                if imp == 1 { "" } else { "s" }
+                "{imp} thing{} to fix before you go live{}",
+                if imp == 1 { "" } else { "s" },
+                if opt > 0 {
+                    format!(" · {opt} optional")
+                } else {
+                    String::new()
+                }
             )
         } else if opt > 0 {
             format!("Ready to go live · {opt} optional")
@@ -345,6 +356,9 @@ impl App {
                     .current_game()
                     .or_else(|| self.analysis.setup.game_name.clone())
                 {
+                    _ if setup.is_none() => {
+                        "Preflight hasn't read your OBS settings yet.".to_string()
+                    }
                     Some(g) => format!("From OBS's settings; not tested with {g} yet."),
                     None => "From OBS's settings; no test yet.".to_string(),
                 },
@@ -399,7 +413,7 @@ impl App {
                     });
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    theme::dial(ui, Some(setup), "SETUP", pal().accent);
+                    theme::dial(ui, setup, "SETUP", pal().accent);
                     theme::dial(ui, smooth, "SMOOTHNESS", theme::pal().success);
                 });
             });

@@ -49,63 +49,66 @@ impl App {
         } else {
             "Uninstall Stream Preflight?"
         };
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .default_width(520.0)
-            .show(ctx, |ui| {
-                if u.done {
-                    ui.label("Stream Preflight is uninstalled. Thanks for trying it.");
-                    if !u.delete_settings {
-                        theme::small(ui, "Your settings and logs are still there, in case you install it again.");
-                    }
-                    ui.add_space(6.0);
-                    if theme::primary(ui, "Close").clicked() {
-                        crate::logger::end_session();
-                        std::process::exit(0);
-                    }
-                    return;
+        let (_, esc) = modal(ctx, "uninstall-dialog", title, 520.0, |ui| {
+            if u.done {
+                ui.label("Stream Preflight is uninstalled. Thanks for trying it.");
+                if !u.delete_settings {
+                    theme::small(
+                        ui,
+                        "Your settings and logs are still there, in case you install it again.",
+                    );
                 }
-                ui.label("Removes the program, its app menu entry and its icon. OBS, your games and their settings are never touched.");
-                ui.add_space(4.0);
-                ui.checkbox(&mut u.delete_settings, "Also delete my settings and logs");
-                if u.delete_settings {
-                    for (what, path) in crate::uninstall::own_folders() {
-                        theme::small(
-                            ui,
-                            format!("{what}: {}", crate::util::scrub(&path.to_string_lossy())),
-                        );
-                    }
+                ui.add_space(6.0);
+                if theme::primary(ui, "Close").clicked() {
+                    crate::logger::end_session();
+                    std::process::exit(0);
                 }
-                if let Some(exe) = crate::uninstall::program_file() {
-                    ui.checkbox(&mut u.program, "Delete the program file");
-                    theme::small(ui, crate::util::scrub(&exe.to_string_lossy()));
+                return;
+            }
+            ui.label("Removes the program, its app menu entry and its icon. OBS, your games and their settings are never touched.");
+            ui.add_space(4.0);
+            ui.checkbox(&mut u.delete_settings, "Also delete my settings and logs");
+            if u.delete_settings {
+                for (what, path) in crate::uninstall::own_folders() {
+                    theme::small(
+                        ui,
+                        format!("{what}: {}", crate::util::scrub(&path.to_string_lossy())),
+                    );
                 }
-                if !u.recs.is_empty() {
-                    ui.add_space(6.0);
-                    ui.label(RichText::new("Test recordings Preflight made (only ticked ones are deleted):").strong());
-                    for (path, size, del) in u.recs.iter_mut() {
-                        let name = std::path::Path::new(path)
-                            .file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default();
-                        ui.checkbox(del, format!("{name} · {}", crate::util::fmt_bytes(*size)));
-                    }
+            }
+            if let Some(exe) = crate::uninstall::program_file() {
+                ui.checkbox(&mut u.program, "Delete the program file");
+                theme::small(ui, crate::util::scrub(&exe.to_string_lossy()));
+            }
+            if !u.recs.is_empty() {
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new("Test recordings Preflight made (only ticked ones are deleted):")
+                        .strong(),
+                );
+                for (path, size, del) in u.recs.iter_mut() {
+                    let name = std::path::Path::new(path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    ui.checkbox(del, format!("{name} · {}", crate::util::fmt_bytes(*size)));
                 }
-                if let Some(e) = &u.error {
-                    ui.label(RichText::new(format!("Some files couldn't be removed: {e}")).color(pal().bad));
+            }
+            if let Some(e) = &u.error {
+                ui.label(
+                    RichText::new(format!("Some files couldn't be removed: {e}")).color(pal().bad),
+                );
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if theme::secondary(ui, "Cancel").clicked() {
+                    keep = false;
                 }
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if theme::secondary(ui, "Cancel").clicked() {
-                        keep = false;
-                    }
-                    if theme::danger(ui, "Uninstall").clicked() {
-                        go = true;
-                    }
-                });
+                if theme::danger(ui, "Uninstall").clicked() {
+                    go = true;
+                }
             });
+        });
         if go {
             let chosen: Vec<std::path::PathBuf> = u
                 .recs
@@ -118,7 +121,8 @@ impl App {
                 Err(e) => u.error = Some(e),
             }
         }
-        if keep {
+        // After uninstalling, only Close ends it (the program is gone).
+        if keep && (!esc || u.done) {
             self.uninstall = Some(u);
         }
     }
@@ -266,7 +270,7 @@ impl App {
                     if ui
                         .radio(
                             !self.st.live_opens_window,
-                            "Stay in the tray (the icon turns red)",
+                            "Stay in the tray (the icon turns lime)",
                         )
                         .clicked()
                     {
@@ -433,28 +437,31 @@ impl App {
                     }
                 });
                 if let Some(o) = self.obs.as_ref().filter(|o| o.connected) {
-                    theme::muted(
-                        ui,
-                        format!(
-                            "Streaming {} at {} fps, {}, using {}.",
-                            o.output_res
-                                .map(|r| format!("{}p", r.1))
-                                .unwrap_or_default(),
-                            o.fps
-                                .map(|f| (f.round() as u32).to_string())
-                                .unwrap_or_default(),
-                            o.bitrate_kbps
-                                .map(|b| format!("{b} kbps"))
-                                .unwrap_or_default(),
-                            o.encoder_kind
-                        ),
-                    );
+                    theme::muted(ui, {
+                        // Only the parts OBS reported, so nothing is left blank.
+                        let mut parts: Vec<String> = Vec::new();
+                        match (o.output_res, o.fps) {
+                            (Some(r), Some(f)) => {
+                                parts.push(format!("{}p at {} fps", r.1, f.round() as u32))
+                            }
+                            (Some(r), None) => parts.push(format!("{}p", r.1)),
+                            (None, Some(f)) => parts.push(format!("{} fps", f.round() as u32)),
+                            (None, None) => {}
+                        }
+                        if let Some(b) = o.bitrate_kbps {
+                            parts.push(format!("{b} kbps"));
+                        }
+                        if !o.encoder_kind.is_empty() {
+                            parts.push(format!("using {}", o.encoder_kind));
+                        }
+                        format!("Streaming {}.", parts.join(", "))
+                    });
                 } else if let Some(e) = self.obs_error.clone() {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new(&e).color(pal().warn));
                         if let Some((l, a)) = err_action(&e)
                             && a != NextAct::ObsSettings
-                            && ui.small_button(l).clicked()
+                            && small_btn(ui, l).clicked()
                         {
                             act = Some(a);
                         }
@@ -533,7 +540,7 @@ impl App {
                         ui.horizontal(|ui| {
                             tag_pill(ui, analysis::Tag::Kept);
                             ui.label(title);
-                            if ui.small_button("Fix it after all").clicked() {
+                            if small_btn(ui, "Fix it after all").clicked() {
                                 unkeep = Some(id.clone());
                             }
                         });
@@ -550,7 +557,7 @@ impl App {
                         ui.horizontal(|ui| {
                             tag_pill(ui, analysis::Tag::Kept);
                             ui.label(label);
-                            if ui.small_button("Check it again").clicked() {
+                            if small_btn(ui, "Check it again").clicked() {
                                 ungo = Some(k.clone());
                             }
                         });
@@ -559,7 +566,7 @@ impl App {
                         ui.horizontal(|ui| {
                             tag_pill(ui, analysis::Tag::Kept);
                             ui.label(format!("Not suggested: {}", h.label));
-                            if ui.small_button("Suggest again").clicked() {
+                            if small_btn(ui, "Suggest again").clicked() {
                                 restore = Some(i);
                             }
                         });
@@ -640,8 +647,13 @@ impl App {
                         }
                     });
                     theme::small(ui, "System follows your desktop's light or dark setting.");
+                    // Reduce motion turns the grid off, so the box can't be changed then.
                     let mut changed = ui
-                        .checkbox(&mut self.st.backdrop_grid, "Background grid")
+                        .add_enabled(
+                            !self.st.reduce_motion,
+                            egui::Checkbox::new(&mut self.st.backdrop_grid, "Background grid"),
+                        )
+                        .on_disabled_hover_text("Off while Reduce motion is on")
                         .changed();
                     changed |= ui
                         .checkbox(
@@ -786,6 +798,21 @@ impl App {
                     theme::small(
                         ui,
                         "Reads GitHub's public list of releases for Matt-B-007/Stream-Preflight; nothing about you or your PC is sent. An update is only installed when it's signed by the maintainer and passes its own self-test.",
+                    );
+                    if ui
+                        .checkbox(
+                            &mut self.st.dns_fallback,
+                            "If this PC can't find GitHub, ask a public DNS service",
+                        )
+                        .changed()
+                    {
+                        crate::doh::ENABLED
+                            .store(self.st.dns_fallback, std::sync::atomic::Ordering::Relaxed);
+                        save = true;
+                    }
+                    theme::small(
+                        ui,
+                        "Only when your own DNS fails: the name \"api.github.com\" is sent to Cloudflare (1.1.1.1), then Google (8.8.8.8), to look up GitHub's address. Nothing else is sent.",
                     );
                     ui.horizontal(|ui| {
                         ui.label("Get updates from:");
@@ -1060,7 +1087,7 @@ impl App {
                         .show(ui, |ui| {
                             for (name, dir, note) in [
                                 ("Bug reports", d.reports.clone(), "Deleted after 14 days"),
-                                ("Logs", d.logs.clone(), "Deleted after 14 days"),
+                                ("Logs", d.logs.clone(), "1 MB per file, the last 3 kept"),
                                 (
                                     "Viewer preview frames",
                                     d.previews.clone(),
@@ -1071,7 +1098,7 @@ impl App {
                                     d.tests.clone(),
                                     "One small file per game",
                                 ),
-                                ("Past streams", d.streams.clone(), "Post-flight summaries"),
+                                ("Past streams", d.streams.clone(), "Stream summaries"),
                             ] {
                                 let (n, b) = size_of(&dir);
                                 ui.label(RichText::new(name).color(pal().text_soft));
@@ -1082,7 +1109,7 @@ impl App {
                                 ));
                                 ui.horizontal(|ui| {
                                     theme::small(ui, note);
-                                    if n > 0 && ui.small_button("Open").clicked() {
+                                    if n > 0 && small_btn(ui, "Open").clicked() {
                                         report::open_folder(&dir);
                                     }
                                 });
@@ -1126,7 +1153,7 @@ impl App {
                                 ))
                                 .color(pal().text_soft),
                             );
-                            if ui.small_button("Delete").clicked() {
+                            if small_btn(ui, "Delete").clicked() {
                                 del.push(r.path.clone());
                             }
                         });
@@ -1202,6 +1229,8 @@ impl App {
                 ui.add_space(10.0);
             }
             if tab == TAB_ADVANCED {
+                self.ui_advanced_tools(ui);
+                ui.add_space(10.0);
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Install").size(16.0).strong());
                     let target = crate::install::target()

@@ -179,7 +179,7 @@ impl App {
                 .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new("Welcome back. Nothing has changed since your last pre-flight.").strong());
+                    ui.label(RichText::new("Welcome back. Nothing has changed since your last test.").strong());
                     let when = self.st.last_preflight.as_ref().map(|l| history::fmt_time(l.time)).unwrap_or_default();
                     ui.label(RichText::new(format!("Same game, settings and OBS scene as {when}, so you can go straight to Ready to go live.")).color(pal().text_soft));
                     let (imp, opt) = self.open_counts();
@@ -247,7 +247,16 @@ impl App {
                     ui.label(RichText::new(head).size(22.0).family(theme::title_family()).strong().color(pal().text));
                     // One verdict, in words.
                     let (v, c) = if important > 0 {
-                        (format!("{important} to fix"), theme::pal().amber)
+                        // The same words as Home and the sidebar badge.
+                        let opt = self.open_counts().1;
+                        (
+                            if opt > 0 {
+                                format!("{important} to fix · {opt} optional")
+                            } else {
+                                format!("{important} to fix")
+                            },
+                            theme::pal().amber,
+                        )
                     } else if self.test.is_none() && !self.returning {
                         ("Not tested yet".to_string(), pal().muted)
                     } else if left > 0 {
@@ -276,7 +285,7 @@ impl App {
                     ui.separator();
                     self.ui_score_why(ui);
                 });
-                theme::dial(ui, Some(self.analysis.setup_score), "Setup", pal().accent);
+                theme::dial(ui, self.analysis.setup_shown(), "Setup", pal().accent);
                 let sm = self.analysis.smoothness;
                 theme::dial(ui, sm, "Smoothness", sm.map(theme::score_color).unwrap_or(pal().muted));
             });

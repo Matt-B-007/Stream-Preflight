@@ -122,6 +122,23 @@ pub struct Analysis {
     pub smoothness: Option<u8>,
     /// How well the settings are set up (from settings, not measured).
     pub setup_score: u8,
+    /// False until OBS's settings have been read (live or from its files):
+    /// before that there's nothing to score.
+    pub setup_known: bool,
+}
+
+impl Analysis {
+    /// The Setup score, or None before OBS has been read.
+    pub fn setup_shown(&self) -> Option<u8> {
+        self.setup_known.then_some(self.setup_score)
+    }
+
+    /// "85", or "not checked yet".
+    pub fn setup_words(&self) -> String {
+        self.setup_shown()
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "not checked yet".into())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -663,7 +680,12 @@ pub fn analyze(
     }
     a.smoothness = test.map(|_| smooth.clamp(0, 100) as u8);
     a.setup_score = setup_pts.clamp(0, 100) as u8;
-    a.verdict = verdict_text(a.smoothness, important, optional);
+    a.setup_known = obs.is_some();
+    a.verdict = if a.setup_known {
+        verdict_text(a.smoothness, important, optional)
+    } else {
+        "OBS hasn't been read yet".to_string()
+    };
     a.issues = issues;
     a
 }
@@ -682,7 +704,8 @@ pub fn setup_text(a: &Analysis) -> String {
         .unwrap_or_else(|| "not tested".into());
     t.push_str(&format!(
         "Smoothness {sm} · Setup {} · {}\n",
-        a.setup_score, a.verdict
+        a.setup_words(),
+        a.verdict
     ));
     let section = |t: &mut String, title: &str, rows: &[SetupRow]| {
         if rows.is_empty() {

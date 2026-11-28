@@ -30,6 +30,8 @@ pub(super) struct Toast {
     pub msg: String,
     pub until: f64,
     pub undo: Option<Undo>,
+    /// Another short message that arrived while Undo was still offered.
+    pub note: Option<String>,
 }
 
 /// Recordings waiting to be removed get this name: ".<name>.preflight-deleted".
@@ -110,6 +112,7 @@ impl App {
             msg: s.into(),
             until: ctx.input(|i| i.time) + UNDO_SECS,
             undo: Some(undo),
+            note: None,
         });
     }
 

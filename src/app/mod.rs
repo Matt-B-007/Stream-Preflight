@@ -348,9 +348,10 @@ impl eframe::App for App {
         let t_now = ctx.input(|i| i.time);
         self.track_readings(t_now);
         if self.screen == Screen::Help && t_now >= self.own_next {
-            self.own_next = t_now + 3.0;
+            // Every 15 s is plenty for a line of text, and keeps Help idle.
+            self.own_next = t_now + 15.0;
             self.measure_own_usage();
-            theme::repaint_in(ctx, 3000);
+            theme::repaint_in(ctx, 15_000);
         }
         self.pair_logic(ctx, t_now);
         let now = ctx.input(|i| i.time);
@@ -424,9 +425,13 @@ impl eframe::App for App {
         if self.scan.is_some()
             || self.test_handle.is_some()
             || self.poll.is_some()
-            || (self.screen == Screen::Preflight && self.step >= 2)
+            || (self.screen == Screen::Preflight && self.step == 2)
         {
             theme::repaint_in(ctx, 1000);
+        } else if self.screen == Screen::Preflight && self.step >= 3 {
+            // Fixes only needs to wake for the next OBS check (every 10 s);
+            // redrawing every second kept an idle page busy.
+            theme::repaint_in(ctx, 5000);
         }
     }
 

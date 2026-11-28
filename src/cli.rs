@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Command-line flags shared by the family of apps:
 //!
+//!   --help                    list these flags
 //!   --version                 print the version
 //!   --self-test [--quick]     check the program works (quick: seconds, no network, no window)
 //!   --report                  save a problem report and print where it went
 //!   --update                  install the newest version (checked and signed)
 //!   --rollback                go back to the version kept from before the last update
-//!   --uninstall [--delete-settings]
+//!   --uninstall [--delete-settings] [--yes]
 //!                             remove the program, menu entry and login entry
-//!                             (settings, history and logs stay unless --delete-settings)
+//!                             (settings, history and logs stay unless --delete-settings;
+//!                             asks first unless --yes)
 //!   --install                 put the program in place and add the menu entry (used by install.sh)
 //!   --tray                    run in the tray only (see traymode.rs)
 //!
@@ -20,8 +22,58 @@ fn has(args: &[String], f: &str) -> bool {
     args.iter().any(|a| a == f)
 }
 
+/// Every flag the program understands.
+const KNOWN: [&str; 15] = [
+    "--help",
+    "-h",
+    "--version",
+    "-V",
+    "--self-test",
+    "--quick",
+    "--report",
+    "--update",
+    "--rollback",
+    "--uninstall",
+    "--delete-settings",
+    "--yes",
+    "--install",
+    "--self-check",
+    "--tray",
+];
+
+pub const HELP: &str = "Usage: stream-preflight [OPTION]
+
+With no option, opens the Stream Preflight window.
+
+  --help                 Show this list
+  --version              Print the version
+  --self-test [--quick]  Check that the program and its files are in order
+  --report               Save a bug report and print where it is
+  --update               Install the newest version (checksum, signature and self-test checked)
+  --rollback             Go back to the version you had before the last update
+  --uninstall            Remove the program and its menu entry; asks first
+      --delete-settings  ...and remove settings, history and logs too
+      --yes              ...without asking
+  --tray                 Start in the tray, without a window";
+
+/// The first argument the program doesn't know (file hints for --self-check are allowed).
+fn unknown_flag(args: &[String]) -> Option<&String> {
+    if has(args, "--self-check") {
+        return None;
+    }
+    args.iter().skip(1).find(|a| !KNOWN.contains(&a.as_str()))
+}
+
 pub fn handle(args: &[String]) -> Option<i32> {
-    if has(args, "--version") {
+    if has(args, "--help") || has(args, "-h") {
+        println!("{HELP}");
+        return Some(0);
+    }
+    if let Some(bad) = unknown_flag(args) {
+        eprintln!("Unknown option: {bad}\n\n{HELP}");
+        return Some(2);
+    }
+    if has(args, "--version") || has(args, "-V") {
         println!("{}", util::VERSION);
         return Some(0);
     }
@@ -43,7 +95,10 @@ pub fn handle(args: &[String]) -> Option<i32> {
     }
     // Windows "Installed apps › Uninstall" passes --uninstall too; there it opens the window's dialog.
     if has(args, "--uninstall") && !cfg!(windows) {
-        return Some(uninstall(has(args, "--delete-settings")));
+        return Some(uninstall(
+            has(args, "--delete-settings"),
+            has(args, "--yes"),
+        ));
     }
     None
 }
@@ -251,6 +306,7 @@ fn report() -> i32 {
 
 fn update() -> i32 {
     let st = crate::config::Settings::load();
+    crate::doh::ENABLED.store(st.dns_fallback, std::sync::atomic::Ordering::Relaxed);
     let beta =
         st.updates_beta || (crate::update::is_beta_version(util::VERSION) && !st.updates_beta_set);
     println!(
@@ -296,15 +352,26 @@ fn rollback() -> i32 {
     }
 }
 
-fn uninstall(delete_settings: bool) -> i32 {
+fn uninstall(delete_settings: bool, yes: bool) -> i32 {
     println!(
-        "Removing Stream Preflight: the program, its menu entry and its login entry{}. OBS, your games and their settings are not touched.",
+        "This removes Stream Preflight: the program, its menu entry and its login entry{}. OBS, your games and their settings are not touched.",
         if delete_settings {
             ", plus its settings, history and logs"
         } else {
             " (your settings, history and logs stay)"
         }
     );
+    if !yes {
+        use std::io::Write;
+        print!("Uninstall Stream Preflight? Type yes to continue: ");
+        let _ = std::io::stdout().flush();
+        let mut answer = String::new();
+        let _ = std::io::stdin().read_line(&mut answer);
+        if !matches!(answer.trim().to_lowercase().as_str(), "yes" | "y") {
+            println!("Nothing was removed.");
+            return 1;
+        }
+    }
     match crate::uninstall::run_with(&[], true, delete_settings) {
         Ok(()) => {
             println!("Stream Preflight is uninstalled. Thanks for trying it.");

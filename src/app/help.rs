@@ -126,7 +126,7 @@ impl App {
                 );
             }
         }
-        v.push(("postflight", "Post-flight (numbers only)", t));
+        v.push(("postflight", "Stream summary (numbers only)", t));
 
         // Test history and what changed between tests
         let mut t = String::new();
@@ -445,104 +445,118 @@ impl App {
         let mut keep = true;
         let mut save = false;
         let mut github = false;
-        egui::Window::new("Report a problem")
-            .collapsible(false)
-            .resizable(true)
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .default_width(620.0)
-            .show(ctx, |ui| {
-                if !rb.context.is_empty() {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new("About:").color(pal().muted));
-                        ui.label(&rb.context);
-                    });
+        let (_, esc) = modal(ctx, "report-dialog", "Report a problem", 640.0, |ui| {
+            if !rb.context.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("About:").color(pal().muted));
+                    ui.label(&rb.context);
+                });
+            }
+            ui.label(RichText::new("Short summary").strong());
+            let r1 = ui.add(
+                egui::TextEdit::singleline(&mut rb.summary)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("e.g. The test never finishes"),
+            );
+            ui.label(RichText::new("What happened, and what did you expect?").strong());
+            let r2 = ui.add(
+                egui::TextEdit::multiline(&mut rb.note)
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("e.g. V-Sync is off in my game, but Preflight says it's on"),
+            );
+            // Rebuilt when you finish typing, not on every key.
+            if r1.lost_focus() || r2.lost_focus() {
+                rb.dirty = true;
+            }
+            ui.add_space(4.0);
+            ui.label(RichText::new("Details that will be included").strong());
+            theme::small(
+                ui,
+                "Your PC, OBS settings (no stream key, no scene or source names), game settings files and recent activity. User names, home folders, Steam IDs and addresses are already removed.",
+            );
+            egui::ScrollArea::vertical()
+                .max_height(220.0)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    let mut shown = rb.text.as_str();
+                    ui.add(
+                        egui::TextEdit::multiline(&mut shown)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+            if let Some(e) = &rb.error {
+                ui.label(RichText::new(format!("Couldn't save the report: {e}")).color(pal().bad));
+            }
+            if let Some(p) = &rb.saved {
+                // Wrapped and selectable, so the whole path can be read and copied.
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("Saved:").color(pal().success));
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(p.display().to_string())
+                                .monospace()
+                                .size(12.0),
+                        )
+                        .wrap()
+                        .selectable(true),
+                    );
+                });
+            }
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                if theme::primary(ui, "Save to file").clicked() {
+                    save = true;
                 }
-                ui.label(RichText::new("Short summary").strong());
-                let r1 = ui.add(
-                    egui::TextEdit::singleline(&mut rb.summary)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("e.g. The test never finishes"),
-                );
-                ui.label(RichText::new("What happened, and what did you expect?").strong());
-                let r2 = ui.add(
-                    egui::TextEdit::multiline(&mut rb.note)
-                        .desired_rows(3)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("e.g. V-Sync is off in my game, but Preflight says it's on"),
-                );
-                // Rebuilt when you finish typing, not on every key.
-                if r1.lost_focus() || r2.lost_focus() {
-                    rb.dirty = true;
+                if theme::secondary(ui, if rb.copied { "Copied" } else { "Copy report" }).clicked()
+                {
+                    ui.ctx().copy_text(rb.text.clone());
+                    report::copy_fallback(&rb.text);
+                    rb.copied = true;
                 }
-                ui.add_space(4.0);
-                ui.label(RichText::new("Details that will be included").strong());
-                theme::small(ui, "Your PC, OBS settings (no stream key, no scene or source names), game settings files and recent activity. User names, home folders, Steam IDs and addresses are already removed.");
-                egui::ScrollArea::vertical()
-                    .max_height(220.0)
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| {
-                        let mut shown = rb.text.as_str();
-                        ui.add(
-                            egui::TextEdit::multiline(&mut shown)
-                                .font(egui::TextStyle::Monospace)
-                                .desired_width(f32::INFINITY),
-                        );
-                    });
-                if let Some(e) = &rb.error {
-                    ui.label(RichText::new(format!("Couldn't save the report: {e}")).color(pal().bad));
+                if theme::secondary(ui, "Open log folder").clicked() {
+                    report::open_folder(&crate::util::dirs().logs);
                 }
                 if let Some(p) = &rb.saved {
-                    ui.label(RichText::new("Saved:").color(pal().success));
-                    let mut shown = p.display().to_string();
-                    ui.add(egui::TextEdit::singleline(&mut shown).desired_width(f32::INFINITY));
+                    if theme::secondary(ui, "Open report").clicked() {
+                        report::open_file(p);
+                    }
+                    if theme::secondary(ui, "Show in folder").clicked() {
+                        report::show_file(p);
+                    }
                 }
-                ui.add_space(6.0);
-                ui.horizontal_wrapped(|ui| {
-                    if theme::primary(ui, "Save to file").clicked() {
-                        save = true;
-                    }
-                    if theme::secondary(ui, if rb.copied { "Copied" } else { "Copy report" }).clicked() {
-                        ui.ctx().copy_text(rb.text.clone());
-                        report::copy_fallback(&rb.text);
-                        rb.copied = true;
-                    }
-                    if theme::secondary(ui, "Open log folder").clicked() {
-                        report::open_folder(&crate::util::dirs().logs);
-                    }
-                    if let Some(p) = &rb.saved {
-                        if theme::secondary(ui, "Open report").clicked() {
-                            report::open_file(p);
-                        }
-                        if theme::secondary(ui, "Show in folder").clicked() {
-                            report::show_file(p);
-                        }
-                    }
-                });
-                ui.horizontal_wrapped(|ui| {
-                    if link_small(ui, "Open on GitHub…") {
-                        rb.github_confirm = true;
-                    }
-                    if theme::secondary(ui, "Close").clicked() {
-                        keep = false;
-                    }
-                });
-                if rb.github_confirm {
-                    theme::inset(ui, |ui| {
-                        ui.label(RichText::new("This creates a PUBLIC issue on GitHub.").strong().color(pal().warn));
-                        theme::small(ui, "Only the summary and the app and system lines are filled in. The report is saved to a file first; attach it to the issue yourself after reading it.");
-                        ui.horizontal(|ui| {
-                            if theme::primary(ui, "Save and open GitHub").clicked() {
-                                github = true;
-                                save = true;
-                            }
-                            if theme::secondary(ui, "Cancel").clicked() {
-                                rb.github_confirm = false;
-                            }
-                        });
-                    });
+                if theme::secondary(ui, "Open on GitHub…").clicked() {
+                    rb.github_confirm = true;
                 }
-                theme::small(ui, "Nothing is sent until you choose to.");
+                if theme::secondary(ui, "Close").clicked() {
+                    keep = false;
+                }
             });
+            if rb.github_confirm {
+                theme::inset(ui, |ui| {
+                    ui.label(
+                        RichText::new("This creates a PUBLIC issue on GitHub.")
+                            .strong()
+                            .color(pal().warn),
+                    );
+                    theme::small(
+                        ui,
+                        "Only the summary and the app and system lines are filled in. The report is saved to a file first; attach it to the issue yourself after reading it.",
+                    );
+                    ui.horizontal(|ui| {
+                        if theme::primary(ui, "Save and open GitHub").clicked() {
+                            github = true;
+                            save = true;
+                        }
+                        if theme::secondary(ui, "Cancel").clicked() {
+                            rb.github_confirm = false;
+                        }
+                    });
+                });
+            }
+            theme::small(ui, "Nothing is sent until you choose to.");
+        });
         if save {
             let sections = self.report_sections(&rb);
             match report::save(&sections, &rb.id) {
@@ -558,7 +572,7 @@ impl App {
             ctx.open_url(egui::OpenUrl::new_tab(issue_url(&rb.summary)));
             rb.github_confirm = false;
         }
-        if keep {
+        if keep && !esc {
             self.report = Some(rb);
         }
     }
@@ -724,43 +738,6 @@ impl App {
             );
         });
         ui.add_space(10.0);
-        egui::CollapsingHeader::new(RichText::new("Advanced tools").strong()).id_salt("adv-tools").show(ui, |ui| {
-            theme::card(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Self-test").strong());
-                    if ui.button("Run self-test").clicked() {
-                        self.selftests = report::self_test(&report::SelfTestInput {
-                            hw: self.hw.as_ref(),
-                            games: &self.games,
-                            obs: self.obs.as_ref(),
-                            obs_error: self.obs_error.as_deref(),
-                            net: self.net.as_ref(),
-                        });
-                    }
-                });
-                for t in &self.selftests {
-                    ui.horizontal(|ui| {
-                        let (s, l) = match t.status {
-                            TestStatus::Pass => (Status::Ok, "Pass"),
-                            TestStatus::Warn => (Status::Warn, "Warning"),
-                            TestStatus::Fail => (Status::Bad, "Fail"),
-                        };
-                        theme::status_pill(ui, s, l);
-                        ui.label(RichText::new(&t.name).strong());
-                    });
-                    theme::small(ui, &t.detail);
-                }
-                ui.separator();
-                let mut on = crate::logger::DETAILED.load(std::sync::atomic::Ordering::Relaxed);
-                if ui.checkbox(&mut on, "Record more detail (for problems that only happen sometimes)").changed() {
-                    crate::logger::set_detailed(on);
-                }
-                theme::small(ui, "Turn this on, make the problem happen, then report it. It turns off when you close Preflight.");
-                if ui.button("Open reports folder").clicked() {
-                    report::open_folder(&crate::util::dirs().reports);
-                }
-            });
-        });
         ui.add_space(10.0);
         theme::card(ui, |ui| {
             ui.label(RichText::new("About").size(16.0).strong());
@@ -781,206 +758,59 @@ impl App {
                 None => theme::small(ui, "Preflight right now: measuring…"),
             }
             ui.add_space(4.0);
-            ui.label(RichText::new("New in v0.1.0-beta.9").strong());
-            for s in [
-                "Light and dark themes (Settings › Appearance), with a calmer look and built-in fonts and icons",
-                "Help menu and Settings gear top right; Ctrl+K searches everything, ? shows the shortcuts",
-                "A clearer update dialog: Update now, Later or Skip this version, then Restart when you're ready",
-                "Report a problem shows exactly what's included before you save, copy or open GitHub",
-                "Undo after clearing history, forgetting the OBS password, unpairing or deleting a recording",
-                "Settings are backed up automatically, and a notice appears if Preflight closed unexpectedly",
-                "Settings moved to ~/.config/stream-preflight, logs to ~/.local/state/stream-preflight",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
             ui.add_space(4.0);
-            ui.label(RichText::new("From v0.1.0-beta.8").strong());
-            for s in [
-                "Updates come from signed GitHub Releases: an update installs only if its checksum and the maintainer's signature are valid and it passes its own self-test",
-                "Go back: the version you had before an update is kept (Settings › Updates)",
-                "Only one window: opening Preflight again brings the open window to the front",
-                "Command line: --version, --self-test, --report, --update, --rollback and --uninstall",
-                "The upload speed test is reused for 6 hours, even after a restart, so it doesn't run on every scan",
-                "Game audio shows Unknown until OBS is connected, instead of a guess",
-                "The recommended NVENC preset is worded the same everywhere, for example \"P6 or P7 (P5 for a GPU-heavy game)\"",
-                "Stream Preflight is now licensed under the GPL, version 3 or later",
-            ] {
-                theme::small(ui, format!("• {s}"));
+            if theme::secondary(ui, "What's new in this version").clicked() {
+                self.whats_new_open = true;
             }
-            ui.add_space(4.0);
-            ui.label(RichText::new("From v0.1.0-beta.7").strong());
+        });
+    }
+}
+
+impl App {
+    /// Settings › Advanced: self-test, extra logging and the reports folder.
+    pub(super) fn ui_advanced_tools(&mut self, ui: &mut Ui) {
+        theme::card(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Self-test").strong());
+                if ui.button("Run self-test").clicked() {
+                    self.selftests = report::self_test(&report::SelfTestInput {
+                        hw: self.hw.as_ref(),
+                        games: &self.games,
+                        obs: self.obs.as_ref(),
+                        obs_error: self.obs_error.as_deref(),
+                        net: self.net.as_ref(),
+                    });
+                }
+            });
+            for t in &self.selftests {
+                ui.horizontal(|ui| {
+                    let (s, l) = match t.status {
+                        TestStatus::Pass => (Status::Ok, "Pass"),
+                        TestStatus::Warn => (Status::Warn, "Warning"),
+                        TestStatus::Fail => (Status::Bad, "Fail"),
+                    };
+                    theme::status_pill(ui, s, l);
+                    ui.label(RichText::new(&t.name).strong());
+                });
+                theme::small(ui, &t.detail);
+            }
+            ui.separator();
+            let mut on = crate::logger::DETAILED.load(std::sync::atomic::Ordering::Relaxed);
+            if ui
+                .checkbox(
+                    &mut on,
+                    "Record more detail (for problems that only happen sometimes)",
+                )
+                .changed()
+            {
+                crate::logger::set_detailed(on);
+            }
             theme::small(
                 ui,
-                "• More tidying inside the code, and stricter automatic checks before each release. Nothing looks or works differently.",
+                "Turn this on, make the problem happen, then report it. It turns off when you close Preflight.",
             );
-            ui.add_space(4.0);
-            ui.label(RichText::new("From v0.1.0-beta.6").strong());
-            theme::small(
-                ui,
-                "• A tidy-up inside the code to make the next updates safer. Nothing looks or works differently.",
-            );
-            ui.add_space(4.0);
-            ui.label(RichText::new("From v0.1.0-beta.5").strong());
-            for s in [
-                "Opens on Home: a Get started card you can do in any order, then one plain answer, your top fixes, last test and last stream",
-                "A simpler sidebar (Home, Test, Fixes, Live, History) and a top bar for OBS, your game, style and platforms",
-                "Nothing is locked: pages that need OBS show a note with a Connect OBS button",
-                "Much lighter while you game: no redrawing when minimized or in the tray, at most once a second while the game is in front",
-                "Recording while streaming is shown live (Hybrid MOV/MP4 too), with its timer, rate and a line in the summary",
-                "Start at login, start in the tray, and choose what happens when you go live. On Wayland a tray-only Preflight keeps watching OBS",
-                "Fixes from your reports: web views no longer count as games, capture card size, doubled desktop audio, mic vs game, preset advice, fuller logs, smaller reports",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("From v0.1.0-beta.4").strong());
-            for s in [
-                "Install with one line, and updates come straight from the GitHub repository: no release pages needed",
-                "Each download is checked against its SHA-256 before it's installed",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("From v0.1.0-beta.3").strong());
-            for s in [
-                "A three-step welcome the first time you open Preflight, and clearer empty screens before your first test",
-                "In-flight: its own page while you're live, opening by itself when you start streaming",
-                "The sidebar has Pre-flight, In-flight and Post-flight, and folds to icons (Ctrl+B)",
-                "Simpler Test and Fix screens, one verdict at the top, and Settings in five tabs",
-                "Betas: beta builds look for betas, and you can switch back to stable",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("From v0.1.0").strong());
-            for s in [
-                "New name: Stream Preflight. Your settings, history and saved OBS password move over by themselves",
-                "Cockpit glass look: live readings strip, score dials, a glowing \"Do this next\" card and one bright button in the Next bar",
-                "The Test step is one checklist that ticks itself as OBS starts streaming and recording",
-                "Two PCs: connect to OBS on your streaming PC, capture card checks (frame rate, resolution, colour range, MJPEG, HDR, refresh judder), and fixes labelled by PC",
-                "Paired mode: Preflight on both PCs, linked once with a 6-digit code, home network only",
-                "Install for this user, updates from GitHub with a checksum check, beta versions if you want them, and uninstall (also from Windows Settings › Apps)",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("From test build 13").strong());
-            for s in [
-                "A new sidebar: Pre-flight opens into your game, its style, and the steps Test, Fix, Your setup and Ready to go live. Post-flight holds Last stream and History",
-                "Click the game name to switch games, and the style under it to re-sort your fixes (no new test needed)",
-                "Each step shows one \"Do this next\" card. The only bright button is in the Next bar at the bottom",
-                "Go live is now \"Ready to go live\", the last step of Pre-flight",
-                "Your setup: plain rows you can fold, \"Fix this\" only where something should change, and the scan results under PC and connections",
-                "System tray: grey idle, green watching OBS, amber testing, red live, and a white dot when Preflight needs you. Minimize and close options in Settings",
-                "Notifications when a test finishes or a stream ends while Preflight is in the background",
-                "If you start streaming while the bandwidth-test flag may still be on, Preflight asks whether it's a real stream",
-                "One banner at a time, most important first",
-                "Bug reports now include post-flight numbers, test history, one setup for all games, what was on screen, and the tray",
-                "Keyboard: Alt+1 Test, Alt+2 Fix, Alt+3 Your setup, Alt+4 Post-flight. Ctrl+Enter presses the Next button",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("New in test build 12").strong());
-            for s in [
-                "Stream + record test: a checklist that ticks itself as you start streaming and recording, with each platform's private test mode (Twitch test flag, YouTube Unlisted)",
-                "Several platforms: tick Twitch, YouTube and Kick in Settings. Preflight suggests one shared encode, one each, or a restream service, and checks the upload",
-                "Video encoders panel in Your setup: every GPU encoder, its chips and codecs, and which programs are using it right now",
-                "OBS plugins: Source Record, vertical canvases and extra streams are counted as encodes and measured in the test",
-                "One setup for all your games: OBS settings that suit every tested game; heavy games get in-game changes instead",
-                "Minecraft: any launcher (CurseForge, Prism, Modrinth and more), the modpack's name, shaders and Distant Horizons",
-                "Any OBS setting change counts as a change, tests remember their OBS settings, and P6 counts as fine",
-                "Privacy: Steam IDs and account numbers are removed from reports",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("New in test build 11").strong());
-            for s in [
-                "Reads games without a profile: works out the engine (Unity, Unreal, Source, Godot) and reads its settings, for Steam, Heroic, Lutris, Bottles, Epic and Game Pass games",
-                "A fuller Counter-Strike 2 profile, and each game table says how many settings were read and how many the advice uses",
-                "After \"I changed it\", Preflight checks that the game really saved the change",
-                "Styles fixed: Competitive lowers graphics first, Balanced uses DLSS/FSR, Cinematic caps FPS first. Switch style on the Pre-flight screen; each game remembers its own",
-                "Stream picture advice: the sharpest resolution for your bitrate and game, NVENC quality options scaled to your GPU's headroom, audio bitrate and sample rate",
-                "In-game effects that cost bitrate (film grain, motion blur) are pointed out",
-                "The viewer preview re-creates your stream from a high-quality recording, and skips moments it can't line up",
-                "Pick your test: full, stream + record, or quick check. One Test again button, and a Storage list in Settings",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("New in test build 10").strong());
-            for s in [
-                "Results per game: a banner when you switch games, a game switcher, and before/after only for the same game",
-                "Only suggests settings a game really has; games without an FPS limit get one outside the game (Steam launch option or driver)",
-                "Each game table shows whether its settings file was read, and when the game last saved it",
-                "Cities: Skylines II reads your real settings; Linux game capture (vkcapture) is recognised",
-                "Delete test recordings from the result, before the next test, or in Settings",
-                "Bug reports include game settings files; Show in folder, Open report and Copy work on KDE Wayland",
-                "On Linux, Preflight adds itself to your app menu with its icon",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("New in test build 9").strong());
-            for s in [
-                "Fixes say exactly what to change: the setting, what it is now, and what to change it to",
-                "Reads your real game settings, including the preset; with a Custom preset it names the heavy settings",
-                "FPS-limit advice that fits: if your limit is too high to ever kick in, it suggests a lower one",
-                "Measures your game's FPS (PresentMon on Windows, a MangoHud log on Linux) or asks you",
-                "Two scores: Smoothness (what the test measured) and Setup (settings that will help)",
-                "1-minute quick re-test for Check my changes, results remembered per game, Copy as text",
-                "New game profiles (unverified): VALORANT, Apex, Warzone, League, Minecraft, Marvel Rivals, ELDEN RING, GTA V",
-                "Bug reports saved as a named text file; Remove Preflight from this PC; a new app icon",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("New in test build 8").strong());
-            for s in [
-                "Your setup: every OBS, game and PC setting with what it is now, what to change and why",
-                "Pre-flight in 3 steps, with a Next button always at the bottom",
-                "Fix one thing at a time, see how much each fix helps, or keep it as it is",
-                "Check my changes: a quick re-test that shows before and after",
-                "Viewer preview with a slider between the original and the stream",
-                "A \"What changed\" timeline in History",
-                "One-page Settings and \"What to do if…\" help",
-                "Fixes from build 7: better game detection, long GPU-maxed periods, preview matching, Cyberpunk FPS limit",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("New in test builds 4 to 7").strong());
-            for s in [
-                "A guided pre-flight: Scan, Test, Fix, Go live",
-                "Setup in 3 short screens, with your monitors and refresh rates detected",
-                "The test starts by itself when you press Record in OBS",
-                "Preflight notices when you've made a fix",
-                "Plain sentences with the real numbers everywhere",
-                "New OBS quality checks: rate control, keyframe interval, encoder preset and downscale filter",
-                "Viewer preview: your stream next to the original, from your test recording",
-                "Post-flight: a summary of how each stream went, with the worst moments and what to change",
-                "Recording while streaming: separate encoder, replay buffer and Enhanced Broadcasting checks, with preset advice for each side",
-                "Encoder chip load and frames dropped per output (stream and recording)",
-                "Recording space left, crash-safe recording format, and hard-drive warnings",
-                "\"Your recommended OBS settings\" in one list, and issues grouped by where you fix them",
-                "Hover any term (bitrate, CBR, keyframe...) for a plain-English meaning",
-                "One shared OBS connection, and less background work while minimized",
-                "\"This looks wrong\" links and a one-box problem report",
-                "A simpler menu",
-            ] {
-                theme::small(ui, format!("• {s}"));
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new("Not in this test build yet").strong());
-            for s in [
-                "Streamlabs Desktop and Meld Studio connections",
-                "In-game frame times (PresentMon)",
-                "System tray mode",
-                "Installing updates in place (needs the GitHub repository)",
-                "Keyring password storage on Linux",
-            ] {
-                theme::small(ui, format!("• {s}"));
+            if ui.button("Open reports folder").clicked() {
+                report::open_folder(&crate::util::dirs().reports);
             }
         });
     }

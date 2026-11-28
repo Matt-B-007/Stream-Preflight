@@ -12,6 +12,9 @@ use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 /// Public DNS-over-HTTPS services, by address so they need no lookup themselves.
 const SERVERS: [&str; 2] = ["https://1.1.1.1/dns-query", "https://8.8.8.8/resolve"];
 
+/// Settings › Updates › "If DNS fails, ask a public DNS service". On by default.
+pub static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 type Lookup = fn(&str) -> Result<Vec<IpAddr>, String>;
 
 #[derive(Debug)]
@@ -40,8 +43,12 @@ impl Resolver for FallbackResolver {
             Ok(a) => Ok(a),
             Err(e) => {
                 let host = uri.host().unwrap_or("");
-                // Addresses and names like "localhost" are never sent anywhere.
-                if host.parse::<IpAddr>().is_ok() || !host.contains('.') {
+                // Turned off in Settings; and addresses or names like "localhost"
+                // are never sent anywhere.
+                if !ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+                    || host.parse::<IpAddr>().is_ok()
+                    || !host.contains('.')
+                {
                     return Err(e);
                 }
                 let port = uri.port_u16().unwrap_or(match uri.scheme_str() {

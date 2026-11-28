@@ -340,8 +340,8 @@ impl App {
                 }
                 ui.add_space(8.0);
                 ui.label(theme::caps("This PC", 12.0, pal().muted));
-                out_line(ui, "GPU", &gpu.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()), if gpu.unwrap_or(0.0) >= 95.0 { "maxed out" } else { "has room" });
-                out_line(ui, "Encoder", &enc.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()), "busy");
+                out_line(ui, "GPU", &gpu.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()), match gpu { None => "not readable", Some(g) if g >= 95.0 => "maxed out", Some(_) => "has room" });
+                out_line(ui, "Encoder", &enc.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()), if enc.is_some() { "busy" } else { "not readable" });
                 });
             });
         });

@@ -534,7 +534,7 @@ fn finish(
 ) {
     let _ = std::fs::remove_file(current_path());
     if l.samples.len() < 3 {
-        log::info!("Stream ended after less than 15 seconds of watching; no post-flight summary");
+        log::info!("Stream ended after less than 15 seconds of watching; no stream summary");
         return;
     }
     l.ended_at = crate::util::unix_now();
@@ -546,7 +546,7 @@ fn finish(
         let _ = crate::config::write_atomic(&path, t.as_bytes());
     }
     log::info!(
-        "Stream ended after {:.0} s; post-flight summary saved",
+        "Stream ended after {:.0} s; stream summary saved",
         l.samples.last().map(|s| s.t).unwrap_or(0.0)
     );
     if let Ok(mut s) = st.lock() {
@@ -641,6 +641,10 @@ pub fn fmt_t(t: f32) -> String {
 }
 
 pub fn fmt_duration(t: f32) -> String {
+    // Under a minute: seconds, so a short stream isn't "0 min".
+    if t < 59.5 {
+        return format!("{} s", t.round().max(1.0) as u32);
+    }
     let m = (t / 60.0).round() as u32;
     if m >= 60 {
         format!("{}h {:02}m", m / 60, m % 60)

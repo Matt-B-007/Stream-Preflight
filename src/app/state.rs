@@ -134,6 +134,7 @@ impl App {
             st.updates_beta = true;
         }
         cc.egui_ctx.set_zoom_factor(st.text_scale);
+        crate::doh::ENABLED.store(st.dns_fallback, std::sync::atomic::Ordering::Relaxed);
         theme::set_choice(&cc.egui_ctx, st.theme, st.reduce_motion);
         theme::GRID.store(
             st.backdrop_grid && !st.reduce_motion,
@@ -301,6 +302,7 @@ impl App {
                 msg: "Added Preflight to your app menu".into(),
                 until: 6.0,
                 undo: None,
+                note: None,
             });
         }
         app
@@ -621,12 +623,25 @@ impl App {
     }
 
     pub(super) fn toast(&mut self, ctx: &egui::Context, s: impl Into<String>) {
-        self.finish_toast();
+        // While Undo is still offered, a new message is shown beside it rather
+        // than ending the offer early.
+        if let Some(t) = self.toast.as_mut()
+            && t.undo.is_some()
+        {
+            t.note = Some(s.into());
+            return;
+        }
         self.toast = Some(undo::Toast {
             msg: s.into(),
             until: ctx.input(|i| i.time) + 4.0,
             undo: None,
+            note: None,
         });
+    }
+
+    /// A dialog is open: pages and shortcuts behind it wait.
+    pub(super) fn dialog_open(&self) -> bool {
+        self.report.is_some() || self.uninstall.is_some() || self.update_dialog
     }
 
     pub(super) fn open_uninstall_box(&mut self) {
@@ -1056,7 +1071,7 @@ impl App {
                         "Stream ended"
                     },
                     &format!(
-                        "{} · {}. Your post-flight summary is ready.",
+                        "{} · {}. Your stream summary is ready.",
                         crate::streamwatch::fmt_duration(p.duration),
                         p.grade
                     ),
@@ -1619,7 +1634,7 @@ impl App {
                 },
                 _ => {
                     if self.live.is_some() {
-                        "You're live. Preflight watches quietly from the tray and writes your post-flight summary.".into()
+                        "You're live. Preflight watches quietly from the tray and writes your stream summary.".into()
                     } else if self.preflight_done {
                         "Start streaming in OBS whenever you like.".into()
                     } else {
@@ -1633,7 +1648,7 @@ impl App {
             }
             Screen::InFlight => {
                 if self.live.is_some() {
-                    "Nothing to do. Preflight writes your post-flight summary when you end the stream.".into()
+                    "Nothing to do. Preflight writes your stream summary when you end the stream.".into()
                 } else {
                     "Not live. This page opens by itself when you start streaming in OBS.".into()
                 }

@@ -4,7 +4,8 @@
 
 use super::*;
 
-/// The changelog, built in: What's new shows this version's entry.
+/// The changelog, built in, so a test can check it matches this version.
+#[cfg(test)]
 const CHANGELOG: &str = include_str!("../../CHANGELOG.md");
 
 /// Shortcuts shown on the shortcuts page and in hover hints.
@@ -93,25 +94,21 @@ pub(super) fn matches(query: &str) -> Vec<(&'static str, Cmd)> {
         .collect()
 }
 
-/// This version's changelog entry: a one-line summary and its bullets.
-pub(super) fn whats_new() -> (String, Vec<String>) {
-    let mut lines = CHANGELOG
-        .lines()
-        .skip_while(|l| !l.starts_with("## "))
-        .skip(1)
-        .take_while(|l| !l.starts_with("## "));
-    let mut summary = String::new();
-    let mut bullets = Vec::new();
-    for l in lines.by_ref() {
-        let t = l.trim();
-        if let Some(b) = t.strip_prefix("- ") {
-            bullets.push(b.replace("**", "").replace('`', ""));
-        } else if !t.is_empty() && summary.is_empty() && bullets.is_empty() {
-            summary = t.replace('`', "");
-        }
-    }
-    (summary, bullets)
-}
+/// What's new, in plain words (the changelog has the technical details).
+pub(super) const WHATS_NEW_SUMMARY: &str =
+    "A round of fixes: 51 bugs found by going through every screen, button and message.";
+pub(super) const WHATS_NEW: [&str; 10] = [
+    "New installs now get the short tour.",
+    "Logging out or shutting down no longer shows \"closed unexpectedly\".",
+    "Dialogs behave like dialogs: Escape closes them, nothing behind them reacts, and they always fit the window.",
+    "The reminder about a saved test recording waits until you're not live or testing.",
+    "Reports hide more (emails, names with spaces) and no longer mistake version numbers for addresses.",
+    "The numbers agree: fix counts, the Setup score (blank until OBS is read) and stream lengths.",
+    "Tidier layout: cards no longer run under the scrollbar, notices don't cover buttons, and small windows fit.",
+    "Help and Settings live top right only, and Help is shorter.",
+    "Fixes and Help use less of your PC when nothing is happening.",
+    "From a terminal: --help lists the options, and --uninstall asks first.",
+];
 
 /// The tour: 5 short steps.
 pub(super) const TOUR: [(&str, &str); 5] = [
@@ -153,6 +150,12 @@ impl App {
                 i.key_pressed(egui::Key::Escape),
             )
         });
+        // Behind an open dialog only Quit works; Escape closes the dialog itself.
+        let (k, comma, question) = if self.dialog_open() {
+            (false, false, false)
+        } else {
+            (k, comma, question)
+        };
         if k {
             self.command_open = !self.command_open;
             self.command_query.clear();
@@ -176,8 +179,6 @@ impl App {
                 self.shortcuts_open = false;
             } else if self.whats_new_open {
                 self.whats_new_open = false;
-            } else if self.update_dialog {
-                self.update_dialog = false;
             }
         }
     }
@@ -222,8 +223,18 @@ impl App {
 
     pub(super) fn ui_flow_windows(&mut self, ctx: &egui::Context) {
         self.handle_shortcuts(ctx);
-        // The tour starts by itself only once, on a new install, after setup.
-        if self.st.tour_pending && self.screen != Screen::Setup && self.st.setup_done {
+        // After an update, What's new opens once by itself (a new install gets
+        // the tour instead).
+        if self.st.seen_version != crate::util::VERSION {
+            if !self.st.tour_pending && !self.dialog_open() {
+                self.whats_new_open = true;
+            }
+            self.st.seen_version = crate::util::VERSION.to_string();
+            self.st.save();
+        }
+        // The tour starts by itself only once, on a new install, as soon as the
+        // main window (not the setup screen) is showing.
+        if self.st.tour_pending && self.screen != Screen::Setup {
             self.st.tour_pending = false;
             self.st.save();
             self.tour = Some(0);
@@ -343,21 +354,18 @@ impl App {
         }
         let mut open = true;
         let mut tour = false;
-        egui::Window::new(format!("What's new in {}", crate::util::VERSION))
+        egui::Window::new(format!("What's new in v{}", crate::util::VERSION))
             .collapsible(false)
             .resizable(true)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .default_width(560.0)
             .open(&mut open)
             .show(ctx, |ui| {
-                let (summary, bullets) = whats_new();
-                if !summary.is_empty() {
-                    ui.label(RichText::new(summary).strong());
-                }
+                ui.label(RichText::new(WHATS_NEW_SUMMARY).strong());
                 egui::ScrollArea::vertical()
                     .max_height(360.0)
                     .show(ui, |ui| {
-                        for b in bullets {
+                        for b in WHATS_NEW {
                             ui.label(RichText::new(format!("• {b}")).color(pal().text_soft));
                         }
                     });
@@ -441,14 +449,15 @@ mod tests {
     }
 
     #[test]
-    fn whats_new_reads_this_versions_changelog() {
-        let (summary, bullets) = whats_new();
-        assert!(!summary.is_empty());
-        assert!(bullets.len() >= 3);
-        assert!(bullets.iter().all(|b| !b.contains("**")));
-        // The top entry is this version.
+    fn whats_new_matches_this_version() {
+        // The top changelog entry is this version, and What's new has plain bullets.
         let top = CHANGELOG.lines().find(|l| l.starts_with("## ")).unwrap();
         assert_eq!(top.trim_start_matches("## v"), crate::util::VERSION);
+        assert!(
+            WHATS_NEW
+                .iter()
+                .all(|b| !b.contains('#') && !b.contains("**") && b.len() < 140)
+        );
     }
 
     #[test]

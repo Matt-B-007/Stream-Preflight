@@ -471,7 +471,7 @@ pub fn open_in_player(path: &str) {
     #[cfg(windows)]
     let _ = hidden(Command::new("cmd").args(["/C", "start", "", path])).spawn();
     #[cfg(not(windows))]
-    let _ = Command::new("xdg-open").arg(path).spawn();
+    crate::util::run_and_forget(Command::new("xdg-open").arg(path));
 }
 
 #[cfg(test)]

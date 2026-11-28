@@ -106,6 +106,10 @@ pub struct Settings {
     pub theme: crate::theme::ThemeChoice,
     pub backdrop_grid: bool,
     pub reduce_motion: bool,
+    /// Updates: if this PC's DNS can't find GitHub, ask Cloudflare or Google.
+    pub dns_fallback: bool,
+    /// The version whose "What's new" was last shown.
+    pub seen_version: String,
     pub network_test_on_scan: bool,
     pub hidden_options: Vec<HiddenOption>,
     /// Issues the user chose to keep as they are (still listed, not counted in the score).
@@ -226,6 +230,8 @@ impl Default for Settings {
             theme: crate::theme::ThemeChoice::System,
             backdrop_grid: true,
             reduce_motion: false,
+            dns_fallback: true,
+            seen_version: String::new(),
             network_test_on_scan: true,
             hidden_options: Vec::new(),
             kept_issues: Vec::new(),

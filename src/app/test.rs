@@ -235,7 +235,12 @@ impl App {
     }
 
     pub(super) fn ui_recording_popup(&mut self, ctx: &egui::Context) {
-        if !self.show_recording_popup || self.report.is_some() {
+        // Never over a stream, a test or another dialog: it waits until those end.
+        if !self.show_recording_popup
+            || self.dialog_open()
+            || self.live.is_some()
+            || self.test_handle.is_some()
+        {
             return;
         }
         let now = crate::util::unix_now();
@@ -388,7 +393,10 @@ impl App {
             },
             "Games",
             if found.is_empty() {
-                "None of the 7 supported games were found.".into()
+                format!(
+                    "None of the {} games Preflight has a profile for were found.",
+                    crate::games::profiles().len()
+                )
             } else if waiting > 0 {
                 format!(
                     "{} found. Settings read for {read}; {waiting} not launched on this PC yet.",
@@ -458,9 +466,18 @@ impl App {
             self.test.is_some() && !self.want_new_test && !matches!(phase, Some(Phase::Measuring));
         theme::hero_card(ui, |ui| {
             ui.vertical(|ui| {
-                do_next_label(ui);
+                let testing = phase.is_some();
+                if testing || show_done {
+                    ui.label(theme::caps("Test", 12.0, pal().accent));
+                } else {
+                    do_next_label(ui);
+                }
                 let running = self.games.iter().any(|g| g.running);
-                let head = if !running {
+                let head = if show_done {
+                    "Test complete"
+                } else if testing {
+                    "Test in progress"
+                } else if !running {
                     "Start a game, then record in OBS"
                 } else if self.show_bw_help {
                     "Start streaming and recording in OBS"
@@ -581,7 +598,7 @@ impl App {
                 let t = self.test.clone().unwrap();
                 ui.label(
                     RichText::new(format!(
-                        "Test complete{} · {}m {:02}s",
+                        "Measured{} · {}m {:02}s",
                         t.game_running
                             .as_ref()
                             .map(|g| format!(" · {g}"))
@@ -589,7 +606,9 @@ impl App {
                                 .game_guess
                                 .as_ref()
                                 .map(|g| format!(" · {g} (not a game Preflight knows yet)")))
-                            .unwrap_or_default(),
+                            .unwrap_or_else(|| {
+                                " · no game was running, so it isn't tied to a game".into()
+                            }),
                         (t.seconds as u32) / 60,
                         (t.seconds as u32) % 60
                     ))
@@ -629,7 +648,7 @@ impl App {
                 if imp + opt > 0 {
                     ui.label(
                         RichText::new(format!(
-                            "Your settings: {}. Step 2 goes through them one at a time.",
+                            "Your settings: {}. Fixes goes through them one at a time.",
                             count_words(imp, opt)
                         ))
                         .color(pal().text_soft),
@@ -1686,7 +1705,7 @@ impl App {
             }
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                theme::small(ui, "Preflight compares fine detail between the two pictures. Internet problems aren't included; the post-flight summary covers those.");
+                theme::small(ui, "Preflight compares fine detail between the two pictures. Internet problems aren't included; the stream summary covers those.");
                 if link_small(ui, "This looks wrong") {
                     action = Some("report");
                 }

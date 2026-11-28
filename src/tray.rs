@@ -189,7 +189,7 @@ fn near_polyline(x: f32, y: f32, p: &[(f32, f32)], w: f32) -> bool {
 
 /// The running tray icon. Dropping it removes the icon.
 /// A new tray picture shows only after holding this long.
-const HOLD_MS: u64 = 400;
+pub const HOLD_MS: u64 = 400;
 
 pub struct Tray {
     rx: mpsc::Receiver<TrayCmd>,
@@ -227,10 +227,11 @@ impl Tray {
     /// Updates the icon, tooltip and menu if anything changed.
     /// Shows a new state. A change of picture waits until it has held for
     /// 400 ms, so the icon doesn't flicker; only changes are redrawn.
-    pub fn set(&mut self, view: TrayView) {
+    /// Returns true while a change is waiting: call again in about 400 ms.
+    pub fn set(&mut self, view: TrayView) -> bool {
         if view == self.last {
             self.pending = None;
-            return;
+            return false;
         }
         let picture = |v: &TrayView| {
             (
@@ -245,12 +246,12 @@ impl Tray {
             match &self.pending {
                 Some((p, since)) if picture(p) == picture(&view) => {
                     if now.duration_since(*since) < std::time::Duration::from_millis(HOLD_MS) {
-                        return;
+                        return true;
                     }
                 }
                 _ => {
                     self.pending = Some((view, now));
-                    return;
+                    return true;
                 }
             }
             log::info!(
@@ -268,6 +269,7 @@ impl Tray {
         self.pending = None;
         self.imp.set(&view);
         self.last = view;
+        false
     }
 
     pub fn last_view(&self) -> &TrayView {

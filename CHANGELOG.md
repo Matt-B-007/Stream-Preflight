@@ -1,11 +1,35 @@
 # Changelog
 
+## v0.1.0-beta.10
+
+A round of fixes: 51 bugs found by going through every screen, button and message in beta.9. No new features.
+
+- **The tour now appears on new installs.** It was waiting for a setup step that no longer exists.
+- **No false "closed unexpectedly" notice.** Logging out, shutting down or `kill` now count as a normal close.
+- **Dialogs are real dialogs.** Report a problem, Update and Uninstall dim the window behind them; nothing behind reacts, Escape closes them, and they scroll instead of growing taller than the window.
+- **The "test recording is still saved" reminder waits** until you're not live, not testing and no other dialog is open.
+- **Command line**: `--help` lists the options; an unknown option is an error (exit code 2) instead of opening the window; `--uninstall` asks first (`--yes` skips the question); the exit code is 1 when the window can't open; a full `--self-test` no longer fails just because OBS is closed.
+- **Reports hide more, and garble less**: version numbers after a program name ("obs 31.0.2.1") stay; email addresses become `<email>`; user names with a space are removed whole; a home folder inside a longer name is no longer cut in half; a PC named like the distro (for example "cachyos") no longer turns "CachyOS" into `<host>`; code paths like `a::b` and ratios are no longer taken for IPv6 addresses; `aabb.ccdd.eeff` MAC addresses are removed.
+- **DNS fallback has a switch and is in the privacy notes**: **Settings › Updates › If this PC can't find GitHub, ask a public DNS service**.
+- **The numbers agree**: Home, the sidebar badge and Fixes show the same "to fix" count, with optional ones named separately; the Setup score is blank until OBS has been read; a stream under a minute shows seconds instead of "0 min"; History no longer says "Nothing to change" above a tile that shows lost frames; Live says "not readable" instead of "has room" or "busy" when there's no reading; the OBS line no longer has a stray comma.
+- **The Test page says where it is**: "Test in progress", then "Test complete", and it says when no game was running.
+- **Wording brought up to date**: the tray icon turns lime when live (not red); "stream summary" instead of "post-flight"; logs are "1 MB per file, the last 3 kept"; status words in History are Good / Check / Fix.
+- **What's new is in plain words** and opens once by itself after an update. Help no longer carries years of old release notes.
+- **Layout**: cards no longer run under the scrollbar; Undo and other notices sit above the Next bar; small buttons ("Suggest again", "Open", "Close") are full height; the Next bar's sentence shortens instead of running under its button; in a narrow window "Not live" becomes a dot instead of overlapping the chips; the style menu's text is no longer stretched; the Last stream numbers on Home no longer touch.
+- **Top bar and sidebar**: chips that jump to a page no longer show a menu arrow; the setup screen has Help and Settings top right too; Settings and Help are top right only (Help is the first item in the ? menu), not also in the sidebar.
+- **Settings**: Advanced now has the self-test, "Record more detail" and the reports folder (moved from Help), with Install; "Background grid" is greyed while Reduce motion is on; "Minimize to tray" says "Minimize" on a desktop without a tray.
+- **Report a problem**: the saved path wraps and can be selected; all buttons sit in one row.
+- **Lighter when idle**: Fixes redraws every 5 seconds instead of every second, and Help every 15 instead of every 3.
+- **Tray**: the icon now changes on time when the window is hidden, and in tray-only mode (where the 400 ms hold could stop it changing at all).
+- **Undo isn't cut short** by another notice arriving, and helper programs (file manager, text editor) no longer leave a finished process behind.
+- **`download/` stays at beta.8**, frozen through this release; it's deleted in the next one.
+
 ## v0.1.0-beta.9
 
 The family look and flow: a light theme, the same layout and dialogs as the other apps, and safer settings, logs and reports. First version that only installs signed updates.
 
-- **Light and dark themes**: follows your desktop by default, or pick Dark or Light in **Settings › Appearance**. Navy backgrounds, lime text and links (#3F6212 in the light theme), and the same green, amber and red for good, check and fix everywhere. Every colour comes from one place, and a test checks that all text is readable (4.5:1) on every background in both themes; `--self-test` checks it too.
-- **Calmer effects**: the purple glow is gone and only the main button glows. Corner brackets mark only the active card; other cards get a thin lime edge. The background grid can be turned off, and **Reduce motion** turns off animations.
+- **Light and dark themes**: follows your desktop by default, or pick Dark or Light in **Settings › Appearance**. The navy "hull" colours shared by the family (house colour update v1.3), lime text and links (#3F6212 in the light theme), and the same green, amber and red for good, check and fix everywhere. Every colour comes from one place, and a test checks that all text is readable (4.5:1) on every background in both themes; `--self-test` checks it too.
+- **Calmer effects**: the purple glow is gone and only the main button glows (a soft 12 px lime glow). Corner brackets mark only the active card; other cards get a thin lime edge. The background grid can be turned off, and **Reduce motion** turns off animations.
 - **Built-in fonts and icons**: Inter for text, JetBrains Mono for numbers and logs, Space Grotesk for titles, and Lucide icons, all inside the program, so text looks the same on every PC. Text sizes are 12 / 14 / 16 / 22. Licences are in `assets/fonts`.
 - **New app icon and tray states**: the launcher icon is the lime symbol on #0C1016. The tray icon is grey when OBS isn't connected, plain when ready, lime while testing or live, with an amber dot when something needs you and a red dot when something is wrong. It waits 400 ms before changing, so it doesn't flicker.
 - **Help menu, top right**: Report a problem, What's new, Keyboard shortcuts, Show the tour and About, next to the Settings gear and an Update button when there's an update.

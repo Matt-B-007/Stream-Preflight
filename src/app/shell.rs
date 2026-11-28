@@ -3,13 +3,15 @@
 
 use super::*;
 
-/// A chip in the top status bar: a dot, a word or two, and a small chevron.
+/// A chip in the top status bar: a dot, a word or two, and a small chevron
+/// when it opens a menu (chips that jump to a page have none).
 pub(super) fn status_chip(
     ui: &mut Ui,
     dot: Option<Color32>,
     text: &str,
     sub: &str,
     warn: bool,
+    menu: bool,
 ) -> egui::Response {
     let stroke = if warn {
         alpha(pal().warn, 140)
@@ -31,6 +33,9 @@ pub(super) fn status_chip(
                 ui.label(RichText::new(text).size(12.0).color(pal().text));
                 if !sub.is_empty() {
                     ui.label(RichText::new(sub).size(12.0).color(pal().muted));
+                }
+                if !menu {
+                    return;
                 }
                 let (r, _) = ui.allocate_exact_size(Vec2::new(10.0, 10.0), egui::Sense::hover());
                 let c = r.center();
@@ -234,37 +239,41 @@ impl App {
             .align(egui::RectAlign::BOTTOM_START)
             .width(300.0)
             .show(|ui| {
-                for (st, what) in [
-                    (
-                        Style::Competitive,
-                        "Highest frame rate first. Graphics fixes come first.",
-                    ),
-                    (
-                        Style::Balanced,
-                        "Smooth game and a clean stream. Upscaling fixes first.",
-                    ),
-                    (
-                        Style::Cinematic,
-                        "Best-looking game. A frame rate cap comes first.",
-                    ),
-                ] {
-                    let on = self.st.style == st;
-                    let r = ui.add(egui::RadioButton::new(
-                        on,
-                        RichText::new(style_label(st)).strong(),
-                    ));
-                    ui.label(RichText::new(what).size(12.0).color(pal().muted));
-                    ui.add_space(4.0);
-                    if r.clicked() {
-                        pick_style = Some(st);
+                // Menus stretch their rows to the full width, which spreads the
+                // words of a wrapped sentence apart; plain left-aligned text here.
+                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                    for (st, what) in [
+                        (
+                            Style::Competitive,
+                            "Highest frame rate first. Graphics fixes come first.",
+                        ),
+                        (
+                            Style::Balanced,
+                            "Smooth game and a clean stream. Upscaling fixes first.",
+                        ),
+                        (
+                            Style::Cinematic,
+                            "Best-looking game. A frame rate cap comes first.",
+                        ),
+                    ] {
+                        let on = self.st.style == st;
+                        let r = ui.add(egui::RadioButton::new(
+                            on,
+                            RichText::new(style_label(st)).strong(),
+                        ));
+                        ui.label(RichText::new(what).size(12.0).color(pal().muted));
+                        ui.add_space(4.0);
+                        if r.clicked() {
+                            pick_style = Some(st);
+                        }
                     }
-                }
-                ui.separator();
-                ui.label(
-                    RichText::new("Re-sorts your fixes straight away. No new test needed.")
-                        .size(12.0)
-                        .color(pal().muted),
-                );
+                    ui.separator();
+                    ui.label(
+                        RichText::new("Re-sorts your fixes straight away. No new test needed.")
+                            .size(12.0)
+                            .color(pal().muted),
+                    );
+                });
             });
         if let Some(st) = pick_style
             && st != self.st.style
@@ -322,8 +331,10 @@ impl App {
         } else {
             Badge::None
         };
-        let fix_badge = if left > 0 {
-            Badge::Count(left)
+        // The badge counts what needs fixing, the same number Home and Fixes say.
+        let important = self.open_counts().0;
+        let fix_badge = if important > 0 {
+            Badge::Count(important)
         } else if test_done {
             Badge::Tick
         } else {
@@ -390,39 +401,10 @@ impl App {
                     self.stream_sel = 0;
                     go_to = Some(Screen::PostFlight);
                 }
-                let rest = ui.available_height() - 150.0;
+                // Settings and Help are top right (the gear and the ? menu), not here.
+                let rest = ui.available_height() - 56.0;
                 if rest > 0.0 {
                     ui.add_space(rest);
-                }
-                if rail_icon(
-                    ui,
-                    Icon::Settings,
-                    if update_line {
-                        "Settings · an update is available"
-                    } else {
-                        "Settings"
-                    },
-                    self.screen == Screen::Settings,
-                    if update_line {
-                        Badge::Count(1)
-                    } else {
-                        Badge::None
-                    },
-                )
-                .clicked()
-                {
-                    go_to = Some(Screen::Settings);
-                }
-                if rail_icon(
-                    ui,
-                    Icon::Help,
-                    "Help & report a problem",
-                    self.screen == Screen::Help,
-                    Badge::None,
-                )
-                .clicked()
-                {
-                    go_to = Some(Screen::Help);
                 }
                 let (r, resp) = ui.allocate_exact_size(Vec2::new(48.0, 14.0), egui::Sense::hover());
                 ui.painter().circle_filled(r.center(), 4.0, obs_col);
@@ -514,38 +496,10 @@ impl App {
                 self.stream_sel = 0;
                 go_to = Some(Screen::PostFlight);
             }
-            let rest = ui.available_height() - if update_line { 140.0 } else { 116.0 };
+            // Settings and Help are top right (the gear and the ? menu), not here.
+            let rest = ui.available_height() - if update_line { 64.0 } else { 40.0 };
             if rest > 0.0 {
                 ui.add_space(rest);
-            }
-            if nav_row(
-                ui,
-                Icon::Settings,
-                "Settings",
-                "",
-                self.screen == Screen::Settings,
-                if update_line {
-                    Badge::Count(1)
-                } else {
-                    Badge::None
-                },
-            )
-            .clicked()
-            {
-                go_to = Some(Screen::Settings);
-            }
-            if nav_row(
-                ui,
-                Icon::Help,
-                "Help",
-                "",
-                self.screen == Screen::Help,
-                Badge::None,
-            )
-            .on_hover_text("Help and report a problem")
-            .clicked()
-            {
-                go_to = Some(Screen::Help);
             }
             ui.add_space(6.0);
             if let Some(Ok(u)) = &self.update_result
@@ -604,6 +558,8 @@ impl App {
                 || (i.modifiers.command && i.key_pressed(egui::Key::B));
             (k, b)
         });
+        // Pages don't change behind an open dialog.
+        let keys = if self.dialog_open() { None } else { keys };
         if ctrl_b {
             toggle = true;
         }
@@ -641,11 +597,20 @@ impl App {
     }
 
     /// The main next action for the current screen, if there's one button to press.
+    /// "Minimize to tray", or just "Minimize" on a desktop with no tray.
+    pub(super) fn tray_word(&self) -> &'static str {
+        if self.tray.is_some() {
+            "Minimize to tray"
+        } else {
+            "Minimize"
+        }
+    }
+
     pub(super) fn next_button(&self) -> Option<(String, NextAct)> {
         match self.screen {
             Screen::InFlight => {
                 if self.live.is_some() {
-                    Some(("Minimize to tray".into(), NextAct::ToTray))
+                    Some((self.tray_word().into(), NextAct::ToTray))
                 } else {
                     Some(("Go to Test".into(), NextAct::Step(2)))
                 }
@@ -706,7 +671,7 @@ impl App {
                     (None, _) => Some(("Go to the test".into(), NextAct::Step(2))),
                 },
                 4 if self.go_ready || self.live.is_some() => {
-                    Some(("Minimize to tray".into(), NextAct::ToTray))
+                    Some((self.tray_word().into(), NextAct::ToTray))
                 }
                 _ => None,
             },
@@ -749,7 +714,7 @@ impl App {
                 } else if opt > 0 {
                     Some(("See the optional fixes".into(), NextAct::Step(3)))
                 } else {
-                    Some(("Minimize to tray".into(), NextAct::ToTray))
+                    Some((self.tray_word().into(), NextAct::ToTray))
                 }
             }
             Screen::History | Screen::Help | Screen::Settings => {
@@ -765,23 +730,26 @@ impl App {
         let mut clicked: Option<NextAct> = None;
         ui.horizontal(|ui| {
             ui.label(theme::caps("Next", 12.0, pal().accent));
-            let room = ui.available_width() - if button.is_some() { 260.0 } else { 0.0 };
-            ui.allocate_ui(Vec2::new(room.max(100.0), 40.0), |ui| {
-                ui.label(RichText::new(line).color(pal().text));
-            });
-            if let Some((label, act)) = &button {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if theme::glow_button(ui, label)
+            // The button takes its space first; the sentence gets what's left
+            // and is shortened with "…" (hover shows it all) when it doesn't fit.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some((label, act)) = &button
+                    && theme::glow_button(ui, label)
                         .on_hover_text("Ctrl+Enter")
                         .clicked()
-                    {
-                        clicked = Some(*act);
-                    }
+                {
+                    clicked = Some(*act);
+                }
+                ui.add_space(8.0);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(RichText::new(&line).color(pal().text)).truncate())
+                        .on_hover_text(&line);
                 });
-            }
+            });
         });
         // Keyboard: Ctrl+Enter does the Next step from anywhere.
         if clicked.is_none()
+            && !self.dialog_open()
             && ui
                 .ctx()
                 .input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter))
@@ -966,11 +934,13 @@ impl App {
 
     pub(super) fn ui_toast(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
-        let Some((msg, until, can_undo)) = self
-            .toast
-            .as_ref()
-            .map(|t| (t.msg.clone(), t.until, t.undo.is_some()))
-        else {
+        let Some((msg, until, can_undo)) = self.toast.as_ref().map(|t| {
+            let msg = match &t.note {
+                Some(n) => format!("{} · {n}", t.msg),
+                None => t.msg.clone(),
+            };
+            (msg, t.until, t.undo.is_some())
+        }) else {
             return;
         };
         if now > until {
@@ -980,7 +950,8 @@ impl App {
         let mut undo = false;
         let mut close = false;
         egui::Area::new(egui::Id::unique("toast-area"))
-            .anchor(egui::Align2::RIGHT_BOTTOM, Vec2::new(-24.0, -24.0))
+            // Above the Next bar, so it never covers its button.
+            .anchor(egui::Align2::RIGHT_BOTTOM, Vec2::new(-24.0, -112.0))
             .show(ctx, |ui| {
                 egui::Frame::NONE
                     .fill(pal().control)
@@ -1001,7 +972,7 @@ impl App {
                                         undo::UNDO_SECS as u32
                                     ))
                                     .clicked();
-                                close = ui.small_button("Close").clicked();
+                                close = small_btn(ui, "Close").clicked();
                             }
                         });
                     });
@@ -1075,94 +1046,86 @@ impl App {
             Some(Ok(u)) => Some(u.clone()),
             _ => None,
         };
-        let mut open = true;
         let mut act: Option<&str> = None;
         let title = match &info {
             Some(u) => format!("{} {} is available", crate::util::APP_NAME, u.latest),
             None => "Updates".to_string(),
         };
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .default_width(520.0)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                if let Some(u) = &info {
+        let (_, esc) = modal(ctx, "update-dialog", &title, 520.0, |ui| {
+            if let Some(u) = &info {
+                ui.horizontal(|ui| {
+                    if u.prerelease {
+                        theme::pill(ui, pal().bg, pal().accent, "Beta");
+                    }
+                    ui.label(
+                        RichText::new(format!("You have {}", u.current)).color(pal().text_soft),
+                    );
+                });
+                if crate::update::is_beta_version(&u.current) && !u.prerelease {
+                    theme::small(
+                        ui,
+                        format!(
+                            "You're on beta {}. This installs the newest normal version.",
+                            u.current
+                        ),
+                    );
+                }
+                if !u.notes.trim().is_empty() {
+                    ui.add_space(4.0);
+                    egui::ScrollArea::vertical()
+                        .max_height(220.0)
+                        .show(ui, |ui| {
+                            for l in u.notes.lines().filter(|l| !l.trim().is_empty()).take(40) {
+                                ui.label(
+                                    RichText::new(l.trim_start_matches('#').trim())
+                                        .color(pal().text_soft),
+                                );
+                            }
+                        });
+                }
+            }
+            ui.add_space(6.0);
+            match (&self.update_install, &self.update_done) {
+                (Some(_), _) => {
                     ui.horizontal(|ui| {
-                        if u.prerelease {
-                            theme::pill(ui, pal().bg, pal().accent, "Beta");
-                        }
-                        ui.label(
-                            RichText::new(format!("You have {}", u.current)).color(pal().text_soft),
-                        );
+                        ui.spinner();
+                        ui.label("Downloading and checking the signature…");
                     });
-                    if crate::update::is_beta_version(&u.current) && !u.prerelease {
-                        theme::small(
-                            ui,
-                            format!(
-                                "You're on beta {}. This installs the newest normal version.",
-                                u.current
-                            ),
-                        );
-                    }
-                    if !u.notes.trim().is_empty() {
-                        ui.add_space(4.0);
-                        egui::ScrollArea::vertical()
-                            .max_height(220.0)
-                            .show(ui, |ui| {
-                                for l in u.notes.lines().filter(|l| !l.trim().is_empty()).take(40) {
-                                    ui.label(
-                                        RichText::new(l.trim_start_matches('#').trim())
-                                            .color(pal().text_soft),
-                                    );
-                                }
-                            });
+                }
+                (None, Some(Ok(_))) => {
+                    ui.label(
+                        RichText::new("Update installed. Restart to use it.").color(pal().success),
+                    );
+                    if theme::primary(ui, "Restart").clicked() {
+                        act = Some("restart");
                     }
                 }
-                ui.add_space(6.0);
-                match (&self.update_install, &self.update_done) {
-                    (Some(_), _) => {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label("Downloading and checking the signature…");
-                        });
-                    }
-                    (None, Some(Ok(_))) => {
+                (None, done) => {
+                    if let Some(Err(e)) = done {
                         ui.label(
-                            RichText::new("Update installed. Restart to use it.")
-                                .color(pal().success),
+                            RichText::new(format!("The update didn't install: {e}"))
+                                .color(pal().bad),
                         );
-                        if theme::primary(ui, "Restart").clicked() {
-                            act = Some("restart");
-                        }
                     }
-                    (None, done) => {
-                        if let Some(Err(e)) = done {
-                            ui.label(
-                                RichText::new(format!("The update didn't install: {e}"))
-                                    .color(pal().bad),
-                            );
+                    ui.horizontal(|ui| {
+                        let label = if matches!(done, Some(Err(_))) {
+                            "Try again"
+                        } else {
+                            "Update now"
+                        };
+                        if theme::primary(ui, label).clicked() {
+                            act = Some("update");
                         }
-                        ui.horizontal(|ui| {
-                            let label = if matches!(done, Some(Err(_))) {
-                                "Try again"
-                            } else {
-                                "Update now"
-                            };
-                            if theme::primary(ui, label).clicked() {
-                                act = Some("update");
-                            }
-                            if theme::secondary(ui, "Later").clicked() {
-                                act = Some("later");
-                            }
-                            if theme::secondary(ui, "Skip this version").clicked() {
-                                act = Some("skip");
-                            }
-                        });
-                    }
+                        if theme::secondary(ui, "Later").clicked() {
+                            act = Some("later");
+                        }
+                        if theme::secondary(ui, "Skip this version").clicked() {
+                            act = Some("skip");
+                        }
+                    });
                 }
-            });
+            }
+        });
         match act {
             Some("update") => self.start_update(),
             Some("restart") => self.restart_into_update(ctx),
@@ -1180,7 +1143,8 @@ impl App {
             }
             _ => {}
         }
-        if !open {
+        // Not while it's downloading: the result should be seen.
+        if esc && self.update_install.is_none() {
             self.update_dialog = false;
         }
     }
@@ -1264,7 +1228,7 @@ impl App {
                 ui,
                 grade_color(p.grade_level),
                 &text,
-                "Your post-flight summary is ready",
+                "Your stream summary is ready",
                 "See the summary",
                 &mut see,
             );
@@ -1325,6 +1289,7 @@ impl App {
                 &otext,
                 &osub,
                 !connected,
+                false,
             )
             .on_hover_text(if connected {
                 "Connection and two-PC settings"
@@ -1350,10 +1315,11 @@ impl App {
                 &gtext,
                 "",
                 false,
+                true,
             )
             .on_hover_text("Switch game");
             self.game_menu(&gr);
-            let sr = status_chip(ui, None, style_label(self.st.style), "", false)
+            let sr = status_chip(ui, None, style_label(self.st.style), "", false, true)
                 .on_hover_text("How Preflight orders your fixes");
             self.style_menu(&sr, &ctx);
             let platforms = if self.st.platforms.is_empty() {
@@ -1361,7 +1327,7 @@ impl App {
             } else {
                 self.st.platforms.join(" + ")
             };
-            if status_chip(ui, None, &platforms, "", false)
+            if status_chip(ui, None, &platforms, "", false, false)
                 .on_hover_text("Where you stream")
                 .clicked()
             {
@@ -1371,7 +1337,22 @@ impl App {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 self.ui_top_right(ui);
                 ui.add_space(6.0);
+                // In a narrow window the words give way to the dot alone,
+                // instead of running over the chips.
+                let room = ui.available_width() > 110.0;
                 match &self.live {
+                    Some(l) if !room => {
+                        let _ = l;
+                        let (r, _) = ui.allocate_exact_size(Vec2::splat(9.0), egui::Sense::hover());
+                        ui.painter().circle_filled(r.center(), 4.0, pal().bad);
+                    }
+                    None if !room => {
+                        let (r, resp) =
+                            ui.allocate_exact_size(Vec2::splat(9.0), egui::Sense::hover());
+                        ui.painter()
+                            .circle_filled(r.center(), 4.0, pal().placeholder);
+                        resp.on_hover_text("Not live");
+                    }
                     Some(l) => {
                         ui.label(
                             RichText::new(format!(
@@ -1416,6 +1397,9 @@ impl App {
             .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
             .show(|ui| {
                 ui.set_min_width(220.0);
+                if menu_item(ui, crate::icons::BOOK_OPEN, "Help", "").clicked() {
+                    self.go(Screen::Help);
+                }
                 if menu_item(ui, crate::icons::BUG, "Report a problem", "").clicked() {
                     self.open_report("");
                 }

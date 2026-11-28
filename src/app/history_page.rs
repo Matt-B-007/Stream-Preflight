@@ -381,7 +381,27 @@ impl App {
                     .strong(),
             );
             if p.advice.is_empty() {
-                theme::muted(ui, "Nothing. Keep the same settings next time.");
+                // Say so when a number below was less than good, so the two agree.
+                let watch: Vec<&str> = [
+                    ("your internet", p.net_frac),
+                    ("the encoder", p.enc_frac),
+                    ("drawing frames", p.render_frac),
+                ]
+                .iter()
+                .filter(|(_, f)| *f >= 0.001)
+                .map(|(n, _)| *n)
+                .collect();
+                if watch.is_empty() {
+                    theme::muted(ui, "Nothing. Keep the same settings next time.");
+                } else {
+                    theme::muted(
+                        ui,
+                        format!(
+                            "No setting to change yet. Keep an eye on {}: the numbers below show a few lost frames. If it happens again, Preflight will suggest a fix.",
+                            watch.join(" and ")
+                        ),
+                    );
+                }
             }
             for a in &p.advice {
                 theme::inset(ui, |ui| {
@@ -409,9 +429,9 @@ impl App {
                         let (s, lab) = if *f < 0.001 {
                             (Status::Ok, "Good")
                         } else if *f < 0.01 {
-                            (Status::Warn, "Minor")
+                            (Status::Warn, "Check")
                         } else {
-                            (Status::Bad, "Problem")
+                            (Status::Bad, "Fix")
                         };
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             theme::status_pill(ui, s, lab)
@@ -553,7 +573,7 @@ impl App {
         }
         if report {
             self.open_report(format!(
-                "Post-flight for the stream at {}: {}, internet dropped {:.2}%, encoder skipped {:.2}%, rendering skipped {:.2}%, avg {:.0} kbps, {} reconnects",
+                "Summary for the stream at {}: {}, internet dropped {:.2}%, encoder skipped {:.2}%, rendering skipped {:.2}%, avg {:.0} kbps, {} reconnects",
                 history::fmt_time(l.started_at),
                 p.grade,
                 p.net_frac * 100.0,

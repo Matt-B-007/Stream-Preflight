@@ -214,7 +214,7 @@ impl App {
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(RichText::new(text).color(fg));
-                            if cw.result.is_some() && ui.small_button("OK").clicked() {
+                            if cw.result.is_some() && small_btn(ui, "OK").clicked() {
                                 action = Some("confirm_ok".into());
                             }
                         });
@@ -362,7 +362,7 @@ impl App {
                         ui.horizontal(|ui| {
                             tag_pill(ui, analysis::Tag::Kept);
                             ui.label(k.title.trim_end_matches('.'));
-                            if ui.small_button("Fix it after all").clicked() {
+                            if small_btn(ui, "Fix it after all").clicked() {
                                 action = Some(format!("unkeep:{}", k.id));
                             }
                         });
@@ -690,7 +690,7 @@ impl App {
                             ui.label(RichText::new(&o.cost).color(pal().muted));
                         });
                         ui.horizontal(|ui| {
-                            if ui.small_button("Use this one").clicked() {
+                            if small_btn(ui, "Use this one").clicked() {
                                 action = Some(format!("pick:{}", o.id));
                             }
                             if link_small(ui, "Don't suggest this again") {
@@ -1082,11 +1082,11 @@ impl App {
                 ui.set_width(ui.available_width());
                 if let Some(l) = &self.live {
                     ui.label(RichText::new(format!("You're live · {}", crate::streamwatch::fmt_t(l.elapsed))).size(16.0).strong().color(pal().success));
-                    ui.label(RichText::new(format!("{:.2}% of frames dropped so far. Preflight watches quietly from the tray and writes your post-flight summary when you end the stream.", l.dropped_pct)).color(pal().text_soft));
+                    ui.label(RichText::new(format!("{:.2}% of frames dropped so far. Preflight watches quietly from the tray and writes your stream summary when you end the stream.", l.dropped_pct)).color(pal().text_soft));
                 } else if ready {
                     ui.label(RichText::new("Ready. Start streaming in OBS.").size(16.0).strong());
                     let start = if scene.is_empty() { String::new() } else { format!(" You'll start on \"{scene}\".") };
-                    ui.label(RichText::new(format!("{}{start} Preflight watches from the tray while you stream and writes a post-flight summary when you end it.", self.analysis.verdict)).color(pal().text_soft));
+                    ui.label(RichText::new(format!("{}{start} Preflight watches from the tray while you stream and writes a stream summary when you end it.", self.analysis.verdict)).color(pal().text_soft));
                 } else {
                     ui.label(RichText::new(format!("{left} thing{} left before you go live", if left == 1 { "" } else { "s" })).size(16.0).strong());
                     ui.label(RichText::new("Fix them in OBS (Preflight re-checks by itself) or choose Keep as is, then tick the rest.").color(pal().text_soft));
@@ -1221,7 +1221,7 @@ impl App {
             });
             self.st.save();
             log::info!(
-                "Pre-flight complete: Smoothness {} · Setup {} · {}",
+                "Test and fixes done: Smoothness {} · Setup {} · {}",
                 self.analysis
                     .smoothness
                     .map(|v| v.to_string())

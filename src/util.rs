@@ -20,7 +20,7 @@ pub fn one_core(pct_of_all: f32) -> String {
     }
 }
 
-pub const BUILD_LABEL: &str = "Beta 9";
+pub const BUILD_LABEL: &str = "Beta 10";
 
 /// Folders the app is allowed to write to. Everything lives under the
 /// user's normal per-app data folder; nothing is written anywhere else.
@@ -244,8 +244,8 @@ pub fn scrub_with(
     if let Some(home) = home {
         let h = home.to_string_lossy().to_string();
         if h.len() > 3 {
-            out = out.replace(&h, "~");
-            out = out.replace(&h.replace('\\', "/"), "~");
+            out = replace_home(&out, &h);
+            out = replace_home(&out, &h.replace('\\', "/"));
         }
     }
     out = scrub_windows_paths(&out);
@@ -253,10 +253,11 @@ pub fn scrub_with(
     if let Some(u) = user.filter(|u| u.len() >= 3) {
         out = replace_word(&out, &u, "<user>");
     }
-    if let Some(h) = host.filter(|h| h.len() >= 3) {
+    if let Some(h) = host.filter(|h| h.len() >= 3 && !common_host_name(h)) {
         out = replace_word(&out, &h, "<host>");
     }
     out = scrub_secrets(&out);
+    out = scrub_emails(&out);
     out = scrub_steam_ids(&out);
     out = scrub_ipv4(&out);
     out = scrub_ipv6(&out);
@@ -293,6 +294,22 @@ fn replace_word(s: &str, word: &str, with: &str) -> String {
 }
 
 /// `/home/<name>` and `/Users/<name>` for any name (another account, a mounted drive).
+/// Where a Windows or macOS user name ends. Those can hold spaces ("Sam Lee"),
+/// so the name runs to the next path separator when one follows closely;
+/// otherwise it ends at the first space.
+fn spaced_name_end(tail: &str) -> usize {
+    let hard = tail
+        .find(|c: char| c == '\n' || "\"'`,;".contains(c))
+        .unwrap_or(tail.len());
+    let sep = tail.find(['/', '\\']).unwrap_or(usize::MAX);
+    let ws = tail.find(char::is_whitespace).unwrap_or(tail.len());
+    if sep <= hard && sep <= 40 && tail[..sep].matches(' ').count() <= 2 {
+        sep
+    } else {
+        ws.min(hard).min(sep)
+    }
+}
+
 fn scrub_home_folders(s: &str) -> String {
     let mut out = s.to_string();
     for prefix in ["/home/", "/Users/"] {
@@ -301,11 +318,14 @@ fn scrub_home_folders(s: &str) -> String {
         while let Some(k) = rest.find(prefix) {
             let (head, tail) = rest.split_at(k + prefix.len());
             res.push_str(head);
-            let end = tail
-                .find(|c: char| {
+            let end = if prefix == "/Users/" {
+                spaced_name_end(tail)
+            } else {
+                tail.find(|c: char| {
                     c == '/' || c == '\\' || c.is_whitespace() || "\"'`,;:)]}".contains(c)
                 })
-                .unwrap_or(tail.len());
+                .unwrap_or(tail.len())
+            };
             let name = &tail[..end];
             if name.is_empty() || name.starts_with('<') {
                 res.push_str(name);
@@ -344,7 +364,11 @@ fn scrub_windows_paths(s: &str) -> String {
                     continue;
                 }
                 let after = &rest[dir.len() + 1..];
-                let end = after.find(stop).unwrap_or(after.len());
+                let end = if is_home {
+                    after.find(stop).unwrap_or(after.len())
+                } else {
+                    spaced_name_end(after)
+                };
                 if end == 0 || after.starts_with('<') {
                     continue;
                 }
@@ -481,6 +505,152 @@ fn scrub_inline_secrets(line: &str) -> String {
     out
 }
 
+/// Does the text end with a word that names a program or a version, so the
+/// number after it is a version and not an address? Anything else stays an address.
+fn after_version_word(before: &str) -> bool {
+    const WORDS: [&str; 30] = [
+        "version",
+        "ver",
+        "v",
+        "release",
+        "build",
+        "driver",
+        "drivers",
+        "kernel",
+        "obs",
+        "nvidia",
+        "amd",
+        "intel",
+        "mesa",
+        "vulkan",
+        "opengl",
+        "proton",
+        "wine",
+        "steam",
+        "runtime",
+        "pipewire",
+        "wireplumber",
+        "glibc",
+        "qt",
+        "ffmpeg",
+        "plugin",
+        "websocket",
+        "firmware",
+        "bios",
+        "directx",
+        "dxvk",
+    ];
+    let word = before
+        .trim_end_matches([' ', ':', '=', '(', '\t'])
+        .rsplit(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+    !word.is_empty() && (WORDS.contains(&word.as_str()) || word.ends_with("version"))
+}
+
+/// PC names that are also ordinary words in a report (the distro's name, "desktop"…).
+/// Replacing those would garble the report without hiding anything.
+fn common_host_name(h: &str) -> bool {
+    const COMMON: [&str; 26] = [
+        "cachyos",
+        "arch",
+        "archlinux",
+        "linux",
+        "localhost",
+        "desktop",
+        "laptop",
+        "pc",
+        "computer",
+        "gaming",
+        "home",
+        "steamdeck",
+        "ubuntu",
+        "fedora",
+        "debian",
+        "nixos",
+        "manjaro",
+        "endeavouros",
+        "bazzite",
+        "nobara",
+        "popos",
+        "pop-os",
+        "mint",
+        "garuda",
+        "opensuse",
+        "user",
+    ];
+    let h = h.to_lowercase();
+    COMMON.contains(&h.as_str())
+        || std::fs::read_to_string("/etc/os-release")
+            .ok()
+            .and_then(|t| {
+                t.lines().find_map(|l| {
+                    l.strip_prefix("ID=")
+                        .map(|v| v.trim_matches('"').to_lowercase())
+                })
+            })
+            .is_some_and(|id| id == h)
+}
+
+/// Replaces the home folder where it's a whole path part: "/home/sam/x" → "~/x",
+/// but "/home/sam2" and "/var/home/sam" are left for the next step.
+fn replace_home(s: &str, home: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(k) = rest.find(home) {
+        let before = rest[..k].chars().next_back();
+        let after = rest[k + home.len()..].chars().next();
+        let start_ok = !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '-');
+        let end_ok =
+            !after.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.');
+        out.push_str(&rest[..k]);
+        out.push_str(if start_ok && end_ok { "~" } else { home });
+        rest = &rest[k + home.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Email addresses → `<email>`.
+fn scrub_emails(s: &str) -> String {
+    let ok = |c: char| c.is_ascii_alphanumeric() || "._%+-".contains(c);
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut copied = 0;
+    while i < chars.len() {
+        if chars[i] == '@' {
+            let mut a = i;
+            while a > copied && ok(chars[a - 1]) {
+                a -= 1;
+            }
+            let mut b = i + 1;
+            while b < chars.len() && ok(chars[b]) {
+                b += 1;
+            }
+            let domain: String = chars[i + 1..b].iter().collect();
+            let domain = domain.trim_end_matches('.');
+            let tld = domain.rsplit('.').next().unwrap_or("");
+            let is_email = a < i
+                && domain.contains('.')
+                && tld.len() >= 2
+                && tld.chars().all(|c| c.is_ascii_alphabetic());
+            if is_email {
+                out.extend(&chars[copied..a]);
+                out.push_str("<email>");
+                let end = i + 1 + domain.chars().count();
+                copied = end;
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out.extend(&chars[copied..]);
+    out
+}
+
 fn scrub_ipv4(s: &str) -> String {
     let bytes: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len());
@@ -527,8 +697,10 @@ fn scrub_ipv4(s: &str) -> String {
             let next_ok = j >= bytes.len() || !(bytes[j].is_ascii_digit() || bytes[j] == '.');
             if ok && parts == 4 && next_ok {
                 let ip: String = bytes[i..j].iter().collect();
-                // 0.x.x.x isn't a real address, so it's a version number.
-                if ip == "127.0.0.1" || ip.starts_with("0.") {
+                // 0.x.x.x isn't a real address, so it's a version number, and so
+                // is a number right after a program or version word ("obs 31.0.2.1").
+                let before: String = bytes[..i].iter().collect();
+                if ip == "127.0.0.1" || ip.starts_with("0.") || after_version_word(&before) {
                     out.push_str(&ip);
                 } else {
                     out.push_str("<ip>");
@@ -564,10 +736,16 @@ fn scrub_ipv6(s: &str) -> String {
             let groups_ok = groups.iter().all(|g| g.len() <= 4);
             let filled = groups.iter().filter(|g| !g.is_empty()).count();
             let mac = colons == 5 && groups.iter().all(|g| g.len() == 2);
+            // A real address has a digit and at least 4 hex characters; written
+            // in full it has exactly 8 groups. "a::b" and "1920:1080:60:1:2:3" don't.
+            let hex = t.chars().filter(|c| *c != ':').count();
+            let digit = t.chars().any(|c| c.is_ascii_digit());
             let looks = groups_ok
                 && !mac
                 && t != "::1"
-                && ((t.contains("::") && filled >= 2) || colons >= 5);
+                && digit
+                && hex >= 4
+                && ((t.contains("::") && filled >= 2) || (colons == 7 && filled == 8));
             if bounded && looks {
                 out.push_str("<ip>");
                 i = j;
@@ -603,10 +781,37 @@ fn scrub_mac(s: &str) -> String {
                 continue;
             }
         }
+        // Cisco style: aabb.ccdd.eeff (with at least one letter, so it isn't a number).
+        if i + 14 <= chars.len() && (i == 0 || !chars[i - 1].is_ascii_alphanumeric()) {
+            let cand = &chars[i..i + 14];
+            let shape = (0..14).all(|k| {
+                if k == 4 || k == 9 {
+                    cand[k] == '.'
+                } else {
+                    cand[k].is_ascii_hexdigit()
+                }
+            });
+            let ends = i + 14 == chars.len() || !chars[i + 14].is_ascii_alphanumeric();
+            if shape && ends && cand.iter().any(|c| c.is_ascii_alphabetic()) {
+                out.push_str("<mac>");
+                i += 14;
+                continue;
+            }
+        }
         out.push(chars[i]);
         i += 1;
     }
     out
+}
+
+/// Starts a helper program (a file manager, a text editor) and collects it
+/// when it ends, so no finished-but-uncollected process is left behind.
+pub fn run_and_forget(cmd: &mut std::process::Command) {
+    if let Ok(mut child) = cmd.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
 }
 
 /// A short, human-friendly ID like "PF-7K3Q-M2XD".
@@ -743,6 +948,44 @@ mod tests {
             sc("rtmp://live.twitch.tv/app/live_123456789_AbCdEfGhIjKlMnOp ok"),
             "rtmp://live.twitch.tv/app/<secret> ok"
         );
+    }
+
+    #[test]
+    fn beta10_redaction_fixes() {
+        // Versions after a program word stay; bare addresses still go.
+        assert_eq!(sc("obs 31.0.2.1 from 31.0.2.1"), "obs 31.0.2.1 from <ip>");
+        assert_eq!(sc("OBS version: 30.1.2.3"), "OBS version: 30.1.2.3");
+        assert_eq!(sc("ws://192.168.1.20:4455"), "ws://<ip>:4455");
+        // A PC named after the distro doesn't garble the report.
+        let f = |s: &str| scrub_with(s, None, None, Some("cachyos".into()));
+        assert_eq!(
+            f("CachyOS kernel 6.12-cachyos"),
+            "CachyOS kernel 6.12-cachyos"
+        );
+        // Names with spaces, and home as part of a longer name.
+        assert_eq!(
+            sc("C:\\Users\\Sam Lee\\Documents"),
+            "C:\\Users\\<user>\\Documents"
+        );
+        assert_eq!(sc("/mnt/c/Users/Sam Lee/x"), "/mnt/c/Users/<user>/x");
+        assert_eq!(sc("/Users/sam and more"), "/Users/<user> and more");
+        assert_eq!(sc("/home/jordan2/x"), "/home/<user>/x");
+        assert_eq!(sc("/var/home/jordan/x"), "/var/home/<user>/x");
+        assert_eq!(sc("/home/jordan"), "~");
+        // Code and ratios aren't addresses; real IPv6 still is.
+        assert_eq!(
+            sc("a::b add::fee 1920:1080:60:1:2:3"),
+            "a::b add::fee 1920:1080:60:1:2:3"
+        );
+        assert_eq!(
+            sc("2001:db8::1 and 2001:0db8:85a3:0000:0000:8a2e:0370:7334"),
+            "<ip> and <ip>"
+        );
+        // Emails and Cisco-style MACs.
+        assert_eq!(sc("mail me@example.com, ok"), "mail <email>, ok");
+        assert_eq!(sc("jordan@battlestation:~$"), "<user>@<host>:~$");
+        assert_eq!(sc("mac aabb.ccdd.eeff"), "mac <mac>");
+        assert_eq!(sc("size 1234.5678.9012"), "size 1234.5678.9012");
     }
 
     #[test]

@@ -55,9 +55,9 @@ fail() { printf 'Stream Preflight install failed: %s\n' "$*" >&2; exit 1; }
 if [ "$UNINSTALL" -eq 1 ]; then
     if [ -x "$DEST/stream-preflight" ]; then
         if [ "$PURGE" -eq 1 ]; then
-            "$DEST/stream-preflight" --uninstall --delete-settings
+            "$DEST/stream-preflight" --uninstall --delete-settings --yes
         else
-            "$DEST/stream-preflight" --uninstall
+            "$DEST/stream-preflight" --uninstall --yes
         fi
         exit $?
     fi

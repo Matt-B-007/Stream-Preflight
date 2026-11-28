@@ -106,9 +106,10 @@ pub fn self_test(i: &SelfTestInput) -> Vec<SelfTest> {
             format!("Not connected; using {}. {}", o.source, e),
             "Open OBS and turn on Tools › WebSocket Server Settings › Enable WebSocket server.",
         )),
+        // OBS being closed isn't a fault in Preflight, so it's a note, not a failure.
         (None, Some(e)) => v.push(t(
             "OBS connection",
-            TestStatus::Fail,
+            TestStatus::Warn,
             e.to_string(),
             "Open OBS and turn on Tools › WebSocket Server Settings › Enable WebSocket server.",
         )),
@@ -154,7 +155,7 @@ pub fn self_test(i: &SelfTestInput) -> Vec<SelfTest> {
 
     let found: Vec<&GameResult> = i.games.iter().filter(|g| g.relevant()).collect();
     if found.is_empty() {
-        v.push(t("Game profiles", TestStatus::Warn, "None of the 7 supported games were found.".into(), "If a supported game is installed, send a bug report so we can see where it was looked for."));
+        v.push(t("Game profiles", TestStatus::Warn, format!("None of the {} games Preflight has a profile for were found.", crate::games::profiles().len()), "If a supported game is installed, send a bug report so we can see where it was looked for."));
     }
     for g in found {
         let read = g.files.iter().any(|f| f.read_ok);
@@ -296,7 +297,7 @@ pub fn build_sections(i: &ReportInput) -> Vec<Section> {
             if i.context.is_empty() { "general report" } else { i.context },
             if i.description.trim().is_empty() { "(none)" } else { i.description.trim() },
             i.analysis.smoothness.map(|v| v.to_string()).unwrap_or_else(|| "not tested".into()),
-            i.analysis.setup_score,
+            i.analysis.setup_words(),
             i.analysis.verdict,
             i.test.map(|t| format!("{}{} · {:.0} s", t.game_running.clone().or_else(|| t.game_guess.clone()).unwrap_or_else(|| "no game seen".into()), if t.quick { " · quick re-test" } else { "" }, t.seconds)).unwrap_or_else(|| "none".into()),
             if failing.is_empty() { "- none".to_string() } else { failing.join("\n") }
@@ -758,7 +759,7 @@ pub fn open_file(p: &std::path::Path) {
         .args(["/c", "start", "", &p.display().to_string()])
         .spawn();
     #[cfg(not(windows))]
-    let _ = std::process::Command::new("xdg-open").arg(p).spawn();
+    crate::util::run_and_forget(std::process::Command::new("xdg-open").arg(p));
 }
 
 /// Copies text with the system's own tool as well (wl-copy on Wayland,
@@ -800,7 +801,7 @@ pub fn open_folder(p: &std::path::Path) {
     #[cfg(windows)]
     let _ = std::process::Command::new("explorer").arg(p).spawn();
     #[cfg(not(windows))]
-    let _ = std::process::Command::new("xdg-open").arg(p).spawn();
+    crate::util::run_and_forget(std::process::Command::new("xdg-open").arg(p));
 }
 
 #[cfg(test)]
@@ -840,7 +841,7 @@ mod extra_tests {
         let extra = vec![
             (
                 "postflight",
-                "Post-flight (numbers only)",
+                "Stream summary (numbers only)",
                 "Last stream: 1:02:03 · Smooth · labelled test stream".to_string(),
             ),
             (
