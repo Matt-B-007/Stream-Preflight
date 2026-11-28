@@ -97,6 +97,15 @@ pub struct Settings {
     pub updates_beta: bool,
     pub skipped_version: String,
     pub pending_recordings: Vec<PendingRecording>,
+    /// Things moved aside for Undo, removed for good when the notice goes
+    /// (or at the next start, if Preflight closed first).
+    pub undo_trash: Vec<String>,
+    /// A new install: show the tour once setup is done.
+    pub tour_pending: bool,
+    /// Settings › Appearance.
+    pub theme: crate::theme::ThemeChoice,
+    pub backdrop_grid: bool,
+    pub reduce_motion: bool,
     pub network_test_on_scan: bool,
     pub hidden_options: Vec<HiddenOption>,
     /// Issues the user chose to keep as they are (still listed, not counted in the score).
@@ -212,6 +221,11 @@ impl Default for Settings {
             updates_beta: false,
             skipped_version: String::new(),
             pending_recordings: Vec::new(),
+            undo_trash: Vec::new(),
+            tour_pending: false,
+            theme: crate::theme::ThemeChoice::System,
+            backdrop_grid: true,
+            reduce_motion: false,
             network_test_on_scan: true,
             hidden_options: Vec::new(),
             kept_issues: Vec::new(),
@@ -270,11 +284,22 @@ impl Settings {
                     v
                 }
                 Err(e) => {
-                    log::warn!(
-                        "Settings file could not be read ({e}); keeping a copy and starting fresh"
-                    );
                     let _ = std::fs::copy(&p, p.with_extension("broken.json"));
-                    Self::default()
+                    match newest_good_backup(&backup_dir()) {
+                        Some((mut v, name)) => {
+                            log::warn!(
+                                "Settings file could not be read ({e}); kept a copy and used the backup {name}"
+                            );
+                            v.migrate();
+                            v
+                        }
+                        None => {
+                            log::warn!(
+                                "Settings file could not be read ({e}); kept a copy and started fresh"
+                            );
+                            Self::default()
+                        }
+                    }
                 }
             },
             Err(_) => Self::default(),
@@ -304,12 +329,15 @@ impl Settings {
         }
     }
 
+    /// Saves through a temporary file and a rename, so a crash or power cut
+    /// never leaves a half-written file. The file being replaced is backed up
+    /// first, at most every 15 minutes (5 backups are kept).
     pub fn save(&self) {
         match serde_json::to_string_pretty(self) {
             Ok(s) => {
-                let tmp = Self::path().with_extension("tmp");
-                if std::fs::write(&tmp, s).is_ok() {
-                    let _ = std::fs::rename(&tmp, Self::path());
+                backup_if_due(&Self::path(), &backup_dir(), crate::util::unix_now());
+                if let Err(e) = write_atomic(&Self::path(), s.as_bytes()) {
+                    log::warn!("Could not save settings: {e}");
                 }
             }
             Err(e) => log::warn!("Could not save settings: {e}"),
@@ -386,6 +414,85 @@ fn secret_path() -> PathBuf {
     crate::util::dirs().config.join("obs-secret.bin")
 }
 
+/// Writes a file through a temporary file and a rename.
+pub fn write_atomic(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = path.with_extension("tmp");
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)
+}
+
+/// Rolling backups of settings.json.
+pub const BACKUP_EVERY_SECS: i64 = 15 * 60;
+pub const BACKUPS_KEPT: usize = 5;
+
+fn backup_dir() -> PathBuf {
+    crate::util::dirs().config.join("backups")
+}
+
+fn backups(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .map(|n| {
+                            let n = n.to_string_lossy();
+                            n.starts_with("settings-") && n.ends_with(".json")
+                        })
+                        .unwrap_or(false)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // Names hold the time as a number, so they sort oldest first.
+    v.sort();
+    v
+}
+
+/// Copies the current settings file into the backups folder when the newest
+/// backup is 15 minutes old or more, then keeps only the newest 5.
+pub fn backup_if_due(file: &std::path::Path, dir: &std::path::Path, now: i64) -> bool {
+    if !file.exists() {
+        return false;
+    }
+    let existing = backups(dir);
+    let newest = existing.last().and_then(|p| {
+        p.file_stem()?
+            .to_string_lossy()
+            .strip_prefix("settings-")?
+            .parse::<i64>()
+            .ok()
+    });
+    if newest.is_some_and(|t| now - t < BACKUP_EVERY_SECS && now >= t) {
+        return false;
+    }
+    let _ = std::fs::create_dir_all(dir);
+    if std::fs::copy(file, dir.join(format!("settings-{now:012}.json"))).is_err() {
+        return false;
+    }
+    let all = backups(dir);
+    if all.len() > BACKUPS_KEPT {
+        for p in &all[..all.len() - BACKUPS_KEPT] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+    true
+}
+
+/// The newest backup that reads correctly, and its file name.
+fn newest_good_backup(dir: &std::path::Path) -> Option<(Settings, String)> {
+    backups(dir).into_iter().rev().find_map(|p| {
+        let v = serde_json::from_str::<Settings>(&std::fs::read_to_string(&p).ok()?).ok()?;
+        Some((v, p.file_name()?.to_string_lossy().to_string()))
+    })
+}
+
 pub fn save_secret(pw: &str) {
     let data = protect(pw.as_bytes());
     if let Some(d) = data {
@@ -452,4 +559,39 @@ fn protect(b: &[u8]) -> Option<Vec<u8>> {
 #[cfg(windows)]
 fn unprotect(b: &[u8]) -> Option<Vec<u8>> {
     crate::winsys::unprotect(b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rolling_settings_backups() {
+        let dir = std::env::temp_dir().join(format!("pf-bak-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("settings.json");
+        let bdir = dir.join("backups");
+        assert!(!backup_if_due(&file, &bdir, 1000), "nothing to back up yet");
+        write_atomic(&file, b"{\"settings_version\": 1}").unwrap();
+        assert!(backup_if_due(&file, &bdir, 1000));
+        // Not again within 15 minutes.
+        assert!(!backup_if_due(&file, &bdir, 1000 + BACKUP_EVERY_SECS - 1));
+        for k in 1..=7 {
+            assert!(backup_if_due(&file, &bdir, 1000 + k * BACKUP_EVERY_SECS));
+        }
+        assert_eq!(backups(&bdir).len(), BACKUPS_KEPT);
+        // A broken newest backup is skipped.
+        std::fs::write(
+            bdir.join(format!("settings-{:012}.json", 999_999)),
+            "{broken",
+        )
+        .unwrap();
+        assert!(newest_good_backup(&bdir).is_some());
+        assert!(
+            !dir.join("settings.tmp").exists(),
+            "no temporary file left behind"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

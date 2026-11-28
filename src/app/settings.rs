@@ -3,55 +3,89 @@
 
 use super::*;
 
+/// "Last checked 5 minutes ago" for Settings › Updates.
+pub(super) fn last_checked(at: i64, now: i64) -> String {
+    if at <= 0 {
+        return "Not checked yet".into();
+    }
+    let ago = (now - at).max(0);
+    let when = match ago {
+        0..=59 => "just now".to_string(),
+        60..=3599 => {
+            let m = ago / 60;
+            format!("{m} minute{} ago", if m == 1 { "" } else { "s" })
+        }
+        3600..=86_399 => {
+            let h = ago / 3600;
+            format!("{h} hour{} ago", if h == 1 { "" } else { "s" })
+        }
+        _ => {
+            let d = ago / 86_400;
+            format!("{d} day{} ago", if d == 1 { "" } else { "s" })
+        }
+    };
+    format!("Last checked {when}")
+}
+
+pub(super) const TAB_GENERAL: u8 = 0;
+pub(super) const TAB_APPEARANCE: u8 = 1;
+pub(super) const TAB_UPDATES: u8 = 2;
+pub(super) const TAB_PRIVACY: u8 = 3;
+pub(super) const TAB_OBS: u8 = 4;
+pub(super) const TAB_TRAY: u8 = 5;
+pub(super) const TAB_ADVANCED: u8 = 6;
+pub(super) const TAB_ABOUT: u8 = 7;
+
 impl App {
+    /// "Uninstall Stream Preflight?", laid out like the other apps.
     pub(super) fn ui_uninstall(&mut self, ctx: &egui::Context) {
-        let Some((mut recs, mut program, mut error)) = self.uninstall.take() else {
+        let Some(mut u) = self.uninstall.take() else {
             return;
         };
         let mut keep = true;
         let mut go = false;
-        egui::Window::new("Remove Preflight from this PC")
+        let title = if u.done {
+            "Stream Preflight is uninstalled"
+        } else {
+            "Uninstall Stream Preflight?"
+        };
+        egui::Window::new(title)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .default_width(520.0)
             .show(ctx, |ui| {
-                ui.label(RichText::new("This deletes:").strong());
-                for (what, path) in crate::uninstall::own_folders() {
-                    theme::inset(ui, |ui| {
-                        ui.label(what);
-                        theme::small(ui, crate::util::scrub(&path.to_string_lossy()));
-                    });
+                if u.done {
+                    ui.label("Stream Preflight is uninstalled. Thanks for trying it.");
+                    if !u.delete_settings {
+                        theme::small(ui, "Your settings and logs are still there, in case you install it again.");
+                    }
+                    ui.add_space(6.0);
+                    if theme::primary(ui, "Close").clicked() {
+                        crate::logger::end_session();
+                        std::process::exit(0);
+                    }
+                    return;
                 }
-                let menu = crate::uninstall::menu_files();
-                if !menu.is_empty() {
-                    theme::inset(ui, |ui| {
-                        ui.label("The app menu entry and its icon");
+                ui.label("Removes the program, its app menu entry and its icon. OBS, your games and their settings are never touched.");
+                ui.add_space(4.0);
+                ui.checkbox(&mut u.delete_settings, "Also delete my settings and logs");
+                if u.delete_settings {
+                    for (what, path) in crate::uninstall::own_folders() {
                         theme::small(
                             ui,
-                            format!(
-                                "{} files in {}",
-                                menu.len(),
-                                crate::util::scrub(
-                                    "~/.local/share/applications and ~/.local/share/icons"
-                                )
-                            ),
+                            format!("{what}: {}", crate::util::scrub(&path.to_string_lossy())),
                         );
-                    });
+                    }
                 }
                 if let Some(exe) = crate::uninstall::program_file() {
-                    ui.checkbox(&mut program, "Also delete the Preflight program file");
+                    ui.checkbox(&mut u.program, "Delete the program file");
                     theme::small(ui, crate::util::scrub(&exe.to_string_lossy()));
                 }
-                if !recs.is_empty() {
+                if !u.recs.is_empty() {
                     ui.add_space(6.0);
-                    ui.label(
-                        RichText::new(
-                            "Test recordings still saved (only the ticked ones are deleted):",
-                        )
-                        .strong(),
-                    );
-                    for (path, size, del) in recs.iter_mut() {
+                    ui.label(RichText::new("Test recordings Preflight made (only ticked ones are deleted):").strong());
+                    for (path, size, del) in u.recs.iter_mut() {
                         let name = std::path::Path::new(path)
                             .file_name()
                             .map(|n| n.to_string_lossy().to_string())
@@ -59,99 +93,90 @@ impl App {
                         ui.checkbox(del, format!("{name} · {}", crate::util::fmt_bytes(*size)));
                     }
                 }
-                ui.add_space(6.0);
-                theme::small(
-                    ui,
-                    "OBS, your games, their settings and everything else stay exactly as they are.",
-                );
-                if let Some(e) = &error {
-                    ui.label(
-                        RichText::new(format!("Some files couldn't be removed: {e}")).color(BAD),
-                    );
+                if let Some(e) = &u.error {
+                    ui.label(RichText::new(format!("Some files couldn't be removed: {e}")).color(pal().bad));
                 }
-                ui.add_space(6.0);
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("  Remove and close  ").color(BG).strong(),
-                            )
-                            .fill(BAD),
-                        )
-                        .clicked()
-                    {
-                        go = true;
-                    }
                     if theme::secondary(ui, "Cancel").clicked() {
                         keep = false;
+                    }
+                    if theme::danger(ui, "Uninstall").clicked() {
+                        go = true;
                     }
                 });
             });
         if go {
-            let chosen: Vec<std::path::PathBuf> = recs
+            let chosen: Vec<std::path::PathBuf> = u
+                .recs
                 .iter()
                 .filter(|r| r.2)
                 .map(|r| std::path::PathBuf::from(&r.0))
                 .collect();
-            match crate::uninstall::run(&chosen, program) {
-                Ok(()) => std::process::exit(0),
-                Err(e) => error = Some(e),
+            match crate::uninstall::run_with(&chosen, u.program, u.delete_settings) {
+                Ok(()) => u.done = true,
+                Err(e) => u.error = Some(e),
             }
         }
         if keep {
-            self.uninstall = Some((recs, program, error));
+            self.uninstall = Some(u);
         }
     }
 
     // -----------------------------------------------------------------------
-    // Settings: 3 tabs
+    // Settings, in the same order as the other apps: General · Appearance ·
+    // Updates · Privacy · (Preflight's own) · Advanced · About & uninstall.
 
     pub(super) fn ui_settings(&mut self, ui: &mut Ui, ctx: &egui::Context) {
-        ui.label(theme::caps("Settings", 12.0, ACCENT));
+        ui.label(theme::caps("Settings", 12.0, pal().accent));
         let tabs = [
             "General",
+            "Appearance",
+            "Updates",
+            "Privacy",
             "OBS & PCs",
             "Tray & notifications",
-            "Privacy & data",
-            "Updates & about",
+            "Advanced",
+            "About & uninstall",
         ];
-        let mut tab = self.settings_tab.min(4) as usize;
+        let mut tab = (self.settings_tab as usize).min(tabs.len() - 1);
         ui.label(
-            RichText::new(match tab {
-                0 => "General",
-                1 => "OBS and your PCs",
-                2 => "Tray and notifications",
-                3 => "Privacy and data",
-                _ => "Updates and about",
+            RichText::new(match tab as u8 {
+                TAB_GENERAL => "General",
+                TAB_APPEARANCE => "Appearance",
+                TAB_UPDATES => "Updates",
+                TAB_PRIVACY => "Privacy and data",
+                TAB_OBS => "OBS and your PCs",
+                TAB_TRAY => "Tray and notifications",
+                TAB_ADVANCED => "Advanced",
+                _ => "About and uninstall",
             })
-            .size(30.0)
+            .size(22.0)
+            .family(theme::title_family())
             .strong(),
         );
         ui.add_space(6.0);
         egui::Frame::NONE
-            .fill(CARD)
-            .stroke(egui::Stroke::new(1.0, BORDER))
+            .fill(pal().card)
+            .stroke(egui::Stroke::new(1.0, pal().border))
             .corner_radius(egui::CornerRadius::same(12))
             .inner_margin(egui::Margin::same(4))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     for (i, t) in tabs.iter().enumerate() {
                         let on = tab == i;
                         let b = egui::Button::new(RichText::new(*t).color(if on {
-                            TEXT
+                            pal().text
                         } else {
-                            TEXT_SOFT
+                            pal().text_soft
                         }))
                         .fill(if on {
-                            Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 40)
+                            alpha(pal().accent, 40)
                         } else {
                             Color32::TRANSPARENT
                         })
                         .stroke(if on {
-                            egui::Stroke::new(
-                                1.0,
-                                Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 120),
-                            )
+                            egui::Stroke::new(1.0, alpha(pal().accent, 120))
                         } else {
                             egui::Stroke::NONE
                         })
@@ -163,11 +188,12 @@ impl App {
                 });
             });
         self.settings_tab = tab as u8;
+        let tab = tab as u8;
         ui.add_space(12.0);
         let mut save = false;
         let mut recompute = false;
         let mut act: Option<NextAct> = None;
-        if tab == 0 {
+        if tab == TAB_GENERAL {
             theme::card(ui, |ui| {
                 ui.label(RichText::new("Style for new games").size(16.0).strong());
                 theme::small(
@@ -196,7 +222,7 @@ impl App {
             });
             ui.add_space(10.0);
         }
-        if tab == 0 {
+        if tab == TAB_GENERAL {
             theme::card(ui, |ui| {
                 ui.label(RichText::new("Monitor you play on").size(16.0).strong());
                 if self.monitor_picker(ui) {
@@ -205,12 +231,12 @@ impl App {
             });
             ui.add_space(10.0);
         }
-        if tab == 2 {
+        if tab == TAB_TRAY {
             theme::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("System tray").size(16.0).strong());
                     if self.tray.is_none() {
-                        ui.label(RichText::new("No tray found on this desktop").color(MUTED));
+                        ui.label(RichText::new("No tray found on this desktop").color(pal().muted));
                     }
                 });
                 save |= ui
@@ -263,7 +289,7 @@ impl App {
                 }
                 theme::small(
                     ui,
-                    "Tray colours: grey OBS not connected · green ready · amber things to fix · teal testing · red live · white dot when Preflight needs you.",
+                    "Tray icon: grey when OBS isn't connected · plain when ready · lime while testing or live · amber dot when something needs you · red dot when something is wrong.",
                 );
             });
             ui.add_space(10.0);
@@ -305,7 +331,7 @@ impl App {
             });
             ui.add_space(10.0);
         }
-        if tab == 1 {
+        if tab == TAB_OBS {
             theme::card(ui, |ui| {
                 ui.label(RichText::new("Where do you stream?").size(16.0).strong());
                 theme::small(ui, "Tick every platform you stream to at the same time.");
@@ -393,7 +419,7 @@ impl App {
             });
             ui.add_space(10.0);
         }
-        if tab == 1 {
+        if tab == TAB_OBS {
             theme::card(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("OBS connection").size(16.0).strong());
@@ -425,7 +451,7 @@ impl App {
                     );
                 } else if let Some(e) = self.obs_error.clone() {
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(&e).color(WARN));
+                        ui.label(RichText::new(&e).color(pal().warn));
                         if let Some((l, a)) = err_action(&e)
                             && a != NextAct::ObsSettings
                             && ui.small_button(l).clicked()
@@ -484,7 +510,7 @@ impl App {
         }
         ui.add_space(10.0);
         {
-            if tab == 0 {
+            if tab == TAB_GENERAL {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("You chose to keep").size(16.0).strong());
                     theme::small(
@@ -561,11 +587,11 @@ impl App {
                 });
                 ui.add_space(10.0);
             }
-            if tab == 1 {
+            if tab == TAB_OBS {
                 self.ui_pcs_card(ui, ctx);
                 ui.add_space(10.0);
             }
-            if tab == 1 {
+            if tab == TAB_OBS {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("OBS address").size(16.0).strong());
                     theme::small(
@@ -599,7 +625,42 @@ impl App {
                 });
                 ui.add_space(10.0);
             }
-            if tab == 0 {
+            if tab == TAB_APPEARANCE {
+                theme::card(ui, |ui| {
+                    ui.label(RichText::new("Theme").size(16.0).strong());
+                    ui.horizontal(|ui| {
+                        let mut t = self.st.theme;
+                        ui.selectable_value(&mut t, theme::ThemeChoice::System, "System");
+                        ui.selectable_value(&mut t, theme::ThemeChoice::Dark, "Dark");
+                        ui.selectable_value(&mut t, theme::ThemeChoice::Light, "Light");
+                        if t != self.st.theme {
+                            self.st.theme = t;
+                            theme::set_choice(ctx, t, self.st.reduce_motion);
+                            save = true;
+                        }
+                    });
+                    theme::small(ui, "System follows your desktop's light or dark setting.");
+                    let mut changed = ui
+                        .checkbox(&mut self.st.backdrop_grid, "Background grid")
+                        .changed();
+                    changed |= ui
+                        .checkbox(
+                            &mut self.st.reduce_motion,
+                            "Reduce motion (no animations, plain background)",
+                        )
+                        .changed();
+                    if changed {
+                        theme::set_choice(ctx, self.st.theme, self.st.reduce_motion);
+                        theme::GRID.store(
+                            self.st.backdrop_grid && !self.st.reduce_motion,
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                        save = true;
+                    }
+                });
+                ui.add_space(10.0);
+            }
+            if tab == TAB_APPEARANCE {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Display").size(16.0).strong());
                     save |= ui
@@ -628,7 +689,7 @@ impl App {
                     });
                 });
             }
-            if tab == 0 {
+            if tab == TAB_GENERAL {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Games").size(16.0).strong());
                     theme::small(
@@ -670,11 +731,11 @@ impl App {
                             });
                             theme::muted(ui, &d);
                             if let Some(n) = &g.platform_note {
-                                ui.label(RichText::new(n).size(13.0).color(WARN));
+                                ui.label(RichText::new(n).size(12.0).color(pal().warn));
                             }
                             if g.relevant() {
                                 egui::CollapsingHeader::new(
-                                    RichText::new("Where Preflight looked").size(13.0),
+                                    RichText::new("Where Preflight looked").size(12.0),
                                 )
                                 .id_salt(format!("where-{}", g.id))
                                 .show(ui, |ui| {
@@ -710,7 +771,7 @@ impl App {
                     }
                 });
             }
-            if tab == 4 {
+            if tab == TAB_UPDATES {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Updates").size(16.0).strong());
                     ui.label(format!(
@@ -726,15 +787,19 @@ impl App {
                         ui,
                         "Reads GitHub's public list of releases for Matt-B-007/Stream-Preflight; nothing about you or your PC is sent. An update is only installed when it's signed by the maintainer and passes its own self-test.",
                     );
-                    if ui
-                        .checkbox(&mut self.st.updates_beta, "Include beta versions")
-                        .changed()
-                    {
-                        self.st.updates_beta_set = true;
-                        save = true;
-                        self.update_result = None;
-                        self.st.last_update_check = 0;
-                    }
+                    ui.horizontal(|ui| {
+                        ui.label("Get updates from:");
+                        let mut beta = self.st.updates_beta;
+                        ui.selectable_value(&mut beta, false, "Stable");
+                        ui.selectable_value(&mut beta, true, "Beta");
+                        if beta != self.st.updates_beta {
+                            self.st.updates_beta = beta;
+                            self.st.updates_beta_set = true;
+                            save = true;
+                            self.update_result = None;
+                            self.st.last_update_check = 0;
+                        }
+                    });
                     theme::small(
                         ui,
                         "Betas get new features first and may have rough edges. They're named after the next version, like v0.1.0-beta.4 before v0.1.0.",
@@ -742,9 +807,9 @@ impl App {
                     if crate::update::is_beta_version(crate::util::VERSION) && !self.st.updates_beta
                     {
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("You're on a beta.").color(TEXT_SOFT));
+                            ui.label(RichText::new("You're on a beta.").color(pal().text_soft));
                             if self.stable_confirm {
-                                ui.label(RichText::new("Install the latest stable version? It may be older than this beta; your settings stay.").color(WARN));
+                                ui.label(RichText::new("Install the latest stable version? It may be older than this beta; your settings stay.").color(pal().warn));
                                 if outlined(ui, "Yes, switch").clicked() {
                                     self.stable_confirm = false;
                                     let (tx, rx) = channel();
@@ -769,13 +834,20 @@ impl App {
                         }
                     }
                     let busy = self.update_rx.is_some();
-                    if ui
-                        .add_enabled(
-                            !busy,
-                            egui::Button::new(if busy { "Checking…" } else { "Check now" }),
-                        )
-                        .clicked()
-                    {
+                    let mut check = false;
+                    ui.horizontal(|ui| {
+                        check = ui
+                            .add_enabled(
+                                !busy,
+                                egui::Button::new(if busy { "Checking…" } else { "Check now" }),
+                            )
+                            .clicked();
+                        theme::small(
+                            ui,
+                            last_checked(self.st.last_update_check, crate::util::unix_now()),
+                        );
+                    });
+                    if check {
                         let (tx, rx) = channel();
                         let beta = self.st.updates_beta;
                         std::thread::spawn(move || {
@@ -793,7 +865,7 @@ impl App {
                                     u.latest,
                                     if u.prerelease { " (beta)" } else { "" }
                                 ))
-                                .color(ACCENT)
+                                .color(pal().accent)
                                 .strong(),
                             );
                             if !u.notes.trim().is_empty() {
@@ -816,7 +888,7 @@ impl App {
                                             "v{} is installed. Restart Preflight to use it.",
                                             u.latest
                                         ))
-                                        .color(GOOD),
+                                        .color(pal().success),
                                     );
                                     if outlined(ui, "Restart now").clicked() {
                                         let p = p.clone();
@@ -827,7 +899,7 @@ impl App {
                                     }
                                 }
                                 (None, Some(Err(e))) => {
-                                    ui.label(RichText::new(e).color(BAD));
+                                    ui.label(RichText::new(e).color(pal().bad));
                                     ui.hyperlink_to("What's new", &u.url);
                                 }
                                 (None, None) => {
@@ -845,11 +917,11 @@ impl App {
                         Some(Ok(u)) => {
                             let older = matches!((semver::Version::parse(&u.latest), semver::Version::parse(&u.current)), (Ok(l), Ok(c)) if l < c);
                             if older {
-                                ui.label(RichText::new(format!("No newer stable version yet. You're on v{}; the latest stable is v{}.", u.current, u.latest)).color(TEXT_SOFT));
+                                ui.label(RichText::new(format!("No newer stable version yet. You're on v{}; the latest stable is v{}.", u.current, u.latest)).color(pal().text_soft));
                             } else {
                                 ui.label(
                                     RichText::new(format!("You're up to date (v{}).", u.current))
-                                        .color(GOOD),
+                                        .color(pal().success),
                                 );
                             }
                         }
@@ -877,7 +949,7 @@ impl App {
                             RichText::new(format!(
                                 "v{v} is back in place. Restart Preflight to use it."
                             ))
-                            .color(GOOD),
+                            .color(pal().success),
                         );
                         if outlined(ui, "Restart now").clicked() {
                             let p = p.clone();
@@ -888,13 +960,13 @@ impl App {
                         }
                     } else {
                         if let Some(Err(e)) = &self.rollback_done {
-                            ui.label(RichText::new(e).color(BAD));
+                            ui.label(RichText::new(e).color(pal().bad));
                         }
                         match self.prev_version.clone() {
                             Some(pv) => {
                                 ui.horizontal_wrapped(|ui| {
                                     if self.rollback_confirm {
-                                        ui.label(RichText::new(format!("Go back to v{pv}? Your settings stay, and you can return to v{} the same way.", crate::util::VERSION)).color(WARN));
+                                        ui.label(RichText::new(format!("Go back to v{pv}? Your settings stay, and you can return to v{} the same way.", crate::util::VERSION)).color(pal().warn));
                                         if outlined(ui, "Yes, go back").clicked() {
                                             self.rollback_confirm = false;
                                             let (tx, rx) = channel();
@@ -921,7 +993,7 @@ impl App {
                                         RichText::new("stream-preflight --rollback")
                                             .monospace()
                                             .size(12.0)
-                                            .color(TEXT_SOFT),
+                                            .color(pal().text_soft),
                                     );
                                 });
                             }
@@ -934,7 +1006,7 @@ impl App {
                 });
                 ui.add_space(10.0);
             }
-            if tab == 2 {
+            if tab == TAB_TRAY {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Notifications").size(16.0).strong());
                     save |= ui
@@ -952,7 +1024,7 @@ impl App {
                 });
                 ui.add_space(10.0);
             }
-            if tab == 3 {
+            if tab == TAB_PRIVACY {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Privacy and data").size(16.0).strong());
                     theme::muted(
@@ -1002,7 +1074,7 @@ impl App {
                                 ("Past streams", d.streams.clone(), "Post-flight summaries"),
                             ] {
                                 let (n, b) = size_of(&dir);
-                                ui.label(RichText::new(name).color(TEXT_SOFT));
+                                ui.label(RichText::new(name).color(pal().text_soft));
                                 ui.label(format!(
                                     "{n} file{} · {}",
                                     if n == 1 { "" } else { "s" },
@@ -1052,7 +1124,7 @@ impl App {
                                     "{name} · {}",
                                     crate::util::fmt_bytes(r.size)
                                 ))
-                                .color(TEXT_SOFT),
+                                .color(pal().text_soft),
                             );
                             if ui.small_button("Delete").clicked() {
                                 del.push(r.path.clone());
@@ -1090,18 +1162,21 @@ impl App {
                                 RichText::new(
                                     "Clear all history, past streams and preview frames?",
                                 )
-                                .color(WARN),
+                                .color(pal().warn),
                             );
                             if ui.button("Yes, clear it").clicked() {
+                                let d = crate::util::dirs();
+                                let stash = undo::stash(
+                                    &crate::history::History::files(),
+                                    &[&d.streams, &d.previews],
+                                );
                                 self.history.clear();
-                                for d in
-                                    [&crate::util::dirs().streams, &crate::util::dirs().previews]
-                                {
-                                    if let Ok(rd) = std::fs::read_dir(d) {
-                                        for e in rd.flatten() {
-                                            let _ = std::fs::remove_file(e.path());
-                                        }
-                                    }
+                                if let Some(stash) = stash {
+                                    self.toast_undo(
+                                        ctx,
+                                        "History cleared",
+                                        undo::Undo::History { stash },
+                                    );
                                 }
                                 self.streams.clear();
                                 self.preview = None;
@@ -1113,16 +1188,20 @@ impl App {
                             }
                         }
                         if theme::secondary(ui, "Forget OBS password").clicked() {
+                            let undo = undo::Undo::Password {
+                                pw: std::mem::take(&mut self.password),
+                                remembered: self.st.obs_remember_password,
+                            };
                             crate::config::forget_secret();
-                            self.password.clear();
                             self.st.obs_remember_password = false;
                             save = true;
+                            self.toast_undo(ctx, "OBS password forgotten", undo);
                         }
                     });
                 });
                 ui.add_space(10.0);
             }
-            if tab == 4 {
+            if tab == TAB_ADVANCED {
                 theme::card(ui, |ui| {
                     ui.label(RichText::new("Install").size(16.0).strong());
                     let target = crate::install::target()
@@ -1130,7 +1209,8 @@ impl App {
                         .unwrap_or_default();
                     if crate::install::is_installed() {
                         ui.label(
-                            RichText::new(format!("Installed for you at {target}.")).color(GOOD),
+                            RichText::new(format!("Installed for you at {target}."))
+                                .color(pal().success),
                         );
                         theme::small(
                             ui,
@@ -1158,7 +1238,7 @@ impl App {
                         }
                         match &self.install_result {
                             Some(Ok(p)) => {
-                                ui.label(RichText::new("Installed.").color(GOOD));
+                                ui.label(RichText::new("Installed.").color(pal().success));
                                 if outlined(ui, "Open the installed copy").clicked() {
                                     let p = p.clone();
                                     if crate::install::launch(&p) {
@@ -1168,7 +1248,7 @@ impl App {
                                 }
                             }
                             Some(Err(e)) => {
-                                ui.label(RichText::new(e).color(BAD));
+                                ui.label(RichText::new(e).color(pal().bad));
                             }
                             None => {
                                 if outlined(ui, "Install for this user").clicked() {
@@ -1181,26 +1261,23 @@ impl App {
                 });
                 ui.add_space(10.0);
             }
-            if tab == 3 {
-                theme::card(ui, |ui| {
+            if tab == TAB_ABOUT {
+                self.ui_about_card(ui, ctx);
+                ui.add_space(10.0);
+                // The red Uninstall box is always last.
+                theme::danger_card(ui, |ui| {
                     ui.label(
-                        RichText::new("Remove Preflight from this PC")
+                        RichText::new("Uninstall")
                             .size(16.0)
-                            .strong(),
+                            .strong()
+                            .color(pal().bad),
                     );
                     theme::small(
                         ui,
-                        "Deletes Preflight's own settings, saved password, history, logs and reports, and the program file if you want. Shows you the list first. Never touches OBS or your games.",
+                        "Removes the program and its app menu entry. You choose whether your settings and logs go too. Never touches OBS or your games.",
                     );
-                    if theme::secondary(ui, "Remove Preflight…").clicked() {
-                        let recs = self
-                            .st
-                            .pending_recordings
-                            .iter()
-                            .filter(|r| std::path::Path::new(&r.path).exists())
-                            .map(|r| (r.path.clone(), r.size, false))
-                            .collect();
-                        self.uninstall = Some((recs, true, None));
+                    if theme::danger(ui, "Uninstall…").clicked() {
+                        self.open_uninstall_box();
                     }
                 });
             }
@@ -1214,5 +1291,54 @@ impl App {
         if let Some(a) = act {
             self.do_act(ctx, a);
         }
+    }
+
+    /// About: version, licence, links, and where Preflight keeps its files.
+    pub(super) fn ui_about_card(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+        theme::card(ui, |ui| {
+            ui.label(RichText::new("About").size(16.0).strong());
+            ui.label(format!(
+                "{} v{} · {}",
+                crate::util::APP_NAME,
+                crate::util::VERSION,
+                crate::util::BUILD_LABEL
+            ));
+            theme::small(
+                ui,
+                "Free software under the GNU General Public License, version 3 or later. It comes with no warranty.",
+            );
+            ui.horizontal_wrapped(|ui| {
+                for (label, url) in [
+                    (
+                        "Project page",
+                        "https://github.com/Matt-B-007/Stream-Preflight",
+                    ),
+                    (
+                        "Changelog",
+                        "https://github.com/Matt-B-007/Stream-Preflight/blob/main/CHANGELOG.md",
+                    ),
+                    (
+                        "Licence",
+                        "https://github.com/Matt-B-007/Stream-Preflight/blob/main/LICENSE",
+                    ),
+                ] {
+                    if ui.link(label).clicked() {
+                        ctx.open_url(egui::OpenUrl::new_tab(url));
+                    }
+                }
+            });
+            ui.add_space(4.0);
+            let d = crate::util::dirs();
+            for (what, p) in [
+                ("Settings", &d.config),
+                ("Data", &d.data),
+                ("Logs", &d.logs),
+            ] {
+                theme::small(
+                    ui,
+                    format!("{what}: {}", crate::util::scrub(&p.to_string_lossy())),
+                );
+            }
+        });
     }
 }

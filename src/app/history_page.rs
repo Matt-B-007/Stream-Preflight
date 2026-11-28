@@ -8,7 +8,11 @@ impl App {
     // History
 
     pub(super) fn ui_history(&mut self, ui: &mut Ui) {
-        ui.label(theme::caps("History · after you stream", 12.0, ACCENT));
+        ui.label(theme::caps(
+            "History · after you stream",
+            12.0,
+            pal().accent,
+        ));
         theme::title(ui, "All tests and changes");
         theme::subtitle(ui, "What you changed, and what it did.");
         ui.add_space(6.0);
@@ -58,7 +62,7 @@ impl App {
         }
         evs.sort_by_key(|e| -e.0);
         theme::card(ui, |ui| {
-            ui.label(RichText::new("What changed").size(18.0).strong());
+            ui.label(RichText::new("What changed").size(16.0).strong());
             if evs.is_empty() {
                 theme::muted(
                     ui,
@@ -71,9 +75,9 @@ impl App {
                         ui.label(
                             RichText::new(history::fmt_time(t.time))
                                 .monospace()
-                                .color(MUTED),
+                                .color(pal().muted),
                         );
-                        theme::pill(ui, INFO, RAISED, "Test");
+                        theme::pill(ui, pal().info, pal().control, "Test");
                         let delta = prev
                             .map(|p| {
                                 let d = t.score as i32 - p as i32;
@@ -107,13 +111,13 @@ impl App {
                         if let Some(sk) = t.skipped_pct {
                             bits.push(format!("skipped frames {sk:.2}%"));
                         }
-                        ui.label(RichText::new(bits.join(" · ")).color(TEXT_SOFT));
+                        ui.label(RichText::new(bits.join(" · ")).color(pal().text_soft));
                     }
                     Ev::Change(c) => {
                         ui.label(
                             RichText::new(history::fmt_time(c.time))
                                 .monospace()
-                                .color(MUTED),
+                                .color(pal().muted),
                         );
                         tag_pill(ui, analysis::Tag::Change);
                         ui.label(&c.text);
@@ -122,9 +126,9 @@ impl App {
                         ui.label(
                             RichText::new(history::fmt_time(*t))
                                 .monospace()
-                                .color(MUTED),
+                                .color(pal().muted),
                         );
-                        theme::pill(ui, GOOD, GOOD_BG, "Stream");
+                        theme::pill(ui, pal().success, pal().success_bg, "Stream");
                         ui.label(text);
                     }
                 });
@@ -138,7 +142,7 @@ impl App {
             if scores.is_empty() {
                 theme::muted(ui, "No scans yet.");
             } else {
-                theme::spark_bars(ui, &scores, 100.0, ACCENT, 80.0);
+                theme::spark_bars(ui, &scores, 100.0, pal().accent, 80.0);
                 theme::small(ui, format!("{} scans and tests", scores.len()));
             }
         });
@@ -150,9 +154,9 @@ impl App {
                 theme::muted(ui, "Scan at different times to see patterns, like your internet slowing down in the evening.");
             } else {
                 egui::Grid::new("hours").num_columns(3).spacing([24.0, 4.0]).show(ui, |ui| {
-                    ui.label(RichText::new("Hour").color(MUTED));
-                    ui.label(RichText::new("Slowest upload (average)").color(MUTED));
-                    ui.label(RichText::new("Scans").color(MUTED));
+                    ui.label(RichText::new("Hour").color(pal().muted));
+                    ui.label(RichText::new("Slowest upload (average)").color(pal().muted));
+                    ui.label(RichText::new("Scans").color(pal().muted));
                     ui.end_row();
                     for (h, v, n) in hours {
                         ui.label(format!("{h:02}:00"));
@@ -176,7 +180,7 @@ impl App {
                     for (k, o) in m {
                         ui.label(k);
                         ui.label(format!("was {}", o.first_value));
-                        ui.label(RichText::new(format!("now {}", o.last_value)).color(if o.first_value != o.last_value { ACCENT } else { MUTED }));
+                        ui.label(RichText::new(format!("now {}", o.last_value)).color(if o.first_value != o.last_value { pal().accent } else { pal().muted }));
                         ui.end_row();
                     }
                 });
@@ -221,8 +225,8 @@ impl App {
     pub(super) fn history_switch(&mut self, ui: &mut Ui) {
         let mut pick: Option<Screen> = None;
         egui::Frame::NONE
-            .fill(CARD)
-            .stroke(egui::Stroke::new(1.0, BORDER))
+            .fill(pal().card)
+            .stroke(egui::Stroke::new(1.0, pal().border))
             .corner_radius(egui::CornerRadius::same(12))
             .inner_margin(egui::Margin::same(4))
             .show(ui, |ui| {
@@ -233,20 +237,17 @@ impl App {
                     ] {
                         let on = self.screen == sc;
                         let b = egui::Button::new(RichText::new(t).color(if on {
-                            TEXT
+                            pal().text
                         } else {
-                            TEXT_SOFT
+                            pal().text_soft
                         }))
                         .fill(if on {
-                            Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 40)
+                            alpha(pal().accent, 40)
                         } else {
                             Color32::TRANSPARENT
                         })
                         .stroke(if on {
-                            egui::Stroke::new(
-                                1.0,
-                                Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 120),
-                            )
+                            egui::Stroke::new(1.0, alpha(pal().accent, 120))
                         } else {
                             egui::Stroke::NONE
                         })
@@ -265,7 +266,11 @@ impl App {
     }
 
     pub(super) fn ui_postflight(&mut self, ui: &mut Ui) {
-        ui.label(theme::caps("History · after you stream", 12.0, ACCENT));
+        ui.label(theme::caps(
+            "History · after you stream",
+            12.0,
+            pal().accent,
+        ));
         theme::title(ui, "Last stream");
         theme::subtitle(
             ui,
@@ -280,9 +285,9 @@ impl App {
                         "Live now · {}",
                         crate::streamwatch::fmt_t(l.elapsed)
                     ))
-                    .size(21.0)
+                    .size(16.0)
                     .strong()
-                    .color(GOOD),
+                    .color(pal().success),
                 );
                 ui.label(format!(
                     "{:.2}% of frames dropped so far{}.",
@@ -301,7 +306,7 @@ impl App {
         if self.streams.is_empty() {
             if self.live.is_none() {
                 theme::card(ui, |ui| {
-                    ui.label(RichText::new("No streams yet").size(18.0).strong());
+                    ui.label(RichText::new("No streams yet").size(16.0).strong());
                     theme::muted(
                         ui,
                         "Leave Preflight running while you stream (in the tray is fine). It watches OBS's stream stats without changing anything, and when you end the stream you'll get:",
@@ -328,7 +333,8 @@ impl App {
                 ui.vertical(|ui| {
                     ui.label(
                         RichText::new(&p.grade)
-                            .size(30.0)
+                            .size(22.0)
+                            .family(theme::title_family())
                             .strong()
                             .color(grade_color(p.grade_level)),
                     );
@@ -347,7 +353,7 @@ impl App {
                                 format!(" · {} with {}", l.output, l.encoder)
                             }
                         ))
-                        .color(TEXT_SOFT),
+                        .color(pal().text_soft),
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
@@ -357,13 +363,13 @@ impl App {
                 });
             });
             if let Some(n) = &l.partial {
-                ui.label(RichText::new(n).size(13.0).color(WARN));
+                ui.label(RichText::new(n).size(12.0).color(pal().warn));
             }
             if l.bandwidth_test {
                 ui.label(
                     RichText::new("Twitch bandwidth test: nobody could see this stream.")
-                        .size(13.0)
-                        .color(INFO),
+                        .size(12.0)
+                        .color(pal().info),
                 );
             }
         });
@@ -371,7 +377,7 @@ impl App {
         theme::card(ui, |ui| {
             ui.label(
                 RichText::new("What to change next time")
-                    .size(17.0)
+                    .size(16.0)
                     .strong(),
             );
             if p.advice.is_empty() {
@@ -384,7 +390,7 @@ impl App {
                         ui.label(RichText::new(&a.title).strong());
                     });
                     theme::muted(ui, &a.why);
-                    ui.label(RichText::new(&a.menu).size(12.5).color(MUTED));
+                    ui.label(RichText::new(&a.menu).size(12.0).color(pal().muted));
                 });
                 ui.add_space(4.0);
             }
@@ -470,7 +476,7 @@ impl App {
                 .target_kbps
                 .map(|b| b as f32 * 1.3)
                 .unwrap_or_else(|| p.kbps_series.iter().cloned().fold(1.0, f32::max));
-            theme::spark_bars(ui, &p.kbps_series, max, ACCENT, 60.0);
+            theme::spark_bars(ui, &p.kbps_series, max, pal().accent, 60.0);
             theme::small(
                 ui,
                 format!(
@@ -497,7 +503,7 @@ impl App {
         });
         ui.add_space(10.0);
         theme::card(ui, |ui| {
-            ui.label(RichText::new("Worst moments").size(17.0).strong());
+            ui.label(RichText::new("Worst moments").size(16.0).strong());
             if p.moments.is_empty() {
                 theme::muted(ui, "No rough moments. Nice.");
             }
@@ -512,7 +518,7 @@ impl App {
                     } else {
                         crate::streamwatch::fmt_t(m.t)
                     };
-                    ui.label(RichText::new(when).monospace().color(ACCENT));
+                    ui.label(RichText::new(when).monospace().color(pal().accent));
                     ui.label(&m.text);
                 });
             }
@@ -525,7 +531,7 @@ impl App {
         if self.streams.len() > 1 {
             ui.add_space(10.0);
             theme::card(ui, |ui| {
-                ui.label(RichText::new("Past streams").size(17.0).strong());
+                ui.label(RichText::new("Past streams").size(16.0).strong());
                 let mut pick = None;
                 for (i, s) in self.streams.iter().enumerate().take(20) {
                     let sp = crate::streamwatch::summarize(s);

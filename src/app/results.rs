@@ -31,7 +31,11 @@ pub(super) fn setup_table(
         ui,
         title,
         &sub,
-        if changes > 0 { WARN } else { GOOD },
+        if changes > 0 {
+            pal().warn
+        } else {
+            pal().success
+        },
         open_default,
         |ui| {
             if let Some(n) = note {
@@ -59,7 +63,7 @@ pub(super) fn setup_table(
                         egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true),
                         |ui| {
                             ui.set_width(name_w);
-                            ui.label(RichText::new(&r.setting).color(MUTED))
+                            ui.label(RichText::new(&r.setting).color(pal().muted))
                                 .on_hover_text(&r.why);
                         },
                     );
@@ -79,8 +83,12 @@ pub(super) fn setup_table(
                             if let Some(id) = &r.issue_id {
                                 match r.tag {
                                     Tag::Change | Tag::Optional if fixed.contains(id) => {
-                                        ui.label(RichText::new("Changed").size(13.0).color(GOOD))
-                                            .on_hover_text("Check my changes confirms it.");
+                                        ui.label(
+                                            RichText::new("Changed")
+                                                .size(12.0)
+                                                .color(pal().success),
+                                        )
+                                        .on_hover_text("Check my changes confirms it.");
                                     }
                                     Tag::Change | Tag::Optional => {
                                         if outlined(ui, "Fix this").clicked() {
@@ -96,11 +104,11 @@ pub(super) fn setup_table(
                                 }
                             }
                             let (txt, col) = match r.tag {
-                                Tag::Keep => ("Good".to_string(), GOOD),
-                                Tag::Change => (r.suggested.clone(), WARN),
-                                Tag::Optional => (format!("Optional: {}", r.suggested), INFO),
-                                Tag::Kept => ("Kept as is".to_string(), MUTED),
-                                Tag::Unknown => (r.suggested.clone(), MUTED),
+                                Tag::Keep => ("Good".to_string(), pal().success),
+                                Tag::Change => (r.suggested.clone(), pal().warn),
+                                Tag::Optional => (format!("Optional: {}", r.suggested), pal().info),
+                                Tag::Kept => ("Kept as is".to_string(), pal().muted),
+                                Tag::Unknown => (r.suggested.clone(), pal().muted),
                             };
                             ui.add(
                                 egui::Label::new(RichText::new(txt).color(col))
@@ -117,8 +125,8 @@ pub(super) fn setup_table(
                         } else {
                             format!("{} · {}", r.why, r.menu)
                         })
-                        .size(12.5)
-                        .color(MUTED),
+                        .size(12.0)
+                        .color(pal().muted),
                     );
                 }
             }
@@ -136,8 +144,8 @@ pub(super) fn setup_section(
     body: impl FnOnce(&mut Ui),
 ) {
     egui::Frame::NONE
-        .fill(CARD)
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .fill(pal().card)
+        .stroke(egui::Stroke::new(1.0, pal().border))
         .corner_radius(egui::CornerRadius::same(14))
         .inner_margin(egui::Margin::symmetric(20, 14))
         .show(ui, |ui| {
@@ -165,9 +173,11 @@ pub(super) fn setup_section(
                         egui::pos2(c.x - 2.5, c.y + 5.0),
                     ]
                 };
-                ui.painter()
-                    .add(egui::Shape::line(pts, egui::Stroke::new(2.0, TEXT_SOFT)));
-                ui.label(RichText::new(title).size(18.0).strong());
+                ui.painter().add(egui::Shape::line(
+                    pts,
+                    egui::Stroke::new(2.0, pal().text_soft),
+                ));
+                ui.label(RichText::new(title).size(16.0).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(RichText::new(sub).color(sub_col));
                 });
@@ -195,7 +205,7 @@ pub(super) fn change_row(ui: &mut Ui, c: &analysis::Change) {
     theme::inset(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(&c.setting).strong());
-            ui.label(RichText::new(&c.menu).size(12.5).color(MUTED));
+            ui.label(RichText::new(&c.menu).size(12.0).color(pal().muted));
         });
         ui.add_space(4.0);
         ui.horizontal(|ui| {
@@ -203,7 +213,7 @@ pub(super) fn change_row(ui: &mut Ui, c: &analysis::Change) {
             let (r, _) = ui.allocate_exact_size(Vec2::new(36.0, 40.0), egui::Sense::hover());
             let y = r.max.y - 18.0;
             let p = ui.painter();
-            let st = egui::Stroke::new(2.0, ACCENT);
+            let st = egui::Stroke::new(2.0, pal().accent);
             p.line_segment(
                 [egui::pos2(r.min.x + 6.0, y), egui::pos2(r.max.x - 6.0, y)],
                 st,
@@ -238,19 +248,29 @@ impl App {
         let mut act: Option<String> = None;
         let mut rescan = false;
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Your setup").size(26.0).strong());
+            ui.label(
+                RichText::new("Your setup")
+                    .size(22.0)
+                    .family(theme::title_family())
+                    .strong(),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if self.scan.is_some() {
                     ui.spinner();
                 } else if ui
-                    .add(egui::Button::new(RichText::new("Read again").color(ACCENT)).frame(false))
+                    .add(
+                        egui::Button::new(RichText::new("Read again").color(pal().accent))
+                            .frame(false),
+                    )
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                 {
                     rescan = true;
                 }
                 if let Some(t) = self.last_scan {
-                    ui.label(RichText::new(format!("Read {}", history::fmt_time(t))).color(MUTED));
+                    ui.label(
+                        RichText::new(format!("Read {}", history::fmt_time(t))).color(pal().muted),
+                    );
                 }
             });
         });
@@ -274,13 +294,13 @@ impl App {
                 } else {
                     "things to change ·"
                 })
-                .color(TEXT_SOFT),
+                .color(pal().text_soft),
             );
             ui.label(RichText::new(good.to_string()).strong());
-            ui.label(RichText::new("look good ·").color(TEXT_SOFT));
+            ui.label(RichText::new("look good ·").color(pal().text_soft));
             ui.label(
                 RichText::new("\"Fix this\" shows you how. Preflight never changes your settings.")
-                    .color(MUTED),
+                    .color(pal().muted),
             );
         });
         if let Some(c) = &self.compare {
@@ -301,7 +321,7 @@ impl App {
                     sk(&c.before),
                     sk(&c.after)
                 ))
-                .color(GOOD),
+                .color(pal().success),
             );
         }
         if self.test.is_none() {
@@ -369,7 +389,11 @@ impl App {
                 ui,
                 "One setup for all your games",
                 &sub,
-                if f.warning.is_some() { WARN } else { MUTED },
+                if f.warning.is_some() {
+                    pal().warn
+                } else {
+                    pal().muted
+                },
                 f.warning.is_some(),
                 |ui| {
                     let names: Vec<String> = f.tested.iter().map(|l| l.game.clone()).collect();
@@ -382,19 +406,20 @@ impl App {
                     if !f.setup.is_empty() {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(
-                                RichText::new("OBS setup that suits all of them:").color(MUTED),
+                                RichText::new("OBS setup that suits all of them:")
+                                    .color(pal().muted),
                             );
                             ui.label(RichText::new(&f.setup).strong());
                             if let Some(h) = &f.heaviest {
                                 ui.label(
                                     RichText::new(format!("(the limit is set by {h})"))
-                                        .color(MUTED),
+                                        .color(pal().muted),
                                 );
                             }
                         });
                     }
                     if let Some(w) = &f.warning {
-                        ui.label(RichText::new(format!("{w} Keep one setup and change the game instead of switching OBS settings per game.")).color(WARN));
+                        ui.label(RichText::new(format!("{w} Keep one setup and change the game instead of switching OBS settings per game.")).color(pal().warn));
                     }
                     for l in &f.tested {
                         ui.horizontal_wrapped(|ui| {
@@ -417,12 +442,12 @@ impl App {
                                         String::new()
                                     },
                                 )
-                                .color(MUTED),
+                                .color(pal().muted),
                             );
                             ui.label(RichText::new(&l.verdict).color(if l.needs_room {
-                                WARN
+                                pal().warn
                             } else {
-                                GOOD
+                                pal().success
                             }));
                         });
                     }
@@ -450,7 +475,7 @@ impl App {
                 ui,
                 "Video encoders",
                 &sub,
-                if busy > 0 { ACCENT } else { MUTED },
+                if busy > 0 { pal().accent } else { pal().muted },
                 false,
                 |ui| {
                     egui::Grid::new("encoders")
@@ -472,9 +497,9 @@ impl App {
                                     ));
                                 });
                                 ui.label(RichText::new(e.use_text()).color(if e.in_use() {
-                                    ACCENT
+                                    pal().accent
                                 } else {
-                                    MUTED
+                                    pal().muted
                                 }));
                                 ui.end_row();
                             }
@@ -499,18 +524,18 @@ impl App {
         }
         theme::inset(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("What viewers will see:").color(MUTED));
+                ui.label(RichText::new("What viewers will see:").color(pal().muted));
                 ui.label(RichText::new(&a.current_output).strong());
                 if a.recommended_output != a.current_output && a.recommended_output != "—" {
                     ui.label(
                         RichText::new(format!("(suggested: {})", a.recommended_output))
-                            .color(ACCENT),
+                            .color(pal().accent),
                     );
                 }
                 if self.obs.as_ref().and_then(|o| o.multitrack) == Some(true) {
                     ui.label(
                         RichText::new("Enhanced Broadcasting picks the versions and bitrates.")
-                            .color(MUTED),
+                            .color(pal().muted),
                     );
                 } else {
                     ui.label(
@@ -519,7 +544,7 @@ impl App {
                             self.st.platform.name(),
                             crate::network::limits(self.st.platform).max_kbps_1080p60
                         ))
-                        .color(MUTED),
+                        .color(pal().muted),
                     );
                 }
             });
@@ -539,7 +564,11 @@ impl App {
             } else {
                 format!("{warn_n} to check")
             },
-            if warn_n == 0 { GOOD } else { WARN },
+            if warn_n == 0 {
+                pal().success
+            } else {
+                pal().warn
+            },
             warn_n > 0,
             |ui| {
                 for (st, label, name, detail) in &items {
@@ -550,7 +579,7 @@ impl App {
                             egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
                                 ui.set_width(170.0);
-                                ui.label(RichText::new(*name).color(MUTED));
+                                ui.label(RichText::new(*name).color(pal().muted));
                             },
                         );
                         ui.label(RichText::new(label).color(theme::status_colors(*st).0));
@@ -566,7 +595,7 @@ impl App {
                             }
                         });
                     });
-                    ui.label(RichText::new(detail).size(13.0).color(TEXT_SOFT));
+                    ui.label(RichText::new(detail).size(12.0).color(pal().text_soft));
                 }
             },
         );
@@ -651,7 +680,7 @@ impl App {
                         "Test measurements · {}",
                         history::fmt_time(t.started_at)
                     ))
-                    .size(21.0)
+                    .size(16.0)
                     .strong(),
                 );
                 let cpu: Vec<f32> = t.samples.iter().map(|s| s.cpu).collect();
@@ -670,7 +699,7 @@ impl App {
                                             t.gpu_max.unwrap_or(0.0)
                                         ))
                                         .monospace()
-                                        .color(TEXT_SOFT),
+                                        .color(pal().text_soft),
                                     );
                                 },
                             );
@@ -680,9 +709,9 @@ impl App {
                             &gpu,
                             100.0,
                             if t.gpu_avg.unwrap_or(0.0) >= 92.0 {
-                                BAD
+                                pal().bad
                             } else {
-                                INFO
+                                pal().info
                             },
                             60.0,
                         );
@@ -699,11 +728,11 @@ impl App {
                                     t.cpu_avg, t.cpu_max
                                 ))
                                 .monospace()
-                                .color(TEXT_SOFT),
+                                .color(pal().text_soft),
                             );
                         });
                     });
-                    theme::spark_bars(ui, &cpu, 100.0, ACCENT, 60.0);
+                    theme::spark_bars(ui, &cpu, 100.0, pal().accent, 60.0);
                 });
                 ui.add_space(6.0);
                 theme::card(ui, |ui| {
@@ -712,7 +741,7 @@ impl App {
                         .spacing([24.0, 6.0])
                         .show(ui, |ui| {
                             let row = |ui: &mut Ui, k: &str, v: String| {
-                                ui.label(RichText::new(k).color(MUTED));
+                                ui.label(RichText::new(k).color(pal().muted));
                                 ui.label(v);
                                 ui.end_row();
                             };

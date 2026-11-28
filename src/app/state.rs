@@ -122,12 +122,23 @@ pub(super) fn poll_signature(
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, menu_added: bool, open_uninstall: bool) -> Self {
         theme::apply(&cc.egui_ctx);
+        // No settings file yet means a new install: the tour starts after setup.
+        let new_install = !Settings::path().exists();
         let mut st = Settings::load();
+        if new_install {
+            st.tour_pending = true;
+        }
+        undo::clean_leftovers(&mut st);
         // A beta build looks for betas until the user decides otherwise.
         if crate::update::is_beta_version(crate::util::VERSION) && !st.updates_beta_set {
             st.updates_beta = true;
         }
         cc.egui_ctx.set_zoom_factor(st.text_scale);
+        theme::set_choice(&cc.egui_ctx, st.theme, st.reduce_motion);
+        theme::GRID.store(
+            st.backdrop_grid && !st.reduce_motion,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         let password = if st.obs_remember_password {
             crate::config::load_secret().unwrap_or_default()
         } else {
@@ -248,9 +259,17 @@ impl App {
             rollback_rx: None,
             rollback_done: None,
             update_later: false,
+            update_dialog: false,
+            whats_new_open: false,
+            shortcuts_open: false,
+            command_open: false,
+            command_query: String::new(),
+            command_pick: 0,
+            tour: None,
             update_notified: false,
             conn_rx: None,
             toast: None,
+            crash_notice: crate::logger::unclean_last_time(),
             show_recording_popup: show_popup,
             pending_crashes,
             confirm_clear: false,
@@ -278,7 +297,11 @@ impl App {
         app.start_watch(&cc.egui_ctx);
         app.start_scan(cc.egui_ctx.clone(), app.st.setup_done);
         if menu_added {
-            app.toast = Some(("Added Preflight to your app menu".into(), 6.0));
+            app.toast = Some(undo::Toast {
+                msg: "Added Preflight to your app menu".into(),
+                until: 6.0,
+                undo: None,
+            });
         }
         app
     }
@@ -441,7 +464,7 @@ impl App {
         if let Some(g) = t.game_running.clone().or_else(|| t.game_guess.clone())
             && let Ok(j) = serde_json::to_string(t)
         {
-            let _ = std::fs::write(Self::game_test_path(&g), j);
+            let _ = crate::config::write_atomic(&Self::game_test_path(&g), j.as_bytes());
         }
     }
 
@@ -598,7 +621,29 @@ impl App {
     }
 
     pub(super) fn toast(&mut self, ctx: &egui::Context, s: impl Into<String>) {
-        self.toast = Some((s.into(), ctx.input(|i| i.time) + 4.0));
+        self.finish_toast();
+        self.toast = Some(undo::Toast {
+            msg: s.into(),
+            until: ctx.input(|i| i.time) + 4.0,
+            undo: None,
+        });
+    }
+
+    pub(super) fn open_uninstall_box(&mut self) {
+        let recs = self
+            .st
+            .pending_recordings
+            .iter()
+            .filter(|r| std::path::Path::new(&r.path).exists())
+            .map(|r| (r.path.clone(), r.size, false))
+            .collect();
+        self.uninstall = Some(UninstallBox {
+            recs,
+            program: true,
+            delete_settings: false,
+            error: None,
+            done: false,
+        });
     }
 
     pub(super) fn pw(&self) -> Option<String> {
@@ -612,11 +657,15 @@ impl App {
     pub(super) fn open_report(&mut self, context: impl Into<String>) {
         self.report = Some(ReportBox {
             context: context.into(),
+            summary: String::new(),
             note: String::new(),
+            id: crate::util::short_id(),
+            text: String::new(),
+            dirty: true,
             saved: None,
             error: None,
-            show_contents: false,
             copied: false,
+            github_confirm: false,
         });
     }
 
@@ -889,15 +938,8 @@ impl App {
             && let Ok(r) = rx.try_recv()
         {
             self.update_install = None;
-            if let Ok(p) = &r {
-                // Start the new version, then close this one.
-                if crate::install::launch(p) {
-                    log::info!("Restarting into the new version");
-                    self.quitting = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            }
             if r.is_ok() {
+                log::info!("Update installed; waiting for Restart");
                 // The version you had is now kept for Go back.
                 self.prev_version = crate::update::previous_version();
             }
@@ -905,14 +947,7 @@ impl App {
         }
         if self.open_uninstall {
             self.open_uninstall = false;
-            let recs = self
-                .st
-                .pending_recordings
-                .iter()
-                .filter(|r| std::path::Path::new(&r.path).exists())
-                .map(|r| (r.path.clone(), r.size, false))
-                .collect();
-            self.uninstall = Some((recs, true, None));
+            self.open_uninstall_box();
         }
         // Once a day, if allowed: read GitHub's public release list. Nothing about you is sent.
         let now_unix = crate::util::unix_now();
@@ -944,6 +979,10 @@ impl App {
         if let Some(rx) = &self.update_rx
             && let Ok(r) = rx.try_recv()
         {
+            if r.is_ok() {
+                self.st.last_update_check = crate::util::unix_now();
+                self.st.save();
+            }
             self.update_result = Some(r);
             self.update_rx = None;
         }

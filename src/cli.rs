@@ -94,6 +94,30 @@ pub fn self_test_quick(header: bool) -> i32 {
         "App icon",
         "",
     );
+    // Fonts are built in, so text looks the same on every PC.
+    ok &= line(
+        [
+            crate::theme::INTER,
+            crate::theme::JETBRAINS_MONO,
+            crate::theme::SPACE_GROTESK,
+            crate::theme::LUCIDE,
+        ]
+        .iter()
+        .all(|f| f.len() > 1000 && (f.starts_with(&[0, 1, 0, 0]) || f.starts_with(b"OTTO"))),
+        "Built-in fonts",
+        "Inter, JetBrains Mono, Space Grotesk, Lucide",
+    );
+    // Every text colour readable (4.5:1) on every surface, dark and light.
+    let contrast = crate::theme::contrast_problems();
+    ok &= line(
+        contrast.is_empty(),
+        "Colour contrast",
+        &if contrast.is_empty() {
+            "dark and light themes pass".to_string()
+        } else {
+            contrast.join("; ")
+        },
+    );
     // Update keys.
     let keys = crate::update::PUBLIC_KEYS
         .iter()

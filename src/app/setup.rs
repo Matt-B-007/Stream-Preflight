@@ -5,8 +5,11 @@ use super::*;
 
 pub(super) fn choice_tile(ui: &mut Ui, on: bool, title: &str, desc: &str) -> bool {
     egui::Frame::NONE
-        .fill(if on { ACCENT_BG } else { CARD_DARK })
-        .stroke(egui::Stroke::new(2.0, if on { ACCENT } else { BORDER }))
+        .fill(if on { pal().accent_bg } else { pal().inset })
+        .stroke(egui::Stroke::new(
+            2.0,
+            if on { pal().accent } else { pal().border },
+        ))
         .corner_radius(egui::CornerRadius::same(12))
         .inner_margin(egui::Margin::same(14))
         .show(ui, |ui| {
@@ -14,7 +17,7 @@ pub(super) fn choice_tile(ui: &mut Ui, on: bool, title: &str, desc: &str) -> boo
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                 ui.label(RichText::new(title).strong());
                 if !desc.is_empty() {
-                    ui.label(RichText::new(desc).size(13.5).color(MUTED));
+                    ui.label(RichText::new(desc).size(12.0).color(pal().muted));
                 }
             });
         })
@@ -30,24 +33,24 @@ impl App {
         let n = single.unwrap_or(self.setup_screen).clamp(1, 3);
         ui.horizontal(|ui| {
             draw_logo(ui, 34.0);
-            ui.label(theme::caps("Stream Preflight", 16.0, TEXT));
+            ui.label(theme::caps("Stream Preflight", 16.0, pal().text));
             if single.is_some() {
                 return;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 for (i, l) in [(3u8, "How you stream"), (2, "Connect OBS"), (1, "Welcome")] {
                     let col = if n == i {
-                        ACCENT
+                        pal().accent
                     } else if n > i {
-                        theme::TEAL
+                        theme::pal().success
                     } else {
-                        MUTED
+                        pal().muted
                     };
-                    ui.label(
-                        RichText::new(l)
-                            .size(13.0)
-                            .color(if n == i { TEXT } else { MUTED }),
-                    );
+                    ui.label(RichText::new(l).size(12.0).color(if n == i {
+                        pal().text
+                    } else {
+                        pal().muted
+                    }));
                     ui.label(
                         RichText::new(if n > i {
                             "done".to_string()
@@ -58,7 +61,7 @@ impl App {
                         .color(col),
                     );
                     if i > 1 {
-                        ui.label(RichText::new("—").color(MUTED));
+                        ui.label(RichText::new("—").color(pal().muted));
                     }
                 }
             });
@@ -74,16 +77,17 @@ impl App {
                     format!("Step {n} of 3")
                 },
                 12.0,
-                ACCENT,
+                pal().accent,
             ));
             match n {
                 1 => {
                     ui.label(
                         RichText::new("See how your stream will run, before you go live")
-                            .size(30.0)
+                            .size(22.0)
+                            .family(theme::title_family())
                             .strong(),
                     );
-                    ui.label(RichText::new("Play for two minutes while OBS records. Preflight measures your game, OBS and PC, then shows the one thing to change next.").size(16.0).color(TEXT_SOFT));
+                    ui.label(RichText::new("Play for two minutes while OBS records. Preflight measures your game, OBS and PC, then shows the one thing to change next.").size(16.0).color(pal().text_soft));
                     ui.add_space(6.0);
                     ui.horizontal_wrapped(|ui| {
                         for (t, d) in [
@@ -91,11 +95,11 @@ impl App {
                             ("One fix at a time", "Exactly where the setting is, and why."),
                             ("Only reads", "Never changes your settings or controls OBS. Safe with anti-cheat."),
                         ] {
-                            egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(12)).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
+                            egui::Frame::NONE.fill(pal().card).stroke(egui::Stroke::new(1.0, pal().border)).corner_radius(egui::CornerRadius::same(12)).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
                                 ui.set_width(220.0);
                                 ui.vertical(|ui| {
                                     ui.label(RichText::new(t).strong());
-                                    ui.label(RichText::new(d).size(13.5).color(TEXT_SOFT));
+                                    ui.label(RichText::new(d).size(12.0).color(pal().text_soft));
                                 });
                             });
                         }
@@ -106,8 +110,13 @@ impl App {
                     );
                 }
                 2 => {
-                    ui.label(RichText::new("Connect OBS").size(30.0).strong());
-                    ui.label(RichText::new("Preflight reads OBS through its WebSocket server. It's built into OBS; it just needs turning on.").color(TEXT_SOFT));
+                    ui.label(
+                        RichText::new("Connect OBS")
+                            .size(22.0)
+                            .family(theme::title_family())
+                            .strong(),
+                    );
+                    ui.label(RichText::new("Preflight reads OBS through its WebSocket server. It's built into OBS; it just needs turning on.").color(pal().text_soft));
                     ui.label("1. In OBS, open Tools › WebSocket Server Settings");
                     ui.label("2. Tick Enable WebSocket server");
                     ui.label("3. Click Show Connect Info, copy the password, and paste it here");
@@ -128,7 +137,7 @@ impl App {
                         if let Some(o) = self.obs.as_ref().filter(|o| o.connected) {
                             ui.label(
                                 RichText::new(format!("Connected · OBS {}", o.obs_version))
-                                    .color(theme::TEAL),
+                                    .color(theme::pal().success),
                             );
                         }
                     });
@@ -137,7 +146,7 @@ impl App {
                         self.obs.as_ref().map(|o| o.connected).unwrap_or(false),
                         &self.obs_error,
                     ) {
-                        ui.add(egui::Label::new(RichText::new(e).color(WARN)).wrap());
+                        ui.add(egui::Label::new(RichText::new(e).color(pal().warn)).wrap());
                     }
                     ui.checkbox(
                         &mut self.st.obs_remember_password,
@@ -156,7 +165,12 @@ impl App {
                     });
                 }
                 _ => {
-                    ui.label(RichText::new("How do you stream?").size(30.0).strong());
+                    ui.label(
+                        RichText::new("How do you stream?")
+                            .size(22.0)
+                            .family(theme::title_family())
+                            .strong(),
+                    );
                     ui.label(RichText::new("What matters most?").strong());
                     let mut picked: Option<Style> = None;
                     let cur = self.st.style;
@@ -224,7 +238,7 @@ impl App {
             }
         });
         ui.add_space(20.0);
-        egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 10)).show(ui, |ui| {
+        egui::Frame::NONE.fill(pal().card).stroke(egui::Stroke::new(1.0, pal().border)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 10)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 if single.is_some() {
@@ -235,7 +249,7 @@ impl App {
                 } else if n > 1 && outlined(ui, "Back").clicked() {
                     go = Some(n - 1);
                 }
-                ui.label(RichText::new(if n == 2 { "No OBS yet? You can connect it later." } else { "You can change all of this later from the bar at the top or in Settings." }).size(13.0).color(MUTED));
+                ui.label(RichText::new(if n == 2 { "No OBS yet? You can connect it later." } else { "You can change all of this later from the bar at the top or in Settings." }).size(12.0).color(pal().muted));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let label = match (single, n) {
                         (Some(_), _) => "Done",

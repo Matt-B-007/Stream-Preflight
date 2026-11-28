@@ -8,7 +8,7 @@ Useful to include: the version (`stream-preflight --version`), what you found, a
 
 ## Supported versions
 
-Only the newest release (stable or beta) gets fixes. Update with **Settings › Updates & about › Check now**.
+Only the newest release (stable or beta) gets fixes. Update with **Settings › Updates › Check now**.
 
 ## How updates are protected
 

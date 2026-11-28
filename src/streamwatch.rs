@@ -522,7 +522,7 @@ fn run(
 
 fn save_current(l: &StreamLog) {
     if let Ok(t) = serde_json::to_string(l) {
-        let _ = std::fs::write(current_path(), t);
+        let _ = crate::config::write_atomic(&current_path(), t.as_bytes());
     }
 }
 
@@ -543,7 +543,7 @@ fn finish(
         .streams
         .join(format!("stream-{}.json", l.started_at));
     if let Ok(t) = serde_json::to_string(&l) {
-        let _ = std::fs::write(&path, t);
+        let _ = crate::config::write_atomic(&path, t.as_bytes());
     }
     log::info!(
         "Stream ended after {:.0} s; post-flight summary saved",
@@ -562,7 +562,7 @@ pub fn resave(l: &StreamLog) {
         .streams
         .join(format!("stream-{}.json", l.started_at));
     if let Ok(t) = serde_json::to_string(l) {
-        let _ = std::fs::write(path, t);
+        let _ = crate::config::write_atomic(&path, t.as_bytes());
     }
 }
 

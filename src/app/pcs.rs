@@ -325,7 +325,7 @@ impl App {
         log::info!("Paired mode: unpaired");
     }
 
-    /// Settings › Your PCs: one PC or two, and paired mode.
+    /// Settings › OBS & PCs: one PC or two, and paired mode.
     pub(super) fn ui_pcs_card(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         use crate::twopc::Role;
         let mut changed = false;
@@ -345,7 +345,7 @@ impl App {
             }
             let role = self.role();
             if role == Role::Gaming && !self.obs_remote() {
-                ui.label(RichText::new("Put your streaming PC's address under OBS address below, so Preflight can read OBS there.").color(WARN));
+                ui.label(RichText::new("Put your streaming PC's address under OBS address below, so Preflight can read OBS there.").color(pal().warn));
             }
             if role != Role::One {
                 ui.add_space(6.0);
@@ -366,7 +366,7 @@ impl App {
                                     "streaming PC"
                                 }
                             ))
-                            .color(GOOD),
+                            .color(pal().success),
                         );
                         ui.label(
                             RichText::new(if heard.is_some() {
@@ -374,7 +374,7 @@ impl App {
                             } else {
                                 "· not heard from right now"
                             })
-                            .color(MUTED),
+                            .color(pal().muted),
                         );
                         if outlined(ui, "Unpair").clicked() {
                             act = Some("unpair");
@@ -387,8 +387,8 @@ impl App {
                     match self.pair_code() {
                         Some(code) => {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(format!("{} {}", &code[..3], &code[3..])).monospace().size(28.0).color(ACCENT));
-                                ui.label(RichText::new("Type this code in Preflight on your gaming PC (Settings › Your PCs). It works for 5 minutes.").color(TEXT_SOFT));
+                                ui.label(RichText::new(format!("{} {}", &code[..3], &code[3..])).monospace().size(28.0).color(pal().accent));
+                                ui.label(RichText::new("Type this code in Preflight on your gaming PC (Settings › OBS & PCs). It works for 5 minutes.").color(pal().text_soft));
                             });
                         }
                         None => {
@@ -421,7 +421,14 @@ impl App {
         });
         match act {
             Some("pair") => self.pair_now(ctx),
-            Some("unpair") => self.unpair(),
+            Some("unpair") => {
+                let undo = undo::Undo::Pair {
+                    secret: crate::config::load_pair_secret(),
+                    name: self.st.paired_name.clone(),
+                };
+                self.unpair();
+                self.toast_undo(ctx, "Unpaired", undo);
+            }
             _ => {}
         }
         if changed {
@@ -457,7 +464,7 @@ impl App {
                 theme::card(ui, |ui| {
                     ui.label(
                         RichText::new("Do you stream from a second PC?")
-                            .size(17.0)
+                            .size(16.0)
                             .strong(),
                     );
                     theme::muted(
@@ -511,12 +518,16 @@ impl App {
                 "Two PCs · this is the streaming PC"
             },
             sub,
-            if peer.is_some() { GOOD } else { MUTED },
+            if peer.is_some() {
+                pal().success
+            } else {
+                pal().muted
+            },
             true,
             |ui| {
                 for c in caps.iter().filter(|c| c.in_scene) {
                     ui.add(egui::Separator::default().spacing(10.0));
-                    ui.label(RichText::new(c.describe()).color(TEXT));
+                    ui.label(RichText::new(c.describe()).color(pal().text));
                     if !c.range.is_empty() {
                         theme::small(ui, format!("Colour range: {}", c.range));
                     }
@@ -530,7 +541,7 @@ impl App {
                 ui.add(egui::Separator::default().spacing(10.0));
                 match &peer {
                     Some(l) => {
-                        ui.label(RichText::new(l).color(TEXT_SOFT));
+                        ui.label(RichText::new(l).color(pal().text_soft));
                     }
                     None if paired => theme::small(
                         ui,
@@ -538,7 +549,7 @@ impl App {
                     ),
                     None => theme::small(
                         ui,
-                        "Pair with Preflight on your other PC (Settings › Your PCs) to see both PCs here.",
+                        "Pair with Preflight on your other PC (Settings › OBS & PCs) to see both PCs here.",
                     ),
                 }
                 if !peer_fixes.is_empty() {
@@ -564,7 +575,7 @@ impl App {
                     t.gpu_avg.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()),
                     t.gpu_maxed_pct,
                     t.cpu_avg
-                )).color(TEXT_SOFT));
+                )).color(pal().text_soft));
                 }
             },
         );

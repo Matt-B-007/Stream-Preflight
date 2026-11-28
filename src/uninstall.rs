@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! "Remove Preflight from this PC": deletes only Preflight's own folders,
+//! Uninstall: deletes only Preflight's own folders,
 //! the program file if asked, and test recordings the user ticks. Never
 //! touches OBS, games or anything else.
 
@@ -14,11 +14,35 @@ pub fn own_folders() -> Vec<(String, PathBuf)> {
     )];
     if d.data != d.config {
         v.push((
-            "History, stream summaries, preview frames, logs and bug reports".to_string(),
+            "History, stream summaries, preview frames and bug reports".to_string(),
             d.data.clone(),
         ));
     }
+    if !d.logs.starts_with(&d.data) {
+        v.push(("Logs".to_string(), d.logs.clone()));
+    }
     v
+}
+
+/// Links left where older versions kept their folders (Linux).
+fn legacy_links() -> Vec<PathBuf> {
+    crate::util::legacy_folders()
+        .into_iter()
+        .map(|(old, _)| old)
+        .filter(|p| {
+            std::fs::symlink_metadata(p)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Only Preflight's own folders can be removed ("streampreflight" or "stream-preflight").
+fn is_own_folder(p: &std::path::Path) -> bool {
+    p.to_string_lossy()
+        .to_lowercase()
+        .replace('-', "")
+        .contains("streampreflight")
 }
 
 /// The app menu entry and icons (Linux).
@@ -31,12 +55,6 @@ pub fn menu_files() -> Vec<PathBuf> {
 
 pub fn program_file() -> Option<PathBuf> {
     std::env::current_exe().ok()
-}
-
-/// Removes everything chosen, then the app must close right away.
-/// Returns an error message if something couldn't be removed.
-pub fn run(recordings: &[PathBuf], remove_program: bool) -> Result<(), String> {
-    run_with(recordings, remove_program, true)
 }
 
 /// Like `run`, but settings, history and logs are kept unless `delete_settings`.
@@ -57,11 +75,7 @@ pub fn run_with(
         .into_iter()
         .filter(|_| delete_settings)
         .map(|(_, p)| p)
-        .filter(|p| {
-            p.to_string_lossy()
-                .to_lowercase()
-                .contains("streampreflight")
-        })
+        .filter(|p| is_own_folder(p))
         .collect();
     if remove_program && !delete_settings {
         folders.push(crate::update::previous_dir());
@@ -115,6 +129,11 @@ pub fn run_with(
                 && let Err(e) = std::fs::remove_dir_all(f)
             {
                 errors.push(format!("{}: {e}", f.display()));
+            }
+        }
+        if delete_settings {
+            for l in legacy_links().into_iter().filter(|p| is_own_folder(p)) {
+                let _ = std::fs::remove_file(l);
             }
         }
         if let Some(e) = &exe

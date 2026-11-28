@@ -27,12 +27,12 @@ pub(super) enum HomeAct {
 pub(super) fn start_row(ui: &mut Ui, n: usize, s: &StartStep, primary: bool) -> bool {
     let mut clicked = false;
     let border = if primary {
-        Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 90)
+        alpha(pal().accent, 90)
     } else {
-        BORDER
+        pal().border
     };
     egui::Frame::NONE
-        .fill(Color32::from_rgba_unmultiplied(0x12, 0x16, 0x20, 200))
+        .fill(pal().card)
         .stroke(egui::Stroke::new(1.0, border))
         .corner_radius(egui::CornerRadius::same(12))
         .inner_margin(egui::Margin::symmetric(14, 9))
@@ -43,14 +43,14 @@ pub(super) fn start_row(ui: &mut Ui, n: usize, s: &StartStep, primary: bool) -> 
                 let c = r.center();
                 let p = ui.painter();
                 if s.done {
-                    p.circle_filled(c, 14.0, Color32::from_rgb(0x1F, 0x3A, 0x28));
+                    p.circle_filled(c, 14.0, pal().success_bg);
                     p.add(egui::Shape::line(
                         vec![
                             egui::pos2(c.x - 5.0, c.y),
                             egui::pos2(c.x - 1.5, c.y + 3.5),
                             egui::pos2(c.x + 5.0, c.y - 3.5),
                         ],
-                        egui::Stroke::new(2.0, theme::TEAL),
+                        egui::Stroke::new(2.0, theme::pal().success),
                     ));
                 } else {
                     p.circle_stroke(
@@ -59,9 +59,9 @@ pub(super) fn start_row(ui: &mut Ui, n: usize, s: &StartStep, primary: bool) -> 
                         egui::Stroke::new(
                             1.5,
                             if primary {
-                                ACCENT
+                                pal().accent
                             } else {
-                                Color32::from_rgb(0x4A, 0x53, 0x61)
+                                pal().placeholder
                             },
                         ),
                     );
@@ -70,20 +70,20 @@ pub(super) fn start_row(ui: &mut Ui, n: usize, s: &StartStep, primary: bool) -> 
                         egui::Align2::CENTER_CENTER,
                         n.to_string(),
                         egui::FontId::monospace(13.0),
-                        if primary { ACCENT } else { MUTED },
+                        if primary { pal().accent } else { pal().muted },
                     );
                 }
                 ui.vertical(|ui| {
                     ui.label(RichText::new(s.title).strong().color(if s.done {
-                        TEXT_SOFT
+                        pal().text_soft
                     } else {
-                        TEXT
+                        pal().text
                     }));
-                    ui.label(RichText::new(&s.sub).size(13.0).color(MUTED));
+                    ui.label(RichText::new(&s.sub).size(12.0).color(pal().muted));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if s.done {
-                        ui.label(RichText::new("Done").size(13.0).color(theme::TEAL));
+                        ui.label(RichText::new("Done").size(12.0).color(theme::pal().success));
                     } else if primary {
                         clicked = theme::glow_button(ui, s.button).clicked();
                     } else {
@@ -98,9 +98,14 @@ pub(super) fn start_row(ui: &mut Ui, n: usize, s: &StartStep, primary: bool) -> 
 pub(super) fn home_stat(ui: &mut Ui, label: &str, value: &str, sub: &str) {
     ui.vertical(|ui| {
         ui.set_min_width(130.0);
-        ui.label(theme::caps(label, 10.5, MUTED));
-        ui.label(RichText::new(value).monospace().size(22.0).color(TEXT));
-        ui.label(RichText::new(sub).size(12.5).color(TEXT_SOFT));
+        ui.label(theme::caps(label, 12.0, pal().muted));
+        ui.label(
+            RichText::new(value)
+                .monospace()
+                .size(22.0)
+                .color(pal().text),
+        );
+        ui.label(RichText::new(sub).size(12.0).color(pal().text_soft));
     });
 }
 
@@ -185,14 +190,15 @@ impl App {
         let all_done = steps.iter().all(|s| s.done);
         let hidden = self.st.hints_seen.iter().any(|h| h == "getstarted_hidden");
         let has_test = self.test.is_some();
-        ui.label(theme::caps("Home", 12.0, ACCENT));
+        ui.label(theme::caps("Home", 12.0, pal().accent));
         ui.label(
             RichText::new(if has_test || !self.streams.is_empty() {
                 "Welcome back"
             } else {
                 "Welcome to Stream Preflight"
             })
-            .size(30.0)
+            .size(22.0)
+            .family(theme::title_family())
             .strong(),
         );
         ui.add_space(8.0);
@@ -202,7 +208,7 @@ impl App {
             let first_open = steps.iter().position(|s| !s.done);
             theme::hero_card(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(theme::caps("Get started", 12.0, ACCENT));
+                    ui.label(theme::caps("Get started", 12.0, pal().accent));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if quiet_link(ui, "Hide")
                             .on_hover_text("You can still do all of this from the sidebar")
@@ -213,14 +219,14 @@ impl App {
                         }
                         ui.label(
                             RichText::new(format!("{done} of 4 done · do them in any order"))
-                                .size(13.0)
-                                .color(MUTED),
+                                .size(12.0)
+                                .color(pal().muted),
                         );
                     });
                 });
                 ui.label(
                     RichText::new("Four quick things, then you'll know if your stream is ready")
-                        .size(20.0)
+                        .size(16.0)
                         .strong(),
                 );
                 ui.add_space(4.0);
@@ -249,12 +255,13 @@ impl App {
         let (imp, opt) = self.open_counts();
         // Lead with the answer once there's anything to say: a test, fixes from the scan, or earlier tests.
         if has_test || (self.obs_connected() && imp + opt > 0) || !self.st.game_memory.is_empty() {
-            self.home_verdict(ui);
+            // Only one card is active: Get started while it's showing.
+            self.home_verdict(ui, all_done || hidden);
             ui.add_space(12.0);
             self.home_panels(ui);
         } else {
             theme::card(ui, |ui| {
-                ui.label(theme::caps("What Preflight does", 11.0, MUTED));
+                ui.label(theme::caps("What Preflight does", 12.0, pal().muted));
                 ui.add_space(4.0);
                 ui.columns(3, |c| {
                     for (i, (icon, t, d)) in [
@@ -283,12 +290,12 @@ impl App {
                             ui.painter().rect_filled(
                                 r,
                                 egui::CornerRadius::same(10),
-                                Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 20),
+                                alpha(pal().accent, 20),
                             );
-                            paint_icon(ui.painter(), r.center(), icon, ACCENT);
+                            paint_icon(ui.painter(), r.center(), icon, pal().accent);
                             ui.vertical(|ui| {
                                 ui.label(RichText::new(t).strong());
-                                ui.label(RichText::new(d).size(13.0).color(MUTED));
+                                ui.label(RichText::new(d).size(12.0).color(pal().muted));
                             });
                         });
                     }
@@ -309,7 +316,7 @@ impl App {
         }
     }
 
-    pub(super) fn home_verdict(&mut self, ui: &mut Ui) {
+    pub(super) fn home_verdict(&mut self, ui: &mut Ui, active: bool) {
         let (imp, opt) = self.open_counts();
         let a = &self.analysis;
         let (smooth, setup) = (a.smoothness, a.setup_score);
@@ -345,12 +352,17 @@ impl App {
         };
         let tested = self.test.is_some();
         let mut go: Option<NextAct> = None;
-        theme::hero_card(ui, |ui| {
+        theme::hero_card_active(ui, active, |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.set_max_width((ui.available_width() - 210.0).max(300.0));
-                    ui.label(theme::caps("Your stream right now", 12.0, ACCENT));
-                    ui.label(RichText::new(&head).size(26.0).strong());
+                    ui.label(theme::caps("Your stream right now", 12.0, pal().accent));
+                    ui.label(
+                        RichText::new(&head)
+                            .size(22.0)
+                            .family(theme::title_family())
+                            .strong(),
+                    );
                     if let Some(w) = &when {
                         // The verdict only adds something once there's a test.
                         let v = if tested {
@@ -358,7 +370,7 @@ impl App {
                         } else {
                             w.clone()
                         };
-                        ui.add(egui::Label::new(RichText::new(v).color(TEXT_SOFT)).wrap());
+                        ui.add(egui::Label::new(RichText::new(v).color(pal().text_soft)).wrap());
                     }
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
@@ -367,7 +379,13 @@ impl App {
                         } else {
                             "See your setup"
                         };
-                        if theme::glow_button(ui, main).clicked() {
+                        // Only the active card's main button glows.
+                        let clicked = if active {
+                            theme::glow_button(ui, main).clicked()
+                        } else {
+                            theme::primary(ui, main).clicked()
+                        };
+                        if clicked {
                             go = Some(if imp + opt > 0 {
                                 NextAct::Step(3)
                             } else {
@@ -381,8 +399,8 @@ impl App {
                     });
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    theme::dial(ui, Some(setup), "SETUP", ACCENT);
-                    theme::dial(ui, smooth, "SMOOTHNESS", theme::TEAL);
+                    theme::dial(ui, Some(setup), "SETUP", pal().accent);
+                    theme::dial(ui, smooth, "SMOOTHNESS", theme::pal().success);
                 });
             });
         });
@@ -397,7 +415,7 @@ impl App {
         ui.columns(2, |c| {
             theme::card(&mut c[0], |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(theme::caps("Top fixes", 11.0, MUTED));
+                    ui.label(theme::caps("Top fixes", 12.0, pal().muted));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if !fixes.is_empty() && quiet_link(ui, "All fixes").clicked() {
                             go = Some(NextAct::Step(3));
@@ -405,24 +423,24 @@ impl App {
                     });
                 });
                 if fixes.is_empty() {
-                    ui.label(RichText::new("Nothing to change.").color(TEXT_SOFT));
+                    ui.label(RichText::new("Nothing to change.").color(pal().text_soft));
                 }
                 for i in fixes.iter().take(2) {
                     let col = if analysis::is_optional(i) {
-                        MUTED
+                        pal().muted
                     } else {
-                        theme::AMBER
+                        theme::pal().amber
                     };
                     let r = ui.horizontal(|ui| {
                         let (d, _) =
                             ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
                         ui.painter().circle_filled(d.center(), 4.0, col);
                         ui.vertical(|ui| {
-                            ui.label(RichText::new(&i.title).color(TEXT));
+                            ui.label(RichText::new(&i.title).color(pal().text));
                             ui.label(
                                 RichText::new(analysis::impact_of(&i.id))
-                                    .size(12.5)
-                                    .color(MUTED),
+                                    .size(12.0)
+                                    .color(pal().muted),
                             );
                         });
                     });
@@ -445,7 +463,7 @@ impl App {
             let t = self.test.clone();
             theme::card(&mut c[1], |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(theme::caps("Last test", 11.0, MUTED));
+                    ui.label(theme::caps("Last test", 12.0, pal().muted));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if quiet_link(ui, "Your setup").clicked() {
                             go = Some(NextAct::Screen(Screen::Results));
@@ -453,7 +471,7 @@ impl App {
                     });
                 });
                 if t.is_none() {
-                    ui.label(RichText::new("No test with this game yet.").color(TEXT_SOFT));
+                    ui.label(RichText::new("No test with this game yet.").color(pal().text_soft));
                     theme::small(
                         ui,
                         "About 2 minutes while you play. It measures what viewers would see.",
@@ -508,7 +526,7 @@ impl App {
         let mut open = false;
         theme::card(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(theme::caps("Last stream", 11.0, MUTED));
+                ui.label(theme::caps("Last stream", 12.0, pal().muted));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if quiet_link(ui, "History").clicked() {
                         open = true;

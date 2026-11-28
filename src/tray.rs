@@ -25,7 +25,26 @@ pub enum TrayState {
     NeedsFixes,
 }
 
+/// What the icon looks like, as in the other apps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Look {
+    /// OBS not connected: greyed out.
+    Disconnected,
+    /// Ready: plain.
+    Idle,
+    /// Testing, watching for a test, or live: lit in the accent colour.
+    Active,
+}
+
 impl TrayState {
+    pub fn look(self) -> Look {
+        match self {
+            TrayState::Idle => Look::Disconnected,
+            TrayState::Watching | TrayState::NeedsFixes => Look::Idle,
+            TrayState::Testing | TrayState::Live => Look::Active,
+        }
+    }
+
     pub fn word(self) -> &'static str {
         match self {
             TrayState::Idle => "Idle",
@@ -40,8 +59,10 @@ impl TrayState {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct TrayView {
     pub state: TrayState,
-    /// Something needs the user (flag still on, a test finished...).
+    /// Something needs the user (a test finished, fixes to make...): amber dot.
     pub attention: bool,
+    /// Something is wrong (a check failed, the test flag is on while live): red dot.
+    pub problem: bool,
     /// One line for the menu and tooltip, e.g. "Live · 1:12:04".
     pub status: String,
 }
@@ -52,39 +73,48 @@ pub enum TrayCmd {
     Quit,
 }
 
-/// RGBA pixels of the tray icon for a state, `size` × `size`.
+/// RGBA pixels of the tray icon for a state, `size` × `size`. Transparent
+/// background; the symbol is grey (disconnected), plain (idle) or lime
+/// (active), with a thin dark edge so it shows on light and dark panels. An
+/// amber dot means "needs attention", a red dot "problem", bottom right.
 pub fn icon_rgba(view: &TrayView, size: u32) -> Vec<u8> {
-    let (r, g, b) = match view.state {
-        TrayState::Idle => (0x9A, 0xA4, 0xB2),
-        TrayState::Watching => (0xC6, 0xF3, 0x6B),
-        TrayState::Testing => (0x5E, 0xF0, 0xB5),
-        TrayState::Live => (0xF0, 0x5A, 0x5A),
-        TrayState::NeedsFixes => (0xF5, 0xB9, 0x42),
+    let sym = match view.state.look() {
+        Look::Disconnected => (0x8A, 0x94, 0xA3),
+        Look::Idle => (0xD5, 0xDB, 0xE4),
+        Look::Active => (0xC6, 0xF3, 0x6B),
+    };
+    let dot_col = if view.problem {
+        Some((0xF8, 0x71, 0x71))
+    } else if view.attention || view.state == TrayState::NeedsFixes {
+        Some((0xFB, 0xBF, 0x24))
+    } else {
+        None
     };
     let n = size as usize;
     let mut out = vec![0u8; n * n * 4];
     let s = size as f32 / 128.0;
-    let plane = [(40.0, 62.0), (100.0, 32.0), (80.0, 78.0), (70.0, 64.0)];
-    let check = [(30.0, 92.0), (54.0, 114.0), (104.0, 66.0)];
+    let plane = [(34.0, 58.0), (106.0, 22.0), (84.0, 76.0), (72.0, 62.0)];
+    let check = [(22.0, 92.0), (48.0, 116.0), (102.0, 64.0)];
     const SS: usize = 4; // supersampling per axis
+    let (dx, dy) = (100.0, 100.0);
     for py in 0..n {
         for px in 0..n {
-            let (mut bg, mut fg, mut dot, mut ring) = (0u32, 0u32, 0u32, 0u32);
+            let (mut edge, mut fg, mut dot, mut ring) = (0u32, 0u32, 0u32, 0u32);
             for sy in 0..SS {
                 for sx in 0..SS {
                     let x = (px as f32 + (sx as f32 + 0.5) / SS as f32) / s;
                     let y = (py as f32 + (sy as f32 + 0.5) / SS as f32) / s;
-                    if in_round_rect(x, y, 0.0, 0.0, 128.0, 128.0, 28.0) {
-                        bg += 1;
-                    }
-                    if in_poly(x, y, &plane) || near_polyline(x, y, &check, 6.5) {
+                    if in_poly(x, y, &plane) || near_polyline(x, y, &check, 8.0) {
                         fg += 1;
+                    } else if near_poly_edge(x, y, &plane, 6.0) || near_polyline(x, y, &check, 13.0)
+                    {
+                        edge += 1;
                     }
-                    if view.attention {
-                        let d = ((x - 106.0).powi(2) + (y - 22.0).powi(2)).sqrt();
-                        if d <= 20.0 {
+                    if dot_col.is_some() {
+                        let d = ((x - dx).powi(2) + (y - dy).powi(2)).sqrt();
+                        if d <= 22.0 {
                             dot += 1;
-                        } else if d <= 27.0 {
+                        } else if d <= 29.0 {
                             ring += 1;
                         }
                     }
@@ -92,33 +122,30 @@ pub fn icon_rgba(view: &TrayView, size: u32) -> Vec<u8> {
             }
             let tot = (SS * SS) as f32;
             let i = (py * n + px) * 4;
-            // Layer: background, then the logo, then the attention dot with a dark ring.
-            let mut c = [
-                0x1C as f32,
-                0x22 as f32,
-                0x2B as f32,
-                bg as f32 / tot * 255.0,
-            ];
-            let blend = |c: &mut [f32; 4], col: (f32, f32, f32), a: f32| {
+            let mut c = [0.0f32; 4];
+            let blend = |c: &mut [f32; 4], col: (u8, u8, u8), a: f32| {
                 if a <= 0.0 {
                     return;
                 }
-                c[0] = c[0] * (1.0 - a) + col.0 * a;
-                c[1] = c[1] * (1.0 - a) + col.1 * a;
-                c[2] = c[2] * (1.0 - a) + col.2 * a;
-                c[3] = c[3].max(a * 255.0);
+                let na = a + c[3] / 255.0 * (1.0 - a);
+                if na <= 0.0 {
+                    return;
+                }
+                for (k, v) in [col.0, col.1, col.2].into_iter().enumerate() {
+                    c[k] = (v as f32 * a + c[k] * c[3] / 255.0 * (1.0 - a)) / na;
+                }
+                c[3] = na * 255.0;
             };
-            blend(&mut c, (r as f32, g as f32, b as f32), fg as f32 / tot);
-            blend(
-                &mut c,
-                (0x0F as f32, 0x12 as f32, 0x17 as f32),
-                ring as f32 / tot,
-            );
-            blend(
-                &mut c,
-                (0xFF as f32, 0xFF as f32, 0xFF as f32),
-                dot as f32 / tot,
-            );
+            blend(&mut c, (0x0C, 0x10, 0x16), edge as f32 / tot * 0.7);
+            blend(&mut c, sym, fg as f32 / tot);
+            if let Some(dc) = dot_col {
+                // Cut the symbol away under the dot's ring, then draw the dot.
+                let cut = ring as f32 / tot;
+                if cut > 0.0 {
+                    blend(&mut c, (0x0C, 0x10, 0x16), cut);
+                }
+                blend(&mut c, dc, dot as f32 / tot);
+            }
             out[i] = c[0] as u8;
             out[i + 1] = c[1] as u8;
             out[i + 2] = c[2] as u8;
@@ -128,13 +155,11 @@ pub fn icon_rgba(view: &TrayView, size: u32) -> Vec<u8> {
     out
 }
 
-fn in_round_rect(x: f32, y: f32, x0: f32, y0: f32, x1: f32, y1: f32, r: f32) -> bool {
-    if x < x0 || y < y0 || x > x1 || y > y1 {
-        return false;
-    }
-    let cx = x.clamp(x0 + r, x1 - r);
-    let cy = y.clamp(y0 + r, y1 - r);
-    (x - cx).powi(2) + (y - cy).powi(2) <= r * r
+/// Near any edge of a polygon (for the dark outline).
+fn near_poly_edge(x: f32, y: f32, pts: &[(f32, f32)], w: f32) -> bool {
+    let mut closed = pts.to_vec();
+    closed.push(pts[0]);
+    near_polyline(x, y, &closed, w)
 }
 
 fn in_poly(x: f32, y: f32, p: &[(f32, f32)]) -> bool {
@@ -163,9 +188,14 @@ fn near_polyline(x: f32, y: f32, p: &[(f32, f32)], w: f32) -> bool {
 }
 
 /// The running tray icon. Dropping it removes the icon.
+/// A new tray picture shows only after holding this long.
+const HOLD_MS: u64 = 400;
+
 pub struct Tray {
     rx: mpsc::Receiver<TrayCmd>,
     last: TrayView,
+    /// A different picture waiting to hold for 400 ms, and since when.
+    pending: Option<(TrayView, std::time::Instant)>,
     imp: imp::Imp,
 }
 
@@ -183,6 +213,7 @@ impl Tray {
                 Some(Tray {
                     rx,
                     last: view,
+                    pending: None,
                     imp,
                 })
             }
@@ -194,18 +225,49 @@ impl Tray {
     }
 
     /// Updates the icon, tooltip and menu if anything changed.
+    /// Shows a new state. A change of picture waits until it has held for
+    /// 400 ms, so the icon doesn't flicker; only changes are redrawn.
     pub fn set(&mut self, view: TrayView) {
-        if view != self.last {
-            if view.state != self.last.state || view.attention != self.last.attention {
-                log::info!(
-                    "Tray: {}{}",
-                    view.state.word(),
-                    if view.attention { " · needs you" } else { "" }
-                );
-            }
-            self.imp.set(&view);
-            self.last = view;
+        if view == self.last {
+            self.pending = None;
+            return;
         }
+        let picture = |v: &TrayView| {
+            (
+                v.state.look(),
+                v.state == TrayState::NeedsFixes,
+                v.attention,
+                v.problem,
+            )
+        };
+        if picture(&view) != picture(&self.last) {
+            let now = std::time::Instant::now();
+            match &self.pending {
+                Some((p, since)) if picture(p) == picture(&view) => {
+                    if now.duration_since(*since) < std::time::Duration::from_millis(HOLD_MS) {
+                        return;
+                    }
+                }
+                _ => {
+                    self.pending = Some((view, now));
+                    return;
+                }
+            }
+            log::info!(
+                "Tray: {}{}",
+                view.state.word(),
+                if view.problem {
+                    " · problem"
+                } else if view.attention {
+                    " · needs you"
+                } else {
+                    ""
+                }
+            );
+        }
+        self.pending = None;
+        self.imp.set(&view);
+        self.last = view;
     }
 
     pub fn last_view(&self) -> &TrayView {
@@ -717,36 +779,49 @@ mod imp {
 mod tests {
     use super::*;
 
+    fn icon(state: TrayState, attention: bool, problem: bool) -> Vec<u8> {
+        icon_rgba(
+            &TrayView {
+                state,
+                attention,
+                problem,
+                ..Default::default()
+            },
+            64,
+        )
+    }
+
+    fn px(img: &[u8], x: usize, y: usize) -> [u8; 4] {
+        let i = (y * 64 + x) * 4;
+        [img[i], img[i + 1], img[i + 2], img[i + 3]]
+    }
+
     #[test]
-    fn icons_differ_by_state_and_attention() {
-        let a = icon_rgba(
-            &TrayView {
-                state: TrayState::Idle,
-                ..Default::default()
-            },
-            32,
-        );
-        let b = icon_rgba(
-            &TrayView {
-                state: TrayState::Live,
-                ..Default::default()
-            },
-            32,
-        );
-        let c = icon_rgba(
-            &TrayView {
-                state: TrayState::Live,
-                attention: true,
-                ..Default::default()
-            },
-            32,
-        );
-        assert_eq!(a.len(), 32 * 32 * 4);
-        assert_ne!(a, b);
-        assert_ne!(b, c);
-        // Corners are transparent (rounded), the middle is opaque.
-        assert_eq!(a[3], 0);
-        assert_eq!(a[(16 * 32 + 16) * 4 + 3], 255);
+    fn icons_follow_the_house_states() {
+        let disconnected = icon(TrayState::Idle, false, false);
+        let idle = icon(TrayState::Watching, false, false);
+        let active = icon(TrayState::Live, false, false);
+        let attention = icon(TrayState::Watching, true, false);
+        let fixes = icon(TrayState::NeedsFixes, false, false);
+        let problem = icon(TrayState::Live, false, true);
+        assert_eq!(idle.len(), 64 * 64 * 4);
+        // Transparent background.
+        for img in [&disconnected, &idle, &active, &problem] {
+            assert_eq!(px(img, 0, 0)[3], 0);
+            assert_eq!(px(img, 63, 0)[3], 0);
+            assert_eq!(px(img, 0, 63)[3], 0);
+        }
+        // The symbol (inside the plane) is solid: grey, plain or lime.
+        let sym = |img: &[u8]| px(img, 33, 22);
+        assert_eq!(sym(&disconnected), [0x8A, 0x94, 0xA3, 255]);
+        assert_eq!(sym(&idle), [0xD5, 0xDB, 0xE4, 255]);
+        assert_eq!(sym(&active), [0xC6, 0xF3, 0x6B, 255]);
+        // Bottom-right dot: none, amber (needs attention or fixes), red (problem).
+        let dot = |img: &[u8]| px(img, 50, 50);
+        assert_ne!(&dot(&idle)[..3], &[0xFB, 0xBF, 0x24]);
+        assert_eq!(dot(&attention), [0xFB, 0xBF, 0x24, 255]);
+        assert_eq!(dot(&fixes), [0xFB, 0xBF, 0x24, 255]);
+        assert_eq!(dot(&problem), [0xF8, 0x71, 0x71, 255]);
     }
 }
 
@@ -771,6 +846,7 @@ mod preview_icons {
                 &TrayView {
                     state: st,
                     attention: att,
+                    problem: false,
                     status: String::new(),
                 },
                 64,

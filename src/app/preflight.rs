@@ -28,8 +28,8 @@ impl App {
             && self.switch_dismissed.as_ref() != Some(r)
         {
             egui::Frame::NONE
-                .fill(CARD)
-                .stroke(egui::Stroke::new(1.5, ACCENT))
+                .fill(pal().card)
+                .stroke(egui::Stroke::new(1.5, pal().accent))
                 .corner_radius(egui::CornerRadius::same(12))
                 .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
@@ -38,7 +38,7 @@ impl App {
                         RichText::new(format!(
                             "You're now playing {r}. Your results are for {sh}."
                         ))
-                        .size(17.0)
+                        .size(16.0)
                         .strong(),
                     );
                     ui.horizontal_wrapped(|ui| {
@@ -145,8 +145,8 @@ impl App {
         if !self.obs_connected() && self.step <= 3 {
             let mut open = false;
             egui::Frame::NONE
-                .fill(Color32::from_rgba_unmultiplied(0xFF, 0xB5, 0x47, 18))
-                .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xFF, 0xB5, 0x47, 100)))
+                .fill(alpha(pal().warn, 18))
+                .stroke(egui::Stroke::new(1.0, alpha(pal().warn, 100)))
                 .corner_radius(egui::CornerRadius::same(12))
                 .inner_margin(egui::Margin::symmetric(16, 10))
                 .show(ui, |ui| {
@@ -155,7 +155,7 @@ impl App {
                         ui.vertical(|ui| {
                             ui.set_max_width((ui.available_width() - 200.0).max(240.0));
                             ui.label(RichText::new("Connect OBS first").strong());
-                            ui.add(egui::Label::new(RichText::new(if self.step == 2 { "The test measures OBS while it records. You can still look around and read how it works." } else { "Fixes come from OBS's settings and a test. You can still read what's here." }).size(13.0).color(TEXT_SOFT)).wrap());
+                            ui.add(egui::Label::new(RichText::new(if self.step == 2 { "The test measures OBS while it records. You can still look around and read how it works." } else { "Fixes come from OBS's settings and a test. You can still read what's here." }).size(12.0).color(pal().text_soft)).wrap());
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if outlined(ui, "Connect OBS").clicked() {
@@ -173,18 +173,18 @@ impl App {
         if self.returning {
             let mut rerun = false;
             egui::Frame::NONE
-                .fill(GOOD_BG)
-                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(0x2F, 0x6B, 0x47)))
+                .fill(pal().success_bg)
+                .stroke(egui::Stroke::new(1.0, alpha(pal().success, 110)))
                 .corner_radius(egui::CornerRadius::same(12))
                 .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.label(RichText::new("Welcome back. Nothing has changed since your last pre-flight.").strong());
                     let when = self.st.last_preflight.as_ref().map(|l| history::fmt_time(l.time)).unwrap_or_default();
-                    ui.label(RichText::new(format!("Same game, settings and OBS scene as {when}, so you can go straight to Ready to go live.")).color(TEXT_SOFT));
+                    ui.label(RichText::new(format!("Same game, settings and OBS scene as {when}, so you can go straight to Ready to go live.")).color(pal().text_soft));
                     let (imp, opt) = self.open_counts();
                     if imp + opt > 0 {
-                        ui.label(RichText::new(format!("Still open from last time: {}. Click Fix to go through them.", count_words(imp, opt))).color(WARN));
+                        ui.label(RichText::new(format!("Still open from last time: {}. Click Fix to go through them.", count_words(imp, opt))).color(pal().warn));
                     }
                     if theme::secondary(ui, "Quick re-check").clicked() {
                         rerun = true;
@@ -201,10 +201,10 @@ impl App {
         if let Some(job) = &self.scan {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(RichText::new(&job.step).color(TEXT_SOFT));
+                ui.label(RichText::new(&job.step).color(pal().text_soft));
                 if job.step.contains("upload") {
                     let p = job.net_progress.lock().map(|p| *p).unwrap_or(0.0);
-                    ui.label(RichText::new(format!("{:.0}%", p * 100.0)).color(MUTED));
+                    ui.label(RichText::new(format!("{:.0}%", p * 100.0)).color(pal().muted));
                 }
             });
             ui.add_space(10.0);
@@ -242,32 +242,32 @@ impl App {
                     4 => ("Home · before you go live".to_string(), "Ready to go live".to_string()),
                     _ => ("Pre-flight".to_string(), title.to_string()),
                 };
-                ui.label(theme::caps(&kick, 12.0, ACCENT));
+                ui.label(theme::caps(&kick, 12.0, pal().accent));
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(head).size(30.0).strong().color(TEXT));
+                    ui.label(RichText::new(head).size(22.0).family(theme::title_family()).strong().color(pal().text));
                     // One verdict, in words.
                     let (v, c) = if important > 0 {
-                        (format!("{important} to fix"), theme::AMBER)
+                        (format!("{important} to fix"), theme::pal().amber)
                     } else if self.test.is_none() && !self.returning {
-                        ("Not tested yet".to_string(), MUTED)
+                        ("Not tested yet".to_string(), pal().muted)
                     } else if left > 0 {
-                        (format!("Ready · {left} optional"), theme::TEAL)
+                        (format!("Ready · {left} optional"), theme::pal().success)
                     } else {
-                        ("Ready".to_string(), theme::TEAL)
+                        ("Ready".to_string(), theme::pal().success)
                     };
                     egui::Frame::NONE
-                        .fill(Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 26))
-                        .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 140)))
+                        .fill(alpha(c, 26))
+                        .stroke(egui::Stroke::new(1.0, alpha(c, 140)))
                         .corner_radius(egui::CornerRadius::same(255))
                         .inner_margin(egui::Margin::symmetric(12, 4))
                         .show(ui, |ui| {
-                            ui.label(RichText::new(v).size(13.0).color(c));
+                            ui.label(RichText::new(v).size(12.0).color(c));
                         });
                 });
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(12.0);
-                let why = ui.add(egui::Button::new(theme::caps("Why?", 12.0, ACCENT)).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand);
+                let why = ui.add(egui::Button::new(theme::caps("Why?", 12.0, pal().accent)).frame(false)).on_hover_cursor(egui::CursorIcon::PointingHand);
                 egui::Popup::from_toggle_button_response(&why).align(egui::RectAlign::BOTTOM_END).width(380.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                     ui.label(RichText::new("Smoothness").strong());
                     theme::small(ui, "How smoothly your game and stream ran in the test. Measured, so it needs a test.");
@@ -276,9 +276,9 @@ impl App {
                     ui.separator();
                     self.ui_score_why(ui);
                 });
-                theme::dial(ui, Some(self.analysis.setup_score), "Setup", ACCENT);
+                theme::dial(ui, Some(self.analysis.setup_score), "Setup", pal().accent);
                 let sm = self.analysis.smoothness;
-                theme::dial(ui, sm, "Smoothness", sm.map(theme::score_color).unwrap_or(MUTED));
+                theme::dial(ui, sm, "Smoothness", sm.map(theme::score_color).unwrap_or(pal().muted));
             });
         });
         ui.add_space(12.0);
@@ -286,14 +286,14 @@ impl App {
         if self.step == 2 && first_time && !self.st.hints_seen.iter().any(|h| h == "first_test") {
             let mut got = false;
             egui::Frame::NONE
-                .fill(Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 20))
-                .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 100)))
+                .fill(alpha(pal().success, 20))
+                .stroke(egui::Stroke::new(1.0, alpha(pal().success, 100)))
                 .corner_radius(egui::CornerRadius::same(12))
                 .inner_margin(egui::Margin::symmetric(14, 9))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.label(theme::caps("First time", 11.5, theme::TEAL));
+                        ui.label(theme::caps("First time", 12.0, theme::pal().success));
                         ui.label("Start your game and get into real gameplay, then click Start Recording in OBS. Preflight does the rest.");
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if quiet_link(ui, "Got it").clicked() {
@@ -337,7 +337,7 @@ impl App {
                     ui.label(
                         RichText::new(format!("-{}", analysis::points_of(i.priority)))
                             .monospace()
-                            .color(WARN),
+                            .color(pal().warn),
                     );
                     ui.label(&i.title);
                 });
@@ -354,7 +354,7 @@ impl App {
                 ui.label(
                     RichText::new(format!("-{}", analysis::points_of(i.priority)))
                         .monospace()
-                        .color(WARN),
+                        .color(pal().warn),
                 );
                 ui.label(&i.title);
             });

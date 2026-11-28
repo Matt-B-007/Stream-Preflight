@@ -20,6 +20,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 
 mod fixes;
+mod flow;
 mod help;
 mod history_page;
 mod home;
@@ -33,6 +34,7 @@ mod shell;
 mod state;
 mod test;
 mod tray;
+mod undo;
 mod widgets;
 
 use self::home::*;
@@ -120,15 +122,32 @@ type PollResult = (
 );
 
 /// The uninstall window: recordings (path, size, delete?), remove the program, error.
-type UninstallBox = (Vec<(String, u64, bool)>, bool, Option<String>);
+struct UninstallBox {
+    /// Test recordings: path, size, delete?
+    recs: Vec<(String, u64, bool)>,
+    program: bool,
+    delete_settings: bool,
+    error: Option<String>,
+    done: bool,
+}
 
 struct ReportBox {
     context: String,
+    /// "Short summary".
+    summary: String,
+    /// "What happened, and what did you expect?"
     note: String,
-    saved: Option<(String, std::path::PathBuf)>,
+    /// Report ID, chosen when the dialog opens.
+    id: String,
+    /// The full text that will be saved or copied (the preview).
+    text: String,
+    /// The summary or note changed: rebuild the preview.
+    dirty: bool,
+    saved: Option<std::path::PathBuf>,
     error: Option<String>,
-    show_contents: bool,
     copied: bool,
+    /// "This creates a PUBLIC issue" is showing.
+    github_confirm: bool,
 }
 
 /// After "I changed it" on a game fix: watch the game's settings file and
@@ -235,7 +254,7 @@ pub struct App {
     preview_split: f32,
     help_open: Option<usize>,
     pending_act: Option<NextAct>,
-    /// The "Remove Preflight from this PC" window: recordings (path, size, delete?), remove the program, error.
+    /// The "Uninstall Stream Preflight?" dialog.
     uninstall: Option<UninstallBox>,
     scroll_to_preview: bool,
     /// The next test is a 1-minute quick re-test (Check my changes).
@@ -275,11 +294,24 @@ pub struct App {
     rollback_confirm: bool,
     rollback_rx: Option<Receiver<Result<(String, std::path::PathBuf), String>>>,
     rollback_done: Option<Result<(String, std::path::PathBuf), String>>,
-    /// "Later" on the update banner (this session only).
+    /// "Later" in the update dialog (this session only).
     update_later: bool,
+    /// The update dialog is open.
+    update_dialog: bool,
+    /// Help menu windows.
+    whats_new_open: bool,
+    shortcuts_open: bool,
+    /// Ctrl+K command search: the query, and which result is picked.
+    command_open: bool,
+    command_query: String,
+    command_pick: usize,
+    /// The tour's current step.
+    tour: Option<usize>,
     update_notified: bool,
     conn_rx: Option<Receiver<(Option<ObsSnapshot>, Option<String>)>>,
-    toast: Option<(String, f64)>,
+    toast: Option<undo::Toast>,
+    /// "Stream Preflight closed unexpectedly last time".
+    crash_notice: Option<crate::logger::Unclean>,
     show_recording_popup: bool,
     pending_crashes: usize,
     confirm_clear: bool,
@@ -400,6 +432,7 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        theme::sync(&ctx);
         if !self.window_known {
             self.window_known = true;
             use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -456,13 +489,13 @@ impl eframe::App for App {
             .resizable(false)
             .frame(
                 egui::Frame::NONE
-                    .fill(PANEL)
+                    .fill(pal().sidebar)
                     .inner_margin(if folded {
                         egui::Margin::symmetric(14, 14)
                     } else {
                         egui::Margin::same(16)
                     })
-                    .stroke(egui::Stroke::new(1.0, BORDER)),
+                    .stroke(egui::Stroke::new(1.0, pal().border)),
             )
             .show(ui, |ui| self.ui_sidebar(ui));
         egui::Panel::top("status-bar")
@@ -479,7 +512,7 @@ impl eframe::App for App {
             .resizable(false)
             .frame(
                 egui::Frame::NONE
-                    .fill(CARD)
+                    .fill(pal().card)
                     .inner_margin(egui::Margin {
                         left: 24,
                         right: 14,
@@ -493,7 +526,7 @@ impl eframe::App for App {
                         bottom: 16,
                     })
                     .corner_radius(egui::CornerRadius::same(16))
-                    .stroke(egui::Stroke::new(1.0, BORDER)),
+                    .stroke(egui::Stroke::new(1.0, pal().border)),
             )
             .show(ui, |ui| self.ui_next_bar(ui));
         if strip.is_none() && self.screen == Screen::Preflight && self.step == 2 {
@@ -511,31 +544,22 @@ impl eframe::App for App {
                         let w = ((ui.available_width() - gap * 3.0) / 4.0).max(120.0);
                         for l in ["GPU", "Encoder", "Stream", "Skipped"] {
                             egui::Frame::NONE
-                                .stroke(egui::Stroke::new(
-                                    1.0,
-                                    Color32::from_rgba_unmultiplied(255, 255, 255, 18),
-                                ))
+                                .stroke(egui::Stroke::new(1.0, alpha(pal().text, 18)))
                                 .corner_radius(egui::CornerRadius::same(12))
                                 .inner_margin(egui::Margin::symmetric(14, 8))
                                 .show(ui, |ui| {
                                     ui.set_width(w - 30.0);
-                                    ui.label(theme::caps(
-                                        l,
-                                        10.5,
-                                        Color32::from_rgb(0x4A, 0x55, 0x66),
-                                    ));
+                                    ui.label(theme::caps(l, 12.0, pal().placeholder));
                                     ui.label(
-                                        RichText::new("–")
-                                            .monospace()
-                                            .color(Color32::from_rgb(0x4A, 0x55, 0x66)),
+                                        RichText::new("–").monospace().color(pal().placeholder),
                                     );
                                 });
                         }
                     });
                     ui.label(
                         RichText::new("Live readings fill in during the test.")
-                            .size(12.5)
-                            .color(MUTED),
+                            .size(12.0)
+                            .color(pal().muted),
                     );
                 });
         }
@@ -590,11 +614,15 @@ impl eframe::App for App {
         }
         self.ui_report_box(&ctx);
         self.ui_uninstall(&ctx);
+        self.ui_update_dialog(&ctx);
+        self.ui_flow_windows(&ctx);
         self.ui_recording_popup(&ctx);
         self.ui_toast(&ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Anything still waiting for Undo is removed now.
+        self.finish_toast();
         self.st.save();
         log::info!("Closing");
     }

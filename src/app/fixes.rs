@@ -135,7 +135,7 @@ impl App {
             ui.add_space(6.0);
         }
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Refresh rate used for suggestions").color(MUTED));
+            ui.label(RichText::new("Refresh rate used for suggestions").color(pal().muted));
             egui::ComboBox::from_id_salt("hz")
                 .selected_text(format!("{} Hz", self.st.monitor_hz))
                 .show_ui(ui, |ui| {
@@ -179,8 +179,8 @@ impl App {
                                     } else {
                                         format!("All fixes ({n})")
                                     })
-                                    .size(13.0)
-                                    .color(ACCENT),
+                                    .size(12.0)
+                                    .color(pal().accent),
                                 )
                                 .frame(false),
                             )
@@ -189,18 +189,18 @@ impl App {
                             self.show_all_fixes = !self.show_all_fixes;
                         }
                     } else if cur.is_none() {
-                        ui.label(RichText::new("All done").size(13.0).color(MUTED));
+                        ui.label(RichText::new("All done").size(12.0).color(pal().muted));
                     }
                 });
             });
             // Did the last game change save?
             if let Some(cw) = &self.confirm {
                 let (fg, bg, text) = match &cw.result {
-                    Some((true, m)) => (GOOD, GOOD_BG, m.clone()),
-                    Some((false, m)) => (WARN, WARN_BG, m.clone()),
+                    Some((true, m)) => (pal().success, pal().success_bg, m.clone()),
+                    Some((false, m)) => (pal().warn, pal().warn_bg, m.clone()),
                     None => (
-                        INFO,
-                        RAISED,
+                        pal().info,
+                        pal().control,
                         format!(
                             "Waiting for {} to save your change… Press Apply in the game.",
                             cw.game
@@ -240,7 +240,7 @@ impl App {
                         place.label().to_lowercase(),
                         items.len()
                     ))
-                    .color(TEXT_SOFT),
+                    .color(pal().text_soft),
                 )
                 .id_salt("fix-list")
                 .default_open(true)
@@ -264,22 +264,25 @@ impl App {
                     let more = pending.len() - shown;
                     for (idx, q) in pending.into_iter().take(shown) {
                         let (label, fg, bg) = if self.fixed.contains(&q.id) {
-                            ("Done", GOOD, GOOD_BG)
+                            ("Done", pal().success, pal().success_bg)
                         } else if idx == self.fix_idx {
-                            ("Now", BG, ACCENT)
+                            ("Now", pal().bg, pal().accent)
                         } else if self.skipped.contains(&q.id) {
-                            ("Skipped", MUTED, RAISED)
+                            ("Skipped", pal().muted, pal().control)
                         } else if analysis::is_optional(q) {
-                            ("Optional", MUTED, RAISED)
+                            ("Optional", pal().muted, pal().control)
                         } else {
-                            ("To do", TEXT_SOFT, RAISED)
+                            ("To do", pal().text_soft, pal().control)
                         };
                         let r = ui.horizontal(|ui| {
                             theme::pill(ui, fg, bg, label);
-                            ui.label(
-                                RichText::new(q.title.trim_end_matches('.'))
-                                    .color(if idx == self.fix_idx { TEXT } else { TEXT_SOFT }),
-                            );
+                            ui.label(RichText::new(q.title.trim_end_matches('.')).color(
+                                if idx == self.fix_idx {
+                                    pal().text
+                                } else {
+                                    pal().text_soft
+                                },
+                            ));
                         });
                         if idx != self.fix_idx
                             && r.response.interact(egui::Sense::click()).clicked()
@@ -333,7 +336,7 @@ impl App {
                         self.analysis.setup_score
                     )
                 };
-                ui.label(RichText::new(msg).size(19.0).strong());
+                ui.label(RichText::new(msg).size(16.0).strong());
                 if !self.fixed.is_empty() {
                     theme::muted(
                         ui,
@@ -390,11 +393,11 @@ impl App {
                 if skipped_imp.is_empty() {
                     ui.label(
                         RichText::new("The important issues are done.")
-                            .size(19.0)
+                            .size(16.0)
                             .strong(),
                     );
                 } else {
-                    ui.label(RichText::new(format!("You've been through the important ones. {} skipped, so Setup stays at {}.", skipped_imp.len(), self.analysis.setup_score)).size(19.0).strong());
+                    ui.label(RichText::new(format!("You've been through the important ones. {} skipped, so Setup stays at {}.", skipped_imp.len(), self.analysis.setup_score)).size(16.0).strong());
                     if theme::secondary(ui, "Go back to the skipped ones").clicked() {
                         action = Some("back_skipped".into());
                     }
@@ -454,7 +457,7 @@ impl App {
             if let Some(w) = crate::twopc::pc_of(analysis::place_of(&issue.id), self.role()) {
                 where_line = format!("{w} · {where_line}");
             }
-            ui.label(theme::caps(&where_line, 11.5, theme::TEAL));
+            ui.label(theme::caps(&where_line, 12.0, theme::pal().success));
             // The instruction as a sentence: "Set Recording Format to Hybrid MP4".
             let heading = match &main {
                 Some(o) if o.name.split_whitespace().count() <= 3 && o.changes.len() == 1 => {
@@ -464,18 +467,23 @@ impl App {
                 Some(o) => o.name.clone(),
                 None => issue.title.clone(),
             };
-            ui.label(RichText::new(heading).size(24.0).strong());
+            ui.label(
+                RichText::new(heading)
+                    .size(22.0)
+                    .family(theme::title_family())
+                    .strong(),
+            );
             if let Some(text) = detected {
                 egui::Frame::NONE
-                    .fill(GOOD_BG)
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(0x2F, 0x6B, 0x47)))
+                    .fill(pal().success_bg)
+                    .stroke(egui::Stroke::new(1.0, alpha(pal().success, 110)))
                     .corner_radius(egui::CornerRadius::same(12))
                     .inner_margin(egui::Margin::same(14))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.label(
                             RichText::new(format!("Spotted it: {text}"))
-                                .color(GOOD)
+                                .color(pal().success)
                                 .strong(),
                         );
                         let note = if cur_measured(&issue.id) {
@@ -483,7 +491,7 @@ impl App {
                         } else {
                             "Re-checked automatically."
                         };
-                        ui.label(RichText::new(note).size(13.0).color(TEXT_SOFT));
+                        ui.label(RichText::new(note).size(12.0).color(pal().text_soft));
                     });
                 return;
             }
@@ -496,7 +504,7 @@ impl App {
             if let Some(o) = &main {
                 ui.add_space(4.0);
                 if o.changes.is_empty() {
-                    ui.label(RichText::new(&o.menu).size(13.0).color(MUTED));
+                    ui.label(RichText::new(&o.menu).size(12.0).color(pal().muted));
                 }
                 for c in &o.changes {
                     change_row(ui, c);
@@ -564,13 +572,13 @@ impl App {
             }
             // One reason, with the measured number.
             ui.add_space(4.0);
-            ui.label(RichText::new(&issue.title).color(TEXT_SOFT));
+            ui.label(RichText::new(&issue.title).color(pal().text_soft));
             if let Some(o) = &main {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("You get:").color(GOOD).strong());
+                    ui.label(RichText::new("You get:").color(pal().success).strong());
                     ui.label(&o.gain);
-                    ui.label(RichText::new("· Trade-off:").color(MUTED));
-                    ui.label(RichText::new(&o.cost).color(MUTED));
+                    ui.label(RichText::new("· Trade-off:").color(pal().muted));
+                    ui.label(RichText::new(&o.cost).color(pal().muted));
                 });
             }
             let watch = match issue.id.as_str() {
@@ -589,7 +597,7 @@ impl App {
                 }
                 _ => "Change it, click Apply or OK in OBS, and Preflight notices by itself.",
             };
-            ui.label(RichText::new(watch).size(12.5).color(MUTED));
+            ui.label(RichText::new(watch).size(12.0).color(pal().muted));
             // Quiet choices along the bottom; the main button is in the Next bar.
             ui.add(egui::Separator::default().spacing(8.0));
             ui.horizontal(|ui| {
@@ -624,10 +632,10 @@ impl App {
             .id_salt(format!("why-{}", issue.id))
             .default_open(advanced)
             .show(ui, |ui| {
-                ui.label(RichText::new(&issue.why).color(TEXT_SOFT));
+                ui.label(RichText::new(&issue.why).color(pal().text_soft));
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("Fixing it:").color(MUTED));
-                    ui.label(RichText::new(analysis::impact_of(&issue.id)).color(GOOD));
+                    ui.label(RichText::new("Fixing it:").color(pal().muted));
+                    ui.label(RichText::new(analysis::impact_of(&issue.id)).color(pal().success));
                     let which = if issue.measured && self.test.is_some() {
                         "Smoothness"
                     } else {
@@ -638,7 +646,7 @@ impl App {
                             "· +{} {which}",
                             analysis::points_of(issue.priority)
                         ))
-                        .color(MUTED),
+                        .color(pal().muted),
                     );
                     if issue.measured {
                         theme::measured_tag(ui, true);
@@ -670,16 +678,16 @@ impl App {
                     theme::inset(ui, |ui| {
                         ui.label(RichText::new(&o.name).strong());
                         if o.changes.is_empty() {
-                            ui.label(RichText::new(&o.menu).size(12.5).color(MUTED));
+                            ui.label(RichText::new(&o.menu).size(12.0).color(pal().muted));
                         }
                         for c in &o.changes {
                             change_row(ui, c);
                         }
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("You get:").color(GOOD));
+                            ui.label(RichText::new("You get:").color(pal().success));
                             ui.label(&o.gain);
-                            ui.label(RichText::new("· Trade-off:").color(MUTED));
-                            ui.label(RichText::new(&o.cost).color(MUTED));
+                            ui.label(RichText::new("· Trade-off:").color(pal().muted));
+                            ui.label(RichText::new(&o.cost).color(pal().muted));
                         });
                         ui.horizontal(|ui| {
                             if ui.small_button("Use this one").clicked() {
@@ -1025,13 +1033,18 @@ impl App {
                 let live = self.live.is_some();
                 ui.vertical(|ui| {
                     if live {
-                        ui.label(RichText::new("YOU'RE LIVE").size(13.0).strong().color(BAD));
+                        ui.label(
+                            RichText::new("YOU'RE LIVE")
+                                .size(12.0)
+                                .strong()
+                                .color(pal().bad),
+                        );
                     } else if self.go_ready {
                         ui.label(
                             RichText::new("YOU'RE READY")
-                                .size(13.0)
+                                .size(12.0)
                                 .strong()
-                                .color(GOOD),
+                                .color(pal().success),
                         );
                     } else {
                         do_next_label(ui);
@@ -1044,7 +1057,8 @@ impl App {
                         } else {
                             "A last look before you stream"
                         })
-                        .size(24.0)
+                        .size(22.0)
+                        .family(theme::title_family())
                         .strong(),
                     );
                 });
@@ -1060,22 +1074,22 @@ impl App {
             ui.add_space(6.0);
             // Status first.
             let (fill, stroke) = if ready || self.live.is_some() {
-                (GOOD_BG, Color32::from_rgb(0x2F, 0x6B, 0x47))
+                (pal().success_bg, alpha(pal().success, 110))
             } else {
-                (CARD_DARK, BORDER)
+                (pal().inset, pal().border)
             };
             egui::Frame::NONE.fill(fill).stroke(egui::Stroke::new(1.0, stroke)).corner_radius(egui::CornerRadius::same(12)).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 if let Some(l) = &self.live {
-                    ui.label(RichText::new(format!("You're live · {}", crate::streamwatch::fmt_t(l.elapsed))).size(20.0).strong().color(GOOD));
-                    ui.label(RichText::new(format!("{:.2}% of frames dropped so far. Preflight watches quietly from the tray and writes your post-flight summary when you end the stream.", l.dropped_pct)).color(TEXT_SOFT));
+                    ui.label(RichText::new(format!("You're live · {}", crate::streamwatch::fmt_t(l.elapsed))).size(16.0).strong().color(pal().success));
+                    ui.label(RichText::new(format!("{:.2}% of frames dropped so far. Preflight watches quietly from the tray and writes your post-flight summary when you end the stream.", l.dropped_pct)).color(pal().text_soft));
                 } else if ready {
-                    ui.label(RichText::new("Ready. Start streaming in OBS.").size(20.0).strong());
+                    ui.label(RichText::new("Ready. Start streaming in OBS.").size(16.0).strong());
                     let start = if scene.is_empty() { String::new() } else { format!(" You'll start on \"{scene}\".") };
-                    ui.label(RichText::new(format!("{}{start} Preflight watches from the tray while you stream and writes a post-flight summary when you end it.", self.analysis.verdict)).color(TEXT_SOFT));
+                    ui.label(RichText::new(format!("{}{start} Preflight watches from the tray while you stream and writes a post-flight summary when you end it.", self.analysis.verdict)).color(pal().text_soft));
                 } else {
-                    ui.label(RichText::new(format!("{left} thing{} left before you go live", if left == 1 { "" } else { "s" })).size(20.0).strong());
-                    ui.label(RichText::new("Fix them in OBS (Preflight re-checks by itself) or choose Keep as is, then tick the rest.").color(TEXT_SOFT));
+                    ui.label(RichText::new(format!("{left} thing{} left before you go live", if left == 1 { "" } else { "s" })).size(16.0).strong());
+                    ui.label(RichText::new("Fix them in OBS (Preflight re-checks by itself) or choose Keep as is, then tick the rest.").color(pal().text_soft));
                 }
             });
             ui.add_space(8.0);
@@ -1134,17 +1148,22 @@ impl App {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         RichText::new("Checked by Preflight:")
-                            .size(13.0)
-                            .color(MUTED),
+                            .size(12.0)
+                            .color(pal().muted),
                     );
                     for p in &passed {
-                        theme::pill(ui, GOOD, GOOD_BG, &format!("OK  {p}"));
+                        theme::pill(ui, pal().success, pal().success_bg, &format!("OK  {p}"));
                     }
                     if !scene.is_empty() {
-                        theme::pill(ui, TEXT_SOFT, RAISED, &format!("Starting scene: {scene}"));
+                        theme::pill(
+                            ui,
+                            pal().text_soft,
+                            pal().control,
+                            &format!("Starting scene: {scene}"),
+                        );
                     }
                     for a in &acked {
-                        theme::pill(ui, MUTED, RAISED, a);
+                        theme::pill(ui, pal().muted, pal().control, a);
                     }
                 });
             }

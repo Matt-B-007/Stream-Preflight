@@ -101,7 +101,11 @@ pub(super) fn glossary_chips(ui: &mut Ui, text: &str) {
         return;
     }
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new("What do these mean?").size(12.5).color(MUTED));
+        ui.label(
+            RichText::new("What do these mean?")
+                .size(12.0)
+                .color(pal().muted),
+        );
         for (k, d) in found {
             let label = match *k {
                 "db" => "dB".to_string(),
@@ -112,8 +116,8 @@ pub(super) fn glossary_chips(ui: &mut Ui, text: &str) {
             ui.add(
                 egui::Label::new(
                     RichText::new(format!("{label} ?"))
-                        .size(12.5)
-                        .color(INFO)
+                        .size(12.0)
+                        .color(pal().info)
                         .underline(),
                 )
                 .sense(egui::Sense::hover()),
@@ -126,9 +130,9 @@ pub(super) fn glossary_chips(ui: &mut Ui, text: &str) {
 /// An outlined button: clickable, but not the main action (only the Next bar is lime).
 pub(super) fn outlined(ui: &mut Ui, text: &str) -> egui::Response {
     ui.add(
-        egui::Button::new(RichText::new(text).color(TEXT).size(14.0))
+        egui::Button::new(RichText::new(text).color(pal().text).size(14.0))
             .fill(Color32::TRANSPARENT)
-            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(0x4A, 0x53, 0x61)))
+            .stroke(egui::Stroke::new(1.0, pal().placeholder))
             .corner_radius(egui::CornerRadius::same(8))
             .min_size(Vec2::new(0.0, 32.0)),
     )
@@ -137,11 +141,11 @@ pub(super) fn outlined(ui: &mut Ui, text: &str) -> egui::Response {
 /// The same Keep / Change / Optional / Kept label everywhere a fix appears.
 pub(super) fn tag_pill(ui: &mut Ui, t: analysis::Tag) {
     let (label, fg, bg) = match t {
-        analysis::Tag::Keep => ("Keep", GOOD, GOOD_BG),
-        analysis::Tag::Change => ("Change", WARN, Color32::from_rgb(0x3A, 0x2E, 0x10)),
-        analysis::Tag::Optional => ("Optional", TEXT_SOFT, RAISED),
-        analysis::Tag::Kept => ("Kept", MUTED, RAISED),
-        analysis::Tag::Unknown => ("Unknown", MUTED, RAISED),
+        analysis::Tag::Keep => ("Keep", pal().success, pal().success_bg),
+        analysis::Tag::Change => ("Change", pal().warn, pal().warn_bg),
+        analysis::Tag::Optional => ("Optional", pal().text_soft, pal().control),
+        analysis::Tag::Kept => ("Kept", pal().muted, pal().control),
+        analysis::Tag::Unknown => ("Unknown", pal().muted, pal().control),
     };
     theme::pill(ui, fg, bg, label);
 }
@@ -168,8 +172,16 @@ pub(super) fn lower_first(s: &str) -> String {
 }
 
 pub(super) fn link_small(ui: &mut Ui, text: &str) -> bool {
-    ui.add(egui::Button::new(RichText::new(text).size(12.5).color(MUTED).underline()).frame(false))
-        .clicked()
+    ui.add(
+        egui::Button::new(
+            RichText::new(text)
+                .size(12.0)
+                .color(pal().muted)
+                .underline(),
+        )
+        .frame(false),
+    )
+    .clicked()
 }
 
 /// One compact Go-live row: pill, title, detail, optional action button.
@@ -183,8 +195,8 @@ pub(super) fn go_row(
     mut on_click: impl FnMut(),
 ) {
     egui::Frame::NONE
-        .fill(CARD_DARK)
-        .stroke(egui::Stroke::new(1.0, BORDER))
+        .fill(pal().inset)
+        .stroke(egui::Stroke::new(1.0, pal().border))
         .corner_radius(egui::CornerRadius::same(10))
         .inner_margin(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
@@ -192,7 +204,7 @@ pub(super) fn go_row(
             ui.horizontal(|ui| {
                 theme::status_pill(ui, s, label);
                 ui.label(RichText::new(title).strong());
-                ui.label(RichText::new(detail).size(13.0).color(MUTED));
+                ui.label(RichText::new(detail).size(12.0).color(pal().muted));
                 if let Some(b) = button {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button(b).clicked() {
@@ -208,13 +220,13 @@ pub(super) fn go_row(
 /// A row the user ticks themselves. Returns true when clicked.
 pub(super) fn go_tick_row(ui: &mut Ui, done: bool, title: &str) -> bool {
     let r = egui::Frame::NONE
-        .fill(if done { GOOD_BG } else { CARD_DARK })
+        .fill(if done { pal().success_bg } else { pal().inset })
         .stroke(egui::Stroke::new(
             1.0,
             if done {
-                Color32::from_rgb(0x2F, 0x6B, 0x47)
+                alpha(pal().success, 110)
             } else {
-                BORDER_STRONG
+                pal().border_strong
             },
         ))
         .corner_radius(egui::CornerRadius::same(10))
@@ -225,13 +237,13 @@ pub(super) fn go_tick_row(ui: &mut Ui, done: bool, title: &str) -> bool {
                 if done {
                     theme::status_pill(ui, Status::Ok, "Done");
                 } else {
-                    theme::pill(ui, TEXT, RAISED, "Tick");
+                    theme::pill(ui, pal().text, pal().control, "Tick");
                 }
-                ui.label(
-                    RichText::new(title)
-                        .strong()
-                        .color(if done { TEXT_SOFT } else { TEXT }),
-                );
+                ui.label(RichText::new(title).strong().color(if done {
+                    pal().text_soft
+                } else {
+                    pal().text
+                }));
             });
         })
         .response
@@ -267,9 +279,9 @@ pub(super) fn load_tex(
 
 pub(super) fn grade_color(level: u8) -> Color32 {
     match level {
-        0 | 1 => GOOD,
-        2 => WARN,
-        _ => BAD,
+        0 | 1 => pal().success,
+        2 => pal().warn,
+        _ => pal().bad,
     }
 }
 
@@ -291,7 +303,7 @@ pub(super) fn draw_logo(ui: &mut Ui, size: f32) {
     p.rect_filled(
         rect,
         egui::CornerRadius::same((28.0 * s) as u8),
-        Color32::from_rgb(0x1C, 0x22, 0x2B),
+        pal().control,
     );
     p.add(egui::Shape::convex_polygon(
         vec![
@@ -300,12 +312,12 @@ pub(super) fn draw_logo(ui: &mut Ui, size: f32) {
             at(80.0, 78.0),
             at(70.0, 64.0),
         ],
-        ACCENT,
+        pal().accent,
         egui::Stroke::NONE,
     ));
     p.add(egui::Shape::line(
         vec![at(30.0, 92.0), at(54.0, 114.0), at(104.0, 66.0)],
-        egui::Stroke::new(10.0 * s, ACCENT),
+        egui::Stroke::new(10.0 * s, pal().accent),
     ));
 }
 
@@ -314,8 +326,8 @@ pub(super) fn do_next_label(ui: &mut Ui) {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(Vec2::splat(8.0), egui::Sense::hover());
         ui.painter()
-            .rect_filled(r, egui::CornerRadius::same(2), ACCENT);
-        ui.label(theme::caps("Do this next", 12.0, ACCENT));
+            .rect_filled(r, egui::CornerRadius::same(2), pal().accent);
+        ui.label(theme::caps("Do this next", 12.0, pal().accent));
     });
 }
 
@@ -335,13 +347,13 @@ pub(super) enum Tick {
 /// One checklist line: a circle that ticks itself, the text, a note, and any buttons.
 pub(super) fn tick_row(ui: &mut Ui, state: Tick, text: &str, sub: &str, add: impl FnOnce(&mut Ui)) {
     egui::Frame::NONE
-        .fill(Color32::from_rgba_unmultiplied(0x12, 0x16, 0x20, 200))
+        .fill(pal().card)
         .stroke(egui::Stroke::new(
             1.0,
             if state == Tick::Warn {
-                WARN
+                pal().warn
             } else {
-                Color32::from_rgba_unmultiplied(255, 255, 255, 14)
+                alpha(pal().text, 14)
             },
         ))
         .corner_radius(egui::CornerRadius::same(10))
@@ -354,14 +366,14 @@ pub(super) fn tick_row(ui: &mut Ui, state: Tick, text: &str, sub: &str, add: imp
                 let p = ui.painter();
                 match state {
                     Tick::Done => {
-                        p.circle_filled(c, 10.5, Color32::from_rgb(0x1F, 0x3A, 0x28));
+                        p.circle_filled(c, 10.5, pal().success_bg);
                         p.add(egui::Shape::line(
                             vec![
                                 egui::pos2(c.x - 4.5, c.y),
                                 egui::pos2(c.x - 1.0, c.y + 3.5),
                                 egui::pos2(c.x + 5.0, c.y - 3.5),
                             ],
-                            egui::Stroke::new(2.4, GOOD),
+                            egui::Stroke::new(2.4, pal().success),
                         ));
                     }
                     Tick::Watch => {
@@ -373,12 +385,8 @@ pub(super) fn tick_row(ui: &mut Ui, state: Tick, text: &str, sub: &str, add: imp
                                 egui::pos2(c.x + 9.5 * a.cos(), c.y + 9.5 * a.sin())
                             })
                             .collect();
-                        p.circle_stroke(
-                            c,
-                            9.5,
-                            egui::Stroke::new(2.0, Color32::from_rgb(0x2A, 0x33, 0x40)),
-                        );
-                        p.add(egui::Shape::line(pts, egui::Stroke::new(2.0, ACCENT)));
+                        p.circle_stroke(c, 9.5, egui::Stroke::new(2.0, pal().border_strong));
+                        p.add(egui::Shape::line(pts, egui::Stroke::new(2.0, pal().accent)));
                         theme::repaint_in(ui.ctx(), 1000);
                     }
                     Tick::Wait => {
@@ -390,28 +398,28 @@ pub(super) fn tick_row(ui: &mut Ui, state: Tick, text: &str, sub: &str, add: imp
                                     egui::pos2(c.x + 9.5 * a0.cos(), c.y + 9.5 * a0.sin()),
                                     egui::pos2(c.x + 9.5 * a1.cos(), c.y + 9.5 * a1.sin()),
                                 ],
-                                egui::Stroke::new(1.8, Color32::from_rgb(0x4A, 0x53, 0x61)),
+                                egui::Stroke::new(1.8, pal().placeholder),
                             );
                         }
                     }
                     Tick::Warn => {
-                        p.circle_filled(c, 10.5, Color32::from_rgb(0x3A, 0x2A, 0x10));
+                        p.circle_filled(c, 10.5, pal().warn_bg);
                         p.text(
                             c,
                             egui::Align2::CENTER_CENTER,
                             "!",
                             egui::FontId::proportional(15.0),
-                            WARN,
+                            pal().warn,
                         );
                     }
                     Tick::Info => {
-                        p.circle_filled(c, 10.5, Color32::from_rgb(0x1C, 0x2A, 0x3A));
+                        p.circle_filled(c, 10.5, alpha(pal().info, 40));
                         p.text(
                             c,
                             egui::Align2::CENTER_CENTER,
                             "i",
                             egui::FontId::proportional(14.0),
-                            INFO,
+                            pal().info,
                         );
                     }
                 }
@@ -421,21 +429,24 @@ pub(super) fn tick_row(ui: &mut Ui, state: Tick, text: &str, sub: &str, add: imp
                     ui.set_max_width(text_w);
                     ui.add(
                         egui::Label::new(RichText::new(text).color(if state == Tick::Done {
-                            TEXT_SOFT
+                            pal().text_soft
                         } else {
-                            TEXT
+                            pal().text
                         }))
                         .wrap(),
                     );
                     if !sub.is_empty() {
-                        ui.add(egui::Label::new(RichText::new(sub).size(13.0).color(MUTED)).wrap());
+                        ui.add(
+                            egui::Label::new(RichText::new(sub).size(12.0).color(pal().muted))
+                                .wrap(),
+                        );
                     }
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if state == Tick::Done {
-                        ui.label(RichText::new("Done").size(13.0).color(GOOD));
+                        ui.label(RichText::new("Done").size(12.0).color(pal().success));
                     } else if state == Tick::Watch {
-                        ui.label(RichText::new("Watching…").size(13.0).color(MUTED));
+                        ui.label(RichText::new("Watching…").size(12.0).color(pal().muted));
                     }
                     add(ui);
                 });
@@ -566,45 +577,41 @@ pub(super) fn rail_icon(
         .on_hover_text(tip);
     let p = ui.painter();
     if selected {
-        p.rect_filled(
-            rect,
-            egui::CornerRadius::same(10),
-            Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 30),
-        );
+        p.rect_filled(rect, egui::CornerRadius::same(10), alpha(pal().accent, 30));
         p.rect_filled(
             egui::Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())),
             egui::CornerRadius::same(2),
-            ACCENT,
+            pal().accent,
         );
     } else if resp.hovered() {
-        p.rect_filled(rect, egui::CornerRadius::same(10), RAISED);
+        p.rect_filled(rect, egui::CornerRadius::same(10), pal().control);
     }
     if resp.has_focus() {
         p.rect_stroke(
             rect,
             egui::CornerRadius::same(10),
-            egui::Stroke::new(1.5, ACCENT),
+            egui::Stroke::new(1.5, pal().accent),
             egui::StrokeKind::Inside,
         );
     }
     let c = rect.center();
     let col = if selected {
-        TEXT
+        pal().text
     } else {
-        Color32::from_rgb(0xB7, 0xC0, 0xCC)
+        pal().text_soft
     };
     paint_icon(p, c, icon, col);
     match badge {
         Badge::None => {}
         Badge::Count(n) => {
             let bc = egui::pos2(rect.max.x - 9.0, rect.min.y + 9.0);
-            p.circle_filled(bc, 8.0, theme::AMBER);
+            p.circle_filled(bc, 8.0, theme::pal().amber);
             p.text(
                 bc,
                 egui::Align2::CENTER_CENTER,
                 n.min(99).to_string(),
                 egui::FontId::monospace(10.0),
-                Color32::from_rgb(0x1A, 0x12, 0x06),
+                theme::DARK.on_fill, // dark ink on the amber badge, both themes
             );
         }
         Badge::Tick => {
@@ -615,7 +622,7 @@ pub(super) fn rail_icon(
                     egui::pos2(b.x - 1.0, b.y + 3.0),
                     egui::pos2(b.x + 4.0, b.y - 3.0),
                 ],
-                egui::Stroke::new(2.0, GOOD),
+                egui::Stroke::new(2.0, pal().success),
             ));
         }
         Badge::Dot(dc) => {
@@ -628,7 +635,13 @@ pub(super) fn rail_icon(
 
 pub(super) fn quiet_link(ui: &mut Ui, text: &str) -> egui::Response {
     ui.add(
-        egui::Button::new(RichText::new(text).size(14.0).color(TEXT_SOFT).underline()).frame(false),
+        egui::Button::new(
+            RichText::new(text)
+                .size(14.0)
+                .color(pal().text_soft)
+                .underline(),
+        )
+        .frame(false),
     )
     .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -643,16 +656,8 @@ pub(super) fn slim_banner(
     clicked: &mut bool,
 ) {
     egui::Frame::NONE
-        .fill(Color32::from_rgba_unmultiplied(
-            col.r(),
-            col.g(),
-            col.b(),
-            24,
-        ))
-        .stroke(egui::Stroke::new(
-            1.0,
-            Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 120),
-        ))
+        .fill(alpha(col, 24))
+        .stroke(egui::Stroke::new(1.0, alpha(col, 120)))
         .corner_radius(egui::CornerRadius::same(10))
         .inner_margin(egui::Margin {
             left: 14,
@@ -665,7 +670,7 @@ pub(super) fn slim_banner(
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
                 ui.painter().circle_filled(r.center(), 4.0, col);
-                ui.label(RichText::new(text).color(TEXT))
+                ui.label(RichText::new(text).color(pal().text))
                     .on_hover_text(detail);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if outlined(ui, button).clicked() {

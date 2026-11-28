@@ -207,24 +207,28 @@ pub fn view_for(connected: bool, live: Option<&streamwatch::LiveStatus>, fixes: 
         TrayView {
             state: TrayState::Live,
             attention: false,
+            problem: false,
             status: format!("Live · {}{rec}", streamwatch::fmt_t(l.elapsed)),
         }
     } else if !connected {
         TrayView {
             state: TrayState::Idle,
             attention: false,
+            problem: false,
             status: "OBS not connected".into(),
         }
     } else if fixes > 0 {
         TrayView {
             state: TrayState::NeedsFixes,
             attention: false,
+            problem: false,
             status: format!("{fixes} to fix before you go live"),
         }
     } else {
         TrayView {
             state: TrayState::Watching,
             attention: false,
+            problem: false,
             status: "Watching OBS · ready".into(),
         }
     }

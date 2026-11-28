@@ -131,9 +131,16 @@ if [ "$have" != "$SHELLCHECK_CI_VERSION" ]; then
 fi
 for f in install.sh uninstall.sh get.sh scripts/*.sh tools/*; do
     [ -f "$f" ] || continue
-    case "$(head -n 1 "$f")" in
-        *bash*) shell="bash" ;;
-        *) shell="sh" ;;
+    # Shell scripts only: a .sh name or a shell on the first line. A Python
+    # tool in tools/ is not a shell script, so it's listed and left out.
+    first="$(head -n 1 "$f")"
+    case "$f:$first" in
+        *:*bash*) shell="bash" ;;
+        *.sh:* | *:'#!/bin/sh'* | *:'#!/usr/bin/env sh'*) shell="sh" ;;
+        *)
+            printf '  %s (not a shell script)\n' "$f"
+            continue
+            ;;
     esac
     printf '  %s (%s)\n' "$f" "$shell"
     if ! "$shell" -n "$f"; then

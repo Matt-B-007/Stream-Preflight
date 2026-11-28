@@ -2,7 +2,7 @@
 //! Linux: puts Preflight in the app menu with its icon, automatically, on
 //! every launch. KDE and GNOME (on Wayland especially) take the window and
 //! taskbar icon from this menu entry, matched by the app id. Only Preflight's
-//! own entry and icon files are ever written; "Remove Preflight" deletes them.
+//! own entry and icon files are ever written; Uninstall deletes them.
 
 pub const APP_ID: &str = "stream-preflight";
 

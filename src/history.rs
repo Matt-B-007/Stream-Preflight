@@ -137,8 +137,13 @@ impl History {
             setups: self.setups.clone(),
         };
         if let Ok(s) = serde_json::to_string_pretty(&store) {
-            let _ = std::fs::write(store_path(), s);
+            let _ = crate::config::write_atomic(&store_path(), s.as_bytes());
         }
+    }
+
+    /// The files history is saved in (for Clear history's undo).
+    pub fn files() -> Vec<std::path::PathBuf> {
+        vec![entries_path(), store_path()]
     }
 
     pub fn clear(&mut self) {

@@ -399,116 +399,164 @@ impl App {
     // -----------------------------------------------------------------------
     // Report a problem (one box)
 
+    /// Builds the report's sections from what Preflight knows right now.
+    fn report_sections(&mut self, rb: &ReportBox) -> Vec<report::Section> {
+        self.selftests = report::self_test(&report::SelfTestInput {
+            hw: self.hw.as_ref(),
+            games: &self.games,
+            obs: self.obs.as_ref(),
+            obs_error: self.obs_error.as_deref(),
+            net: self.net.as_ref(),
+        });
+        let extra = self.report_extras();
+        let description = match (rb.summary.trim(), rb.note.trim()) {
+            ("", "") => String::new(),
+            (s, "") => s.to_string(),
+            ("", n) => n.to_string(),
+            (s, n) => format!("{s}\n{n}"),
+        };
+        report::build_sections(&report::ReportInput {
+            context: &rb.context,
+            description: &description,
+            hw: self.hw.as_ref(),
+            games: &self.games,
+            obs: self.obs.as_ref(),
+            obs_error: self.obs_error.as_deref(),
+            net: self.net.as_ref(),
+            test: self.test.as_ref(),
+            analysis: &self.analysis,
+            selftests: &self.selftests,
+            settings: &self.st,
+            encoders: &self.encoders,
+            extra: &extra,
+        })
+    }
+
+    /// "Report a problem", laid out like the other apps. Nothing is sent anywhere.
     pub(super) fn ui_report_box(&mut self, ctx: &egui::Context) {
         let Some(mut rb) = self.report.take() else {
             return;
         };
+        if rb.dirty {
+            rb.dirty = false;
+            let sections = self.report_sections(&rb);
+            rb.text = report::render(&sections, &rb.id);
+        }
         let mut keep = true;
         let mut save = false;
-        egui::Window::new(if rb.saved.is_some() { "Report saved" } else { "Report this problem" })
+        let mut github = false;
+        egui::Window::new("Report a problem")
             .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_TOP, Vec2::new(0.0, 120.0))
-            .default_width(480.0)
+            .resizable(true)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .default_width(620.0)
             .show(ctx, |ui| {
-                if let Some((id, path)) = rb.saved.clone() {
-                    ui.label(RichText::new(format!("Saved. Report ID {id}")).strong());
-                    theme::small(ui, "A plain text file: drag it into the chat, or open it to read what's in it first.");
-                    // The full path, selectable, so it can always be copied by hand.
-                    let mut shown = path.display().to_string();
-                    ui.add(egui::TextEdit::singleline(&mut shown).desired_width(f32::INFINITY).interactive(true));
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        if theme::secondary(ui, "Open report").clicked() {
-                            report::open_file(&path);
-                        }
-                        if theme::secondary(ui, "Show in folder").clicked() {
-                            report::show_file(&path);
-                        }
-                        if theme::secondary(ui, if rb.copied { "Copied" } else { "Copy file location" }).clicked() {
-                            ui.ctx().copy_text(path.display().to_string());
-                            report::copy_fallback(&path.display().to_string());
-                            rb.copied = true;
-                        }
-                        if theme::primary(ui, "  Done  ").clicked() {
-                            keep = false;
-                        }
-                    });
-                    return;
-                }
                 if !rb.context.is_empty() {
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new("About:").color(MUTED));
+                        ui.label(RichText::new("About:").color(pal().muted));
                         ui.label(&rb.context);
                     });
                 }
-                ui.label(RichText::new("Anything to add? (optional)").strong());
-                ui.add(egui::TextEdit::multiline(&mut rb.note).desired_rows(3).desired_width(f32::INFINITY).hint_text("e.g. V-Sync is actually off in my game"));
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("Includes your PC specs, OBS settings and recent activity. Never passwords, stream keys or your name.").size(13.0).color(MUTED));
-                    if link_small(ui, if rb.show_contents { "Hide details" } else { "What's included" }) {
-                        rb.show_contents = !rb.show_contents;
-                    }
-                });
-                if rb.show_contents {
-                    theme::inset(ui, |ui| {
-                        for s in [
-                            "A summary: what this is about, your note, anything that failed",
-                            "Your system: OS, CPU, graphics card, RAM, drivers",
-                            "OBS: encoder and quality settings, bitrate, resolution, source types (no names, no stream key)",
-                            "Games: which settings files were found, and their full contents (game settings and key bindings only)",
-                            "Your last scan and test measurements",
-                            "Recent app activity (user name removed from paths)",
-                        ] {
-                            theme::small(ui, format!("• {s}"));
-                        }
-                    });
+                ui.label(RichText::new("Short summary").strong());
+                let r1 = ui.add(
+                    egui::TextEdit::singleline(&mut rb.summary)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("e.g. The test never finishes"),
+                );
+                ui.label(RichText::new("What happened, and what did you expect?").strong());
+                let r2 = ui.add(
+                    egui::TextEdit::multiline(&mut rb.note)
+                        .desired_rows(3)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("e.g. V-Sync is off in my game, but Preflight says it's on"),
+                );
+                // Rebuilt when you finish typing, not on every key.
+                if r1.lost_focus() || r2.lost_focus() {
+                    rb.dirty = true;
                 }
+                ui.add_space(4.0);
+                ui.label(RichText::new("Details that will be included").strong());
+                theme::small(ui, "Your PC, OBS settings (no stream key, no scene or source names), game settings files and recent activity. User names, home folders, Steam IDs and addresses are already removed.");
+                egui::ScrollArea::vertical()
+                    .max_height(220.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        let mut shown = rb.text.as_str();
+                        ui.add(
+                            egui::TextEdit::multiline(&mut shown)
+                                .font(egui::TextStyle::Monospace)
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
                 if let Some(e) = &rb.error {
-                    ui.label(RichText::new(format!("Couldn't save the report: {e}")).color(BAD));
+                    ui.label(RichText::new(format!("Couldn't save the report: {e}")).color(pal().bad));
+                }
+                if let Some(p) = &rb.saved {
+                    ui.label(RichText::new("Saved:").color(pal().success));
+                    let mut shown = p.display().to_string();
+                    ui.add(egui::TextEdit::singleline(&mut shown).desired_width(f32::INFINITY));
                 }
                 ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if theme::primary(ui, "  Save report  ").clicked() {
+                ui.horizontal_wrapped(|ui| {
+                    if theme::primary(ui, "Save to file").clicked() {
                         save = true;
                     }
-                    if theme::secondary(ui, "Cancel").clicked() {
+                    if theme::secondary(ui, if rb.copied { "Copied" } else { "Copy report" }).clicked() {
+                        ui.ctx().copy_text(rb.text.clone());
+                        report::copy_fallback(&rb.text);
+                        rb.copied = true;
+                    }
+                    if theme::secondary(ui, "Open log folder").clicked() {
+                        report::open_folder(&crate::util::dirs().logs);
+                    }
+                    if let Some(p) = &rb.saved {
+                        if theme::secondary(ui, "Open report").clicked() {
+                            report::open_file(p);
+                        }
+                        if theme::secondary(ui, "Show in folder").clicked() {
+                            report::show_file(p);
+                        }
+                    }
+                });
+                ui.horizontal_wrapped(|ui| {
+                    if link_small(ui, "Open on GitHub…") {
+                        rb.github_confirm = true;
+                    }
+                    if theme::secondary(ui, "Close").clicked() {
                         keep = false;
                     }
                 });
+                if rb.github_confirm {
+                    theme::inset(ui, |ui| {
+                        ui.label(RichText::new("This creates a PUBLIC issue on GitHub.").strong().color(pal().warn));
+                        theme::small(ui, "Only the summary and the app and system lines are filled in. The report is saved to a file first; attach it to the issue yourself after reading it.");
+                        ui.horizontal(|ui| {
+                            if theme::primary(ui, "Save and open GitHub").clicked() {
+                                github = true;
+                                save = true;
+                            }
+                            if theme::secondary(ui, "Cancel").clicked() {
+                                rb.github_confirm = false;
+                            }
+                        });
+                    });
+                }
+                theme::small(ui, "Nothing is sent until you choose to.");
             });
         if save {
-            self.selftests = report::self_test(&report::SelfTestInput {
-                hw: self.hw.as_ref(),
-                games: &self.games,
-                obs: self.obs.as_ref(),
-                obs_error: self.obs_error.as_deref(),
-                net: self.net.as_ref(),
-            });
-            let extra = self.report_extras();
-            let sections = report::build_sections(&report::ReportInput {
-                context: &rb.context,
-                description: &rb.note,
-                hw: self.hw.as_ref(),
-                games: &self.games,
-                obs: self.obs.as_ref(),
-                obs_error: self.obs_error.as_deref(),
-                net: self.net.as_ref(),
-                test: self.test.as_ref(),
-                analysis: &self.analysis,
-                selftests: &self.selftests,
-                settings: &self.st,
-                encoders: &self.encoders,
-                extra: &extra,
-            });
-            let id = crate::util::short_id();
-            match report::save(&sections, &id) {
+            let sections = self.report_sections(&rb);
+            match report::save(&sections, &rb.id) {
                 Ok(p) => {
-                    rb.saved = Some((id, p));
+                    rb.saved = Some(p);
+                    rb.error = None;
                     self.pending_crashes = crate::logger::pending_crashes().len();
                 }
                 Err(e) => rb.error = Some(e),
             }
+        }
+        if github && rb.saved.is_some() {
+            ctx.open_url(egui::OpenUrl::new_tab(issue_url(&rb.summary)));
+            rb.github_confirm = false;
         }
         if keep {
             self.report = Some(rb);
@@ -547,7 +595,7 @@ impl App {
         ui.add_space(8.0);
         let mut report = false;
         theme::card(ui, |ui| {
-            ui.label(RichText::new("Something not working?").size(17.0).strong());
+            ui.label(RichText::new("Something not working?").size(16.0).strong());
             theme::muted(
                 ui,
                 "The quickest way is the \"This looks wrong\" link right next to the problem. For anything else:",
@@ -560,7 +608,7 @@ impl App {
             self.open_report("");
         }
         ui.add_space(10.0);
-        ui.label(RichText::new("What to do if…").size(19.0).strong());
+        ui.label(RichText::new("What to do if…").size(16.0).strong());
         ui.add_space(4.0);
         let topics: [(&str, &[&str]); 6] = [
             (
@@ -646,7 +694,7 @@ impl App {
         }
         theme::card(ui, |ui| {
             egui::CollapsingHeader::new(RichText::new("I want to remove Preflight").strong()).id_salt("help-remove").show(ui, |ui| {
-                ui.label("Settings › Advanced › Remove Preflight from this PC deletes everything below in one go. Or delete these folders yourself:");
+                ui.label("Settings › About & uninstall › Uninstall removes the program, and with \"Also delete my settings and logs\" ticked, everything below. Or delete these folders yourself:");
                 for (what, path) in crate::uninstall::own_folders() {
                     theme::small(ui, format!("• {what}: {}", crate::util::scrub(&path.to_string_lossy())));
                 }
@@ -659,12 +707,13 @@ impl App {
                 theme::small(ui, "• Tab and Shift+Tab move between buttons; Enter or Space presses the one that's outlined.");
                 theme::small(ui, "• Ctrl+Enter does the Next step shown at the bottom.");
                 theme::small(ui, "• Alt+1 Home, Alt+2 Test, Alt+3 Fixes, Alt+4 Live, Alt+5 History. Ctrl+B folds the sidebar.");
+                theme::small(ui, "• Ctrl+K searches pages and commands, Ctrl+, opens Settings, ? lists every shortcut, Ctrl+Q quits.");
                 theme::small(ui, "• Every colour also has a word next to it (Change, Keep, OK, Great…), so nothing depends on colour alone.");
             });
         });
         ui.add_space(6.0);
         theme::card(ui, |ui| {
-            ui.label(RichText::new("How Preflight works").size(17.0).strong());
+            ui.label(RichText::new("How Preflight works").size(16.0).strong());
             ui.label("1. Test while you play: start your game, press Record in OBS and play for 2 minutes. Preflight measures by itself.");
             ui.label("2. Fix what matters: one change at a time, grouped by where you make it (OBS, your game, your PC). Preflight notices when you've changed it. Keep anything you'd rather not change.");
             ui.label("3. Ready to go live: a short checklist that ticks itself.");
@@ -714,7 +763,7 @@ impl App {
         });
         ui.add_space(10.0);
         theme::card(ui, |ui| {
-            ui.label(RichText::new("About").size(17.0).strong());
+            ui.label(RichText::new("About").size(16.0).strong());
             ui.label(format!(
                 "{} v{} · {}",
                 crate::util::APP_NAME,
@@ -732,10 +781,23 @@ impl App {
                 None => theme::small(ui, "Preflight right now: measuring…"),
             }
             ui.add_space(4.0);
-            ui.label(RichText::new("New in v0.1.0-beta.8").strong());
+            ui.label(RichText::new("New in v0.1.0-beta.9").strong());
+            for s in [
+                "Light and dark themes (Settings › Appearance), with a calmer look and built-in fonts and icons",
+                "Help menu and Settings gear top right; Ctrl+K searches everything, ? shows the shortcuts",
+                "A clearer update dialog: Update now, Later or Skip this version, then Restart when you're ready",
+                "Report a problem shows exactly what's included before you save, copy or open GitHub",
+                "Undo after clearing history, forgetting the OBS password, unpairing or deleting a recording",
+                "Settings are backed up automatically, and a notice appears if Preflight closed unexpectedly",
+                "Settings moved to ~/.config/stream-preflight, logs to ~/.local/state/stream-preflight",
+            ] {
+                theme::small(ui, format!("• {s}"));
+            }
+            ui.add_space(4.0);
+            ui.label(RichText::new("From v0.1.0-beta.8").strong());
             for s in [
                 "Updates come from signed GitHub Releases: an update installs only if its checksum and the maintainer's signature are valid and it passes its own self-test",
-                "Go back: the version you had before an update is kept (Settings › Updates & about)",
+                "Go back: the version you had before an update is kept (Settings › Updates)",
                 "Only one window: opening Preflight again brings the open window to the front",
                 "Command line: --version, --self-test, --report, --update, --rollback and --uninstall",
                 "The upload speed test is reused for 6 hours, even after a restart, so it doesn't run on every scan",
@@ -921,5 +983,61 @@ impl App {
                 theme::small(ui, format!("• {s}"));
             }
         });
+    }
+}
+
+/// A new issue on GitHub with the summary and the report header filled in.
+pub(super) fn issue_url(summary: &str) -> String {
+    let header = report::header();
+    let field = |name: &str| {
+        header
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{name}: ")))
+            .unwrap_or("")
+            .to_string()
+    };
+    let system = format!(
+        "{}, {} {}",
+        field("Distro"),
+        field("Desktop"),
+        field("Session")
+    );
+    let title = if summary.trim().is_empty() {
+        "Bug report".to_string()
+    } else {
+        summary.trim().to_string()
+    };
+    format!(
+        "https://github.com/Matt-B-007/Stream-Preflight/issues/new?template=bug_report.yml&title={}&version={}&system={}",
+        url_encode(&crate::util::scrub(&title)),
+        url_encode(crate::util::VERSION),
+        url_encode(&system)
+    )
+}
+
+/// Percent-encoding for a URL query value.
+pub(super) fn url_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn issue_link_is_encoded() {
+        assert_eq!(url_encode("a b&c/ü"), "a%20b%26c%2F%C3%BC");
+        let u = issue_url("Test never ends");
+        assert!(u.starts_with("https://github.com/Matt-B-007/Stream-Preflight/issues/new?template=bug_report.yml&title=Test%20never%20ends&version="));
+        assert!(!u.contains(' '));
     }
 }

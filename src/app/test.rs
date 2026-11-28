@@ -33,19 +33,19 @@ impl App {
                     fmt(last.gpu, "%"),
                     gpu.clone(),
                     if last.gpu.unwrap_or(0.0) >= 92.0 {
-                        theme::AMBER
+                        theme::pal().amber
                     } else {
-                        ACCENT
+                        pal().accent
                     },
                 ),
-                ("Encoder", fmt(last.enc, "%"), col(|p| p.enc), ACCENT),
+                ("Encoder", fmt(last.enc, "%"), col(|p| p.enc), pal().accent),
                 (
                     "Stream",
                     last.kbps
                         .map(|k| format!("{k:.0} kbps"))
                         .unwrap_or_else(|| "not live".into()),
                     col(|p| p.kbps),
-                    theme::TEAL,
+                    theme::pal().success,
                 ),
                 (
                     "Skipped",
@@ -53,7 +53,7 @@ impl App {
                         .map(|s| format!("{s:.2}%"))
                         .unwrap_or_else(|| "–".into()),
                     col(|p| p.skipped),
-                    theme::TEAL,
+                    theme::pal().success,
                 ),
             ]);
         }
@@ -72,18 +72,18 @@ impl App {
                 fmt(t.gpu_avg, "%"),
                 gpu,
                 if t.gpu_avg.unwrap_or(0.0) >= 92.0 {
-                    theme::AMBER
+                    theme::pal().amber
                 } else {
-                    ACCENT
+                    pal().accent
                 },
             ),
-            ("Encoder", fmt(t.enc_avg, "%"), enc, ACCENT),
+            ("Encoder", fmt(t.enc_avg, "%"), enc, pal().accent),
             (
                 "Stream",
                 kbps.map(|k| format!("{k} kbps"))
                     .unwrap_or_else(|| "–".into()),
                 Vec::new(),
-                theme::TEAL,
+                theme::pal().success,
             ),
             (
                 "Skipped",
@@ -91,7 +91,7 @@ impl App {
                     .map(|s| format!("{s:.2}%"))
                     .unwrap_or_else(|| "–".into()),
                 Vec::new(),
-                theme::TEAL,
+                theme::pal().success,
             ),
         ])
     }
@@ -139,16 +139,33 @@ impl App {
         if !self.st.pending_recordings.iter().any(|p| p.path == path) {
             return;
         }
-        let r = std::fs::remove_file(path);
+        let rec = self
+            .st
+            .pending_recordings
+            .iter()
+            .find(|p| p.path == path)
+            .cloned();
         self.st.pending_recordings.retain(|p| p.path != path);
         self.st.save();
-        match r {
-            Ok(_) => {
+        // Moved aside first, so Undo can bring it back; removed when the notice goes.
+        let p = std::path::Path::new(path);
+        let aside = undo::aside_name(p);
+        let r = match &aside {
+            Some(a) => std::fs::rename(p, a),
+            None => std::fs::remove_file(p),
+        };
+        match (r, aside, rec) {
+            (Ok(_), Some(moved), Some(rec)) => {
                 log::info!("Test recording deleted");
-                self.toast(ctx, "Test recording deleted");
+                self.toast_undo(
+                    ctx,
+                    "Test recording deleted",
+                    undo::Undo::Recording { moved, rec },
+                );
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => self.toast(ctx, format!("Couldn't delete it: {e}")),
+            (Ok(_), _, _) => self.toast(ctx, "Test recording deleted"),
+            (Err(e), _, _) if e.kind() == std::io::ErrorKind::NotFound => {}
+            (Err(e), _, _) => self.toast(ctx, format!("Couldn't delete it: {e}")),
         }
     }
 
@@ -178,7 +195,7 @@ impl App {
                         "{name} · {} · {folder}",
                         crate::util::fmt_bytes(rec.size)
                     ))
-                    .color(TEXT_SOFT),
+                    .color(pal().text_soft),
                 );
             });
             ui.horizontal(|ui| {
@@ -246,7 +263,7 @@ impl App {
                     theme::small(ui, format!("{} · {}", crate::util::fmt_bytes(rec.size), rec.path));
                 });
                 ui.horizontal(|ui| {
-                    if ui.add(egui::Button::new(RichText::new("Delete").color(BG).strong()).fill(BAD)).clicked() {
+                    if ui.add(egui::Button::new(RichText::new("Delete").color(pal().bg).strong()).fill(pal().bad)).clicked() {
                         action = Some("delete");
                     }
                     if theme::secondary(ui, "Keep").clicked() {
@@ -450,7 +467,12 @@ impl App {
                 } else {
                     "Start recording in OBS"
                 };
-                ui.label(RichText::new(head).size(24.0).strong());
+                ui.label(
+                    RichText::new(head)
+                        .size(22.0)
+                        .family(theme::title_family())
+                        .strong(),
+                );
             });
             ui.add_space(6.0);
             if matches!(phase, Some(Phase::Measuring)) {
@@ -483,7 +505,7 @@ impl App {
                         );
                     });
                 });
-                theme::bar(ui, elapsed / target, ACCENT, 10.0);
+                theme::bar(ui, elapsed / target, pal().accent, 10.0);
                 if let Some(s) = last {
                     ui.columns(3, |c| {
                         let gpu = s
@@ -572,21 +594,21 @@ impl App {
                         (t.seconds as u32) % 60
                     ))
                     .size(14.0)
-                    .color(MUTED),
+                    .color(pal().muted),
                 );
                 let bullets = self.test_summary(&t);
                 // Verdict first.
                 let bad: Vec<&(String, String, Color32)> =
-                    bullets.iter().filter(|b| b.2 == BAD).collect();
+                    bullets.iter().filter(|b| b.2 == pal().bad).collect();
                 let warn: Vec<&(String, String, Color32)> =
-                    bullets.iter().filter(|b| b.2 == WARN).collect();
+                    bullets.iter().filter(|b| b.2 == pal().warn).collect();
                 let (verdict, col) = if let Some(b) = bad.first() {
                     (
                         format!(
                             "Viewers would notice problems. Main one: {}",
                             lower_first(&b.0)
                         ),
-                        BAD,
+                        pal().bad,
                     )
                 } else if let Some(w) = warn.first() {
                     (
@@ -594,15 +616,15 @@ impl App {
                             "Your stream and recording would mostly be smooth. One thing to watch: {}",
                             lower_first(&w.0)
                         ),
-                        WARN,
+                        pal().warn,
                     )
                 } else {
                     (
                         "Your stream and recording would be smooth.".to_string(),
-                        GOOD,
+                        pal().success,
                     )
                 };
-                ui.label(RichText::new(verdict).size(19.0).strong().color(col));
+                ui.label(RichText::new(verdict).size(16.0).strong().color(col));
                 let (imp, opt) = self.open_counts();
                 if imp + opt > 0 {
                     ui.label(
@@ -610,7 +632,7 @@ impl App {
                             "Your settings: {}. Step 2 goes through them one at a time.",
                             count_words(imp, opt)
                         ))
-                        .color(TEXT_SOFT),
+                        .color(pal().text_soft),
                     );
                 }
                 // "Check my changes": before and after.
@@ -653,24 +675,28 @@ impl App {
                     let (line, fill, stroke) = match (better, worse) {
                         _ if not_comparable => (
                             "The two tests look too different to compare. The game didn't save a settings change, so this was probably a lighter or busier part of the game. Play the same spot and check again.",
-                            CARD,
-                            BORDER,
+                            pal().card,
+                            pal().border,
                         ),
                         (true, false) => (
                             "Your changes helped.",
-                            GOOD_BG,
-                            Color32::from_rgb(0x2F, 0x6B, 0x47),
+                            pal().success_bg,
+                            alpha(pal().success, 110),
                         ),
                         (false, true) => (
                             "It got worse after your changes. Check what you changed, or undo it.",
-                            BAD_BG,
-                            Color32::from_rgb(0x6B, 0x2B, 0x2B),
+                            pal().bad_bg,
+                            alpha(pal().bad, 110),
                         ),
-                        (true, true) => ("Some things got better and some worse.", CARD, BORDER),
+                        (true, true) => (
+                            "Some things got better and some worse.",
+                            pal().card,
+                            pal().border,
+                        ),
                         _ => (
                             "About the same as before. The change didn't make a measurable difference.",
-                            CARD,
-                            BORDER,
+                            pal().card,
+                            pal().border,
                         ),
                     };
                     egui::Frame::NONE
@@ -692,8 +718,8 @@ impl App {
                                 .spacing([24.0, 4.0])
                                 .show(ui, |ui| {
                                     ui.label("");
-                                    ui.label(RichText::new("Before").color(MUTED));
-                                    ui.label(RichText::new("After").color(MUTED));
+                                    ui.label(RichText::new("Before").color(pal().muted));
+                                    ui.label(RichText::new("After").color(pal().muted));
                                     ui.end_row();
                                     for (k, b, a) in [
                                         (
@@ -726,7 +752,7 @@ impl App {
                                         if b == "—" && a == "—" {
                                             continue;
                                         }
-                                        ui.label(RichText::new(k).color(MUTED));
+                                        ui.label(RichText::new(k).color(pal().muted));
                                         ui.label(b);
                                         ui.label(RichText::new(a).strong());
                                         ui.end_row();
@@ -771,7 +797,7 @@ impl App {
                                 ui.label(
                                     RichText::new(format!("Viewer preview: {head}.")).strong(),
                                 );
-                                ui.label(RichText::new(meaning).color(TEXT_SOFT));
+                                ui.label(RichText::new(meaning).color(pal().text_soft));
                                 if link_small(ui, "See it") {
                                     action = Some("results");
                                     self.scroll_to_preview = true;
@@ -797,7 +823,7 @@ impl App {
                     for (head, meaning, col) in &bullets {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(RichText::new(head).strong().color(*col));
-                            ui.label(RichText::new(meaning).color(TEXT_SOFT));
+                            ui.label(RichText::new(meaning).color(pal().text_soft));
                         });
                     }
                 });
@@ -877,26 +903,25 @@ impl App {
             if !self.test_choice_open {
                 // The choice, folded to one line.
                 egui::Frame::NONE
-                    .fill(Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 14))
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 70),
-                    ))
+                    .fill(alpha(pal().accent, 14))
+                    .stroke(egui::Stroke::new(1.0, alpha(pal().accent, 70)))
                     .corner_radius(egui::CornerRadius::same(10))
                     .inner_margin(egui::Margin::symmetric(14, 8))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
-                            ui.label(theme::caps("Test", 11.0, MUTED));
+                            ui.label(theme::caps("Test", 12.0, pal().muted));
                             ui.label(RichText::new(kname).strong());
-                            ui.label(RichText::new(format!("· {kdesc}")).color(MUTED));
+                            ui.label(RichText::new(format!("· {kdesc}")).color(pal().muted));
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     if ui
                                         .add(
                                             egui::Button::new(
-                                                RichText::new("Change").color(ACCENT).underline(),
+                                                RichText::new("Change")
+                                                    .color(pal().accent)
+                                                    .underline(),
                                             )
                                             .frame(false),
                                         )
@@ -1148,7 +1173,7 @@ impl App {
                 |_| {},
             );
             if waiting && elapsed > 20.0 && !rec_on {
-                ui.label(RichText::new("Still waiting. Check that OBS shows a red Record button and a running timer.").size(13.0).color(WARN));
+                ui.label(RichText::new("Still waiting. Check that OBS shows a red Record button and a running timer.").size(12.0).color(pal().warn));
             }
             if self.show_bw_help && platforms.iter().any(|p| p == "Twitch") {
                 theme::small(
@@ -1169,7 +1194,7 @@ impl App {
                             "Smoothness {} · Setup {}. {}",
                             m.smoothness, m.setup, m.verdict
                         ))
-                        .color(TEXT_SOFT),
+                        .color(pal().text_soft),
                     );
                     if !m.open.is_empty() {
                         theme::small(
@@ -1295,17 +1320,17 @@ impl App {
             Some(g) if g >= 92.0 => v.push((
                 format!("Your GPU was maxed out, at {g:.0}% on average."),
                 "No room left for the stream encoder.".to_string(),
-                BAD,
+                pal().bad,
             )),
             Some(g) => v.push((
                 format!("Your GPU averaged {g:.0}%."),
                 "There's room left for the stream encoder.".to_string(),
-                GOOD,
+                pal().success,
             )),
             None => v.push((
                 "GPU usage couldn't be read on this card.".to_string(),
                 "CPU, OBS and heat were still measured.".to_string(),
-                MUTED,
+                pal().muted,
             )),
         }
         if t.with_obs && t.output_total > 0 {
@@ -1322,13 +1347,13 @@ impl App {
                         }
                     ),
                     "Viewers would see occasional stutters.".into(),
-                    WARN,
+                    pal().warn,
                 ));
             } else {
                 v.push((
                     "OBS didn't skip any stream frames.".into(),
                     "The encoder kept up the whole time.".into(),
-                    GOOD,
+                    pal().success,
                 ));
             }
         }
@@ -1340,13 +1365,13 @@ impl App {
                         d - m
                     ),
                     analysis::mic_gap_meaning(d - m).into(),
-                    WARN,
+                    pal().warn,
                 ));
             } else {
                 v.push((
                     "Your voice sits above the game audio.".into(),
                     "Viewers will hear you clearly.".into(),
-                    GOOD,
+                    pal().success,
                 ));
             }
         }
@@ -1357,7 +1382,7 @@ impl App {
                     t.cpu_avg
                 ),
                 "The game and OBS were competing for it.".into(),
-                BAD,
+                pal().bad,
             ));
         }
         if let Some(e) = t.enc_avg {
@@ -1365,13 +1390,13 @@ impl App {
                 v.push((
                     format!("Your encoder chip was {e:.0}% busy on average."),
                     "It's close to its limit, so busy moments can make OBS skip frames.".into(),
-                    WARN,
+                    pal().warn,
                 ));
             } else {
                 v.push((
                     format!("Your encoder chip was {e:.0}% busy on average."),
                     "It has room to spare.".into(),
-                    GOOD,
+                    pal().success,
                 ));
             }
         }
@@ -1380,7 +1405,7 @@ impl App {
             v.push((
                 format!("You streamed during the test, and your internet dropped {:.2}% of stream frames.", f * 100.0),
                 if f < 0.001 { "Your connection handled the stream and recording together.".into() } else { "Your connection struggled while streaming.".into() },
-                if f < 0.001 { GOOD } else { WARN },
+                if f < 0.001 { pal().success } else { pal().warn },
             ));
         }
         // Every other output (separate recording, plugin outputs, extra streams), side by side.
@@ -1408,7 +1433,7 @@ impl App {
                 } else {
                     "All of them kept up.".into()
                 },
-                if bad { WARN } else { GOOD },
+                if bad { pal().warn } else { pal().success },
             ));
         }
         if !t.encodes_seen.is_empty() {
@@ -1424,7 +1449,7 @@ impl App {
                         .join(", ")
                 ),
                 "Counted from your graphics driver.".into(),
-                MUTED,
+                pal().muted,
             ));
         }
         v
@@ -1445,9 +1470,9 @@ impl App {
             .map(|o| !o.rec_encoder_raw.is_empty())
             .unwrap_or(false);
         theme::card(ui, |ui| {
-            ui.label(RichText::new("Viewer preview").size(21.0).strong());
+            ui.label(RichText::new("Viewer preview").size(16.0).strong());
             if separate_rec {
-                ui.label(RichText::new("Your recording has its own encoder, so this shows your recording, not exactly what viewers get. For a true viewer preview, record with the stream encoder for the test.").size(13.0).color(WARN));
+                ui.label(RichText::new("Your recording has its own encoder, so this shows your recording, not exactly what viewers get. For a true viewer preview, record with the stream encoder for the test.").size(12.0).color(pal().warn));
             }
             if self.test.is_none() {
                 theme::muted(
@@ -1490,7 +1515,7 @@ impl App {
                         i + 1,
                         crate::streamwatch::fmt_t(pair.t_sec)
                     ))
-                    .color(TEXT_SOFT),
+                    .color(pal().text_soft),
                 );
                 if ui
                     .add_enabled(i + 1 < n, egui::Button::new("Next"))
@@ -1505,25 +1530,25 @@ impl App {
                 Some(db) => {
                     let (head, meaning) = crate::preview::meaning(db);
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(format!("{head}.")).size(18.0).strong().color(
+                        ui.label(RichText::new(format!("{head}.")).size(16.0).strong().color(
                             if db >= 36.0 {
-                                GOOD
+                                pal().success
                             } else if db >= 32.0 {
-                                WARN
+                                pal().warn
                             } else {
-                                BAD
+                                pal().bad
                             },
                         ));
-                        ui.label(RichText::new(meaning).color(TEXT_SOFT));
+                        ui.label(RichText::new(meaning).color(pal().text_soft));
                         ui.label(
                             RichText::new(format!("(picture match {db:.0} dB)"))
-                                .size(12.5)
-                                .color(MUTED),
+                                .size(12.0)
+                                .color(pal().muted),
                         );
                     });
                 }
                 None if pair.viewer.is_some() => {
-                    ui.label(RichText::new("Preflight couldn't line these two frames up exactly (probably fast movement), so there's no score for this moment. Try another moment.").color(WARN));
+                    ui.label(RichText::new("Preflight couldn't line these two frames up exactly (probably fast movement), so there's no score for this moment. Try another moment.").color(pal().warn));
                 }
                 None => {}
             }
@@ -1600,17 +1625,17 @@ impl App {
                     painter.image(v.id(), rr, ruv, Color32::WHITE);
                     painter.line_segment(
                         [egui::pos2(sx, rect.min.y), egui::pos2(sx, rect.max.y)],
-                        egui::Stroke::new(2.0, ACCENT),
+                        egui::Stroke::new(2.0, pal().accent),
                     );
                     let tag = |p: egui::Pos2, text: &str, align: egui::Align2| {
                         let g = painter.layout_no_wrap(
                             text.to_string(),
                             egui::FontId::proportional(14.0),
-                            TEXT,
+                            pal().text,
                         );
                         let r = align.anchor_size(p, g.size()).expand(5.0);
                         painter.rect_filled(r, 6.0, Color32::from_black_alpha(170));
-                        painter.galley(r.min + Vec2::splat(5.0), g, TEXT);
+                        painter.galley(r.min + Vec2::splat(5.0), g, pal().text);
                     };
                     tag(
                         rect.left_top() + Vec2::new(8.0, 8.0),

@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.1.0-beta.9
+
+The family look and flow: a light theme, the same layout and dialogs as the other apps, and safer settings, logs and reports. First version that only installs signed updates.
+
+- **Light and dark themes**: follows your desktop by default, or pick Dark or Light in **Settings › Appearance**. Navy backgrounds, lime text and links (#3F6212 in the light theme), and the same green, amber and red for good, check and fix everywhere. Every colour comes from one place, and a test checks that all text is readable (4.5:1) on every background in both themes; `--self-test` checks it too.
+- **Calmer effects**: the purple glow is gone and only the main button glows. Corner brackets mark only the active card; other cards get a thin lime edge. The background grid can be turned off, and **Reduce motion** turns off animations.
+- **Built-in fonts and icons**: Inter for text, JetBrains Mono for numbers and logs, Space Grotesk for titles, and Lucide icons, all inside the program, so text looks the same on every PC. Text sizes are 12 / 14 / 16 / 22. Licences are in `assets/fonts`.
+- **New app icon and tray states**: the launcher icon is the lime symbol on #0C1016. The tray icon is grey when OBS isn't connected, plain when ready, lime while testing or live, with an amber dot when something needs you and a red dot when something is wrong. It waits 400 ms before changing, so it doesn't flicker.
+- **Help menu, top right**: Report a problem, What's new, Keyboard shortcuts, Show the tour and About, next to the Settings gear and an Update button when there's an update.
+- **Update dialog**: "Stream Preflight X is available" with the release notes, **Update now**, **Later** and **Skip this version**, then "Update installed. Restart to use it." Preflight no longer restarts by itself. **Settings › Updates** has a Stable / Beta switch and says when it last checked.
+- **Report a problem**: a short summary, "What happened, and what did you expect?", and a preview of exactly what's included. **Save to file**, **Copy report**, **Open log folder**, and **Open on GitHub**, which warns that it creates a public issue and fills in only the summary and the app and system lines. The report starts with app, version, channel, install type, distro, desktop, Wayland/X11 and kernel.
+- **Settings in the family order**: General, Appearance, Updates, Privacy, OBS & PCs, Tray & notifications, Advanced, About & uninstall, with the red Uninstall box last. Uninstalling now keeps your settings and logs unless you tick **Also delete my settings and logs**, and ends with "Stream Preflight is uninstalled. Thanks for trying it."
+- **Keyboard**: Ctrl+K searches pages and commands, Ctrl+, opens Settings, ? shows all shortcuts, Ctrl+Q quits.
+- **A short tour** for new installs (5 steps, skippable). After an update it's offered in What's new instead.
+- **Undo**: clearing history, forgetting the OBS password, unpairing and deleting a test recording all offer **Undo** for 10 seconds before anything is removed for good.
+- **"Closed unexpectedly" notice**: if Preflight didn't close normally last time, it says so at the next start, with **Report** and **Dismiss**. Crash files from the last 10 sessions are kept.
+- **Safer settings**: saved through a temporary file and a rename, with a rolling backup at most every 15 minutes (5 kept). A broken settings file is replaced by the newest good backup instead of starting fresh. History and other data files are saved the same way.
+- **New folders on Linux**: `~/.config/stream-preflight` (settings), `~/.local/share/stream-preflight` (history and data) and `~/.local/state/stream-preflight` (logs), moved automatically from the old folders. The old folder names become links to the new ones, so going back to an older version still finds everything.
+- **Logs**: up to 1 MB per file, 3 files kept, plus the last 500 lines in memory for reports.
+- **Reports remove more**: the same placeholders as the other apps: `~`, `<user>`, `<host>`, `<ip>` (IPv4 and IPv6), `<mac>`, `<secret>` and `<steamid>`, including Windows-style paths like `Z:\home\name`. Version numbers such as 0.11.0.1 are no longer mistaken for addresses.
+- **Updates when DNS fails**: if your PC's own DNS can't find GitHub, the updater asks a public DNS service (Cloudflare, then Google) over HTTPS. The connection to GitHub is still checked as usual.
+- **Signed updates only**: from this version on, an update installs only with a valid signature from the maintainer's main or backup key.
+- **`download/` stays at beta.8**: it's no longer updated. It stays frozen through this release and the next, then it's deleted.
+
 ## v0.1.0-beta.8
 
 Safer updates: signed GitHub Releases, a self-test before every swap, and a way to go back. Plus three fixes from the latest bug report.

@@ -1,6 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140" width="512" height="512">
-  <rect x="0" y="0" width="140" height="140" rx="30" fill="#14171D"/>
-  <path d="M30,92 L54,114 L104,66" fill="none" stroke="#C6F36B" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-  <polygon points="40,62 100,32 80,78 70,64" fill="#C6F36B"/>
-  <path d="M70,64 L100,32" stroke="#14171D" stroke-width="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="512" height="512">
+  <!-- Stream Preflight: house standard launcher icon. Rounded square (radius 22%),
+       #0C1016 background, 1 px edge at 35% accent, one symbol in the accent colour. -->
+  <rect x="0.500" y="0.500" width="127.000" height="127.000" rx="28" fill="#0C1016" stroke="#C6F36B" stroke-opacity="0.35" stroke-width="1.000"/>
+  <g transform="translate(64 64) scale(0.82) translate(-67 -73)">
+    <path d="M30,92 L54,114 L104,66" fill="none" stroke="#C6F36B" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    <polygon points="40,62 100,32 80,78 70,64" fill="#C6F36B"/>
+    <path d="M70,64 L100,32" stroke="#0C1016" stroke-width="3"/>
+  </g>
 </svg>

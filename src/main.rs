@@ -7,12 +7,14 @@ mod autoread;
 mod cli;
 mod config;
 mod desktop;
+mod doh;
 mod encoders;
 mod fleet;
 mod gamefps;
 mod games;
 mod hardware;
 mod history;
+mod icons;
 mod install;
 mod instance;
 mod livetest;
@@ -191,6 +193,7 @@ fn main() {
             )),
         ..Default::default()
     };
+    logger::start_session();
     if let Err(e) = eframe::run_native(
         util::APP_NAME,
         options,
@@ -199,5 +202,6 @@ fn main() {
         log::error!("Window could not start: {e}");
         eprintln!("Stream Preflight could not open its window: {e}");
     }
+    logger::end_session();
     log::logger().flush();
 }

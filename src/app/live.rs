@@ -8,7 +8,7 @@ pub(super) fn out_line(ui: &mut Ui, name: &str, value: &str, note: &str) {
     ui.horizontal(|ui| {
         ui.label(name);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(RichText::new(note).size(12.5).color(MUTED));
+            ui.label(RichText::new(note).size(12.0).color(pal().muted));
             ui.label(RichText::new(value).monospace());
         });
     });
@@ -17,21 +17,13 @@ pub(super) fn out_line(ui: &mut Ui, name: &str, value: &str, note: &str) {
 pub(super) fn alert_line(ui: &mut Ui, text: &str, col: Color32) {
     ui.add_space(6.0);
     egui::Frame::NONE
-        .fill(Color32::from_rgba_unmultiplied(
-            col.r(),
-            col.g(),
-            col.b(),
-            22,
-        ))
-        .stroke(egui::Stroke::new(
-            1.0,
-            Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 110),
-        ))
+        .fill(alpha(col, 22))
+        .stroke(egui::Stroke::new(1.0, alpha(col, 110)))
         .corner_radius(egui::CornerRadius::same(10))
         .inner_margin(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new(text).size(13.5));
+            ui.label(RichText::new(text).size(12.0));
         });
 }
 
@@ -46,7 +38,7 @@ pub(super) fn bitrate_graph(ui: &mut Ui, kbps: &[f32], target: Option<f32>, h: f
             egui::Align2::CENTER_CENTER,
             "The graph fills in as you stream",
             egui::FontId::proportional(13.0),
-            MUTED,
+            pal().muted,
         );
         return;
     }
@@ -58,7 +50,7 @@ pub(super) fn bitrate_graph(ui: &mut Ui, kbps: &[f32], target: Option<f32>, h: f
         .enumerate()
         .map(|(i, v)| egui::pos2(rect.min.x + i as f32 * rect.width() / (n - 1) as f32, y(*v)))
         .collect();
-    let fill = Color32::from_rgba_unmultiplied(0x5E, 0xF0, 0xB5, 34);
+    let fill = alpha(pal().success, 34);
     for pair in pts.windows(2) {
         p.add(egui::Shape::convex_polygon(
             vec![
@@ -77,27 +69,35 @@ pub(super) fn bitrate_graph(ui: &mut Ui, kbps: &[f32], target: Option<f32>, h: f
         while x < rect.max.x {
             p.line_segment(
                 [egui::pos2(x, ty), egui::pos2((x + 5.0).min(rect.max.x), ty)],
-                egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xC6, 0xF3, 0x6B, 140)),
+                egui::Stroke::new(1.0, alpha(pal().accent, 140)),
             );
             x += 9.0;
         }
     }
-    p.add(egui::Shape::line(pts, egui::Stroke::new(2.0, theme::TEAL)));
+    p.add(egui::Shape::line(
+        pts,
+        egui::Stroke::new(2.0, theme::pal().success),
+    ));
 }
 
 impl App {
     /// While you're live: big, calm numbers and plain alerts. Nothing to click.
     pub(super) fn ui_inflight(&mut self, ui: &mut Ui) {
         let Some(l) = self.live.clone() else {
-            ui.label(theme::caps("Live · while you stream", 12.0, MUTED));
-            ui.label(RichText::new("Not live right now").size(30.0).strong());
+            ui.label(theme::caps("Live · while you stream", 12.0, pal().muted));
+            ui.label(
+                RichText::new("Not live right now")
+                    .size(22.0)
+                    .family(theme::title_family())
+                    .strong(),
+            );
             ui.add_space(6.0);
             theme::card(ui, |ui| {
                 ui.label(
                     RichText::new("This page opens by itself when you start streaming in OBS.")
-                        .color(TEXT_SOFT),
+                        .color(pal().text_soft),
                 );
-                ui.label(RichText::new("You'll see your bitrate, dropped and skipped frames and your PC's load as you stream, with a plain note if anything goes wrong.").color(TEXT_SOFT));
+                ui.label(RichText::new("You'll see your bitrate, dropped and skipped frames and your PC's load as you stream, with a plain note if anything goes wrong.").color(pal().text_soft));
                 if let Some(s) = self.streams.first() {
                     let p = crate::streamwatch::summarize(s);
                     ui.add_space(4.0);
@@ -109,7 +109,7 @@ impl App {
                                 crate::streamwatch::fmt_duration(p.duration),
                                 p.grade
                             ))
-                            .color(TEXT),
+                            .color(pal().text),
                         );
                         if outlined(ui, "See the summary").clicked() {
                             self.stream_sel = 0;
@@ -144,19 +144,19 @@ impl App {
         let (verdict, vcol, vline) = if dropped >= 2.0 || skipped_now.unwrap_or(0.0) >= 2.0 {
             (
                 "Rough",
-                BAD,
+                pal().bad,
                 "Viewers are seeing stutter. The note below says why.",
             )
         } else if dropped >= 0.5 || skipped_now.unwrap_or(0.0) >= 0.5 || low_bitrate {
             (
                 "Watch it",
-                theme::AMBER,
+                theme::pal().amber,
                 "A few problems; most viewers won't notice yet.",
             )
         } else {
             (
                 "All smooth",
-                theme::TEAL,
+                theme::pal().success,
                 "Viewers are getting a clean stream",
             )
         };
@@ -168,7 +168,7 @@ impl App {
         ui.label(theme::caps(
             &format!("Live on {platforms}"),
             12.0,
-            Color32::from_rgb(0xFF, 0x5C, 0x6C),
+            pal().bad,
         ));
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), egui::Sense::hover());
@@ -178,37 +178,26 @@ impl App {
             ui.painter().circle_filled(
                 r.center(),
                 9.0 + pulse * 3.0,
-                Color32::from_rgba_unmultiplied(
-                    0xFF,
-                    0x5C,
-                    0x6C,
-                    (40.0 * (1.0 - pulse)) as u8 + 20,
-                ),
+                alpha(pal().bad, (40.0 * (1.0 - pulse)) as u8 + 20),
             );
-            ui.painter()
-                .circle_filled(r.center(), 7.0, Color32::from_rgb(0xFF, 0x5C, 0x6C));
+            ui.painter().circle_filled(r.center(), 7.0, pal().bad);
             ui.label(
                 RichText::new(crate::streamwatch::fmt_t(l.elapsed))
                     .monospace()
                     .size(38.0)
-                    .color(TEXT),
+                    .color(pal().text),
             );
             theme::repaint_in(ui.ctx(), 1000);
             ui.add_space(16.0);
             egui::Frame::NONE
-                .fill(Color32::from_rgba_unmultiplied(
-                    vcol.r(),
-                    vcol.g(),
-                    vcol.b(),
-                    30,
-                ))
+                .fill(alpha(vcol, 30))
                 .stroke(egui::Stroke::new(1.0, vcol))
                 .corner_radius(egui::CornerRadius::same(255))
                 .inner_margin(egui::Margin::symmetric(16, 6))
                 .show(ui, |ui| {
                     ui.label(theme::caps(verdict, 13.0, vcol));
                 });
-            ui.label(RichText::new(vline).color(MUTED));
+            ui.label(RichText::new(vline).color(pal().muted));
         });
         ui.add_space(12.0);
         // Four big numbers.
@@ -242,7 +231,7 @@ impl App {
                     "kbps",
                     target.map(|t| format!("Target {t:.0}")).unwrap_or_default(),
                     kbps.iter().rev().take(60).rev().cloned().collect(),
-                    theme::TEAL,
+                    theme::pal().success,
                 ),
                 (
                     "Dropped · internet",
@@ -257,7 +246,7 @@ impl App {
                         let v: Vec<f32> = h.iter().filter_map(|p| p.skipped).collect();
                         v[v.len().saturating_sub(60)..].to_vec()
                     },
-                    theme::AMBER,
+                    theme::pal().amber,
                 ),
                 (
                     "Skipped · encoder",
@@ -271,30 +260,28 @@ impl App {
                         "The encoder is falling behind".into()
                     },
                     Vec::new(),
-                    ACCENT,
+                    pal().accent,
                 ),
-                (
-                    "Recording",
-                    rec_value,
-                    "",
-                    rec_sub,
-                    Vec::new(),
-                    Color32::from_rgb(0xFF, 0x5C, 0x6C),
-                ),
+                ("Recording", rec_value, "", rec_sub, Vec::new(), pal().bad),
             ];
             for (label, value, unit, sub, series, col) in tiles {
                 egui::Frame::NONE
-                    .fill(CARD)
-                    .stroke(egui::Stroke::new(1.0, BORDER))
+                    .fill(pal().card)
+                    .stroke(egui::Stroke::new(1.0, pal().border))
                     .corner_radius(egui::CornerRadius::same(14))
                     .inner_margin(egui::Margin::symmetric(16, 12))
                     .show(ui, |ui| {
                         ui.set_width(w - 34.0);
                         ui.vertical(|ui| {
-                            ui.label(theme::caps(label, 11.0, MUTED));
+                            ui.label(theme::caps(label, 12.0, pal().muted));
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(value).monospace().size(28.0).color(TEXT));
-                                ui.label(RichText::new(unit).color(MUTED));
+                                ui.label(
+                                    RichText::new(value)
+                                        .monospace()
+                                        .size(28.0)
+                                        .color(pal().text),
+                                );
+                                ui.label(RichText::new(unit).color(pal().muted));
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
@@ -302,7 +289,7 @@ impl App {
                                     },
                                 );
                             });
-                            ui.label(RichText::new(sub).size(13.0).color(TEXT_SOFT));
+                            ui.label(RichText::new(sub).size(12.0).color(pal().text_soft));
                         });
                     });
             }
@@ -310,14 +297,14 @@ impl App {
         ui.add_space(12.0);
         ui.horizontal_top(|ui| {
             let wide = (ui.available_width() * 0.62).max(360.0);
-            egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 14)).show(ui, |ui| {
+            egui::Frame::NONE.fill(pal().card).stroke(egui::Stroke::new(1.0, pal().border)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 14)).show(ui, |ui| {
                 ui.set_width(wide - 38.0);
                 ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label(theme::caps("Bitrate · last 10 minutes", 11.0, MUTED));
+                    ui.label(theme::caps("Bitrate · last 10 minutes", 12.0, pal().muted));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if target.is_some() {
-                            ui.label(RichText::new("dashed line: your target").size(12.0).color(MUTED));
+                            ui.label(RichText::new("dashed line: your target").size(12.0).color(pal().muted));
                         }
                     });
                 });
@@ -327,18 +314,18 @@ impl App {
                 if let Some((i, _)) = dip {
                     let ago = (kbps.len() - i) as f32;
                     let steady = kbps.iter().rev().take(10).all(|k| target.map(|t| *k >= t * 0.85).unwrap_or(true));
-                    alert_line(ui, &format!("Your bitrate dipped about {} ago{}", crate::streamwatch::fmt_t(ago), if steady { ". It's steady again; nothing to do." } else { ". If it keeps dipping, your upload is struggling: lower the bitrate a little next time." }), theme::AMBER);
+                    alert_line(ui, &format!("Your bitrate dipped about {} ago{}", crate::streamwatch::fmt_t(ago), if steady { ". It's steady again; nothing to do." } else { ". If it keeps dipping, your upload is struggling: lower the bitrate a little next time." }), theme::pal().amber);
                 } else if dropped >= 0.5 {
-                    alert_line(ui, "Your internet is dropping frames. If it keeps happening, lower the bitrate next time or use a cable instead of Wi-Fi.", theme::AMBER);
+                    alert_line(ui, "Your internet is dropping frames. If it keeps happening, lower the bitrate next time or use a cable instead of Wi-Fi.", theme::pal().amber);
                 } else if skipped_now.unwrap_or(0.0) >= 0.5 {
-                    alert_line(ui, "The encoder is falling behind: the game is using the whole GPU. Capping the game's frame rate helps.", theme::AMBER);
+                    alert_line(ui, "The encoder is falling behind: the game is using the whole GPU. Capping the game's frame rate helps.", theme::pal().amber);
                 }
                 });
             });
-            egui::Frame::NONE.fill(CARD).stroke(egui::Stroke::new(1.0, BORDER)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 14)).show(ui, |ui| {
+            egui::Frame::NONE.fill(pal().card).stroke(egui::Stroke::new(1.0, pal().border)).corner_radius(egui::CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(18, 14)).show(ui, |ui| {
                 ui.set_width(ui.available_width() - 2.0);
                 ui.vertical(|ui| {
-                ui.label(theme::caps("Each output", 11.0, MUTED));
+                ui.label(theme::caps("Each output", 12.0, pal().muted));
                 // Read from OBS every 10 s while live.
                 let outs: Vec<crate::obs::OutputInfo> = l.outputs.clone();
                 if outs.is_empty() {
@@ -352,7 +339,7 @@ impl App {
                     out_line(ui, &o.platform_hint.clone().unwrap_or_else(|| o.label.clone()), &pct, "skipped");
                 }
                 ui.add_space(8.0);
-                ui.label(theme::caps("This PC", 11.0, MUTED));
+                ui.label(theme::caps("This PC", 12.0, pal().muted));
                 out_line(ui, "GPU", &gpu.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()), if gpu.unwrap_or(0.0) >= 95.0 { "maxed out" } else { "has room" });
                 out_line(ui, "Encoder", &enc.map(|g| format!("{g:.0}%")).unwrap_or_else(|| "–".into()), "busy");
                 });

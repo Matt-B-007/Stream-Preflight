@@ -83,12 +83,14 @@ pub fn managed_install() -> Option<String> {
     })
 }
 
+/// Falls back to public DNS if the system's DNS can't find GitHub.
 fn agent(secs: u64) -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(secs)))
-        .user_agent(format!("StreamPreflight/{}", crate::util::VERSION))
-        .build()
-        .into()
+    crate::doh::agent(
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(secs)))
+            .user_agent(format!("StreamPreflight/{}", crate::util::VERSION))
+            .build(),
+    )
 }
 
 pub fn check(beta: bool) -> Result<UpdateInfo, String> {

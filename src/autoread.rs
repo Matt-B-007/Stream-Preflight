@@ -370,7 +370,7 @@ fn load_cache() -> BTreeMap<String, Located> {
 
 fn save_cache(c: &BTreeMap<String, Located>) {
     if let Ok(t) = serde_json::to_string_pretty(c) {
-        let _ = std::fs::write(cache_path(), t);
+        let _ = crate::config::write_atomic(&cache_path(), t.as_bytes());
     }
 }
 
@@ -2974,7 +2974,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             crate::util::scrub_steam_ids("Steam/userdata/123456789/730 and 76561190000000001"),
-            "Steam/userdata/<id>/730 and <steam id>"
+            "Steam/userdata/<steamid>/730 and <steamid>"
         );
         let r = crate::report::redact_private_lines(
             &(0..12)

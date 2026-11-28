@@ -49,12 +49,8 @@ pub fn save(n: &NetResult) {
     if !n.ok {
         return;
     }
-    let p = saved_path();
     if let Ok(json) = serde_json::to_string(n) {
-        let tmp = p.with_extension("json.tmp");
-        if std::fs::write(&tmp, json).is_ok() {
-            let _ = std::fs::rename(&tmp, &p);
-        }
+        let _ = crate::config::write_atomic(&saved_path(), json.as_bytes());
     }
 }
 

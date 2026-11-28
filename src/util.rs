@@ -20,7 +20,7 @@ pub fn one_core(pct_of_all: f32) -> String {
     }
 }
 
-pub const BUILD_LABEL: &str = "Beta 8";
+pub const BUILD_LABEL: &str = "Beta 9";
 
 /// Folders the app is allowed to write to. Everything lives under the
 /// user's normal per-app data folder; nothing is written anywhere else.
@@ -39,18 +39,124 @@ pub struct Dirs {
 
 static DIRS: OnceLock<Dirs> = OnceLock::new();
 
+/// The folder name on Linux, as in the other apps: ~/.config/stream-preflight,
+/// ~/.local/share/stream-preflight and ~/.local/state/stream-preflight.
+#[cfg(target_os = "linux")]
+pub const LINUX_FOLDER: &str = "stream-preflight";
+
+/// (settings, data, logs) folders.
+#[cfg(target_os = "linux")]
+fn base_folders() -> Option<(PathBuf, PathBuf, PathBuf)> {
+    let b = directories::BaseDirs::new()?;
+    let state = b
+        .state_dir()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| b.home_dir().join(".local/state"));
+    Some((
+        b.config_dir().join(LINUX_FOLDER),
+        b.data_dir().join(LINUX_FOLDER),
+        state.join(LINUX_FOLDER),
+    ))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn base_folders() -> Option<(PathBuf, PathBuf, PathBuf)> {
+    let base = directories::ProjectDirs::from("", "", "StreamPreflight");
+    migrate_old_folders(&base);
+    let p = base?;
+    let data = p.data_dir().to_path_buf();
+    Some((
+        p.config_dir().to_path_buf(),
+        data.clone(),
+        data.join("logs"),
+    ))
+}
+
+/// Folders used by beta.8 and older on Linux. After the move they're links to the
+/// new folders, so going back to an older version still finds your settings.
+#[cfg(target_os = "linux")]
+pub fn legacy_folders() -> Vec<(PathBuf, PathBuf)> {
+    let Some((config, data, _)) = base_folders() else {
+        return Vec::new();
+    };
+    let Some(b) = directories::BaseDirs::new() else {
+        return Vec::new();
+    };
+    let mut v = Vec::new();
+    for old in ["streampreflight", "streampreflightcheck"] {
+        v.push((b.config_dir().join(old), config.clone()));
+        v.push((b.data_dir().join(old), data.clone()));
+    }
+    v
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn legacy_folders() -> Vec<(PathBuf, PathBuf)> {
+    Vec::new()
+}
+
+/// Moves an old folder to its new place. With `link`, the old path becomes a
+/// link to the new folder. Nothing is ever deleted: if the move fails, it's
+/// copied and the old folder stays.
+pub fn move_folder(from: &std::path::Path, to: &std::path::Path, link: bool) -> bool {
+    let is_link = std::fs::symlink_metadata(from)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    if is_link || !from.is_dir() || to.exists() {
+        return false;
+    }
+    if let Some(parent) = to.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let moved = std::fs::rename(from, to).is_ok();
+    if !moved {
+        if copy_dir(from, to).is_err() {
+            return false;
+        }
+        return true;
+    }
+    #[cfg(unix)]
+    if link {
+        let _ = std::os::unix::fs::symlink(to, from);
+    }
+    #[cfg(not(unix))]
+    let _ = link;
+    true
+}
+
+/// Moves files from the old logs folder (inside the data folder) to the new one.
+pub fn move_logs(old_logs: &std::path::Path, new_logs: &std::path::Path) {
+    if old_logs == new_logs || !old_logs.is_dir() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(new_logs);
+    if let Ok(rd) = std::fs::read_dir(old_logs) {
+        for e in rd.flatten() {
+            let t = new_logs.join(e.file_name());
+            if !t.exists() && std::fs::rename(e.path(), &t).is_err() {
+                let _ = std::fs::copy(e.path(), &t);
+            }
+        }
+    }
+    // Only removed when empty.
+    let _ = std::fs::remove_dir(old_logs);
+}
+
 pub fn dirs() -> &'static Dirs {
     DIRS.get_or_init(|| {
-        let base = directories::ProjectDirs::from("", "", "StreamPreflight");
-        migrate_old_folders(&base);
-        let (config, data) = match &base {
-            Some(p) => (p.config_dir().to_path_buf(), p.data_dir().to_path_buf()),
-            None => {
-                let t = std::env::temp_dir().join("StreamPreflight");
-                (t.join("config"), t.join("data"))
+        let (config, data, logs) = base_folders().unwrap_or_else(|| {
+            let t = std::env::temp_dir().join("StreamPreflight");
+            (t.join("config"), t.join("data"), t.join("logs"))
+        });
+        // Linux: beta.8 and older used ~/.config/streampreflight and
+        // ~/.local/share/streampreflight (and logs inside the data folder).
+        for (old, new) in legacy_folders() {
+            let newest = old.ends_with("streampreflight");
+            if move_folder(&old, &new, newest) {
+                log::info!("Moved Preflight's folder to its new place");
             }
-        };
-        let logs = data.join("logs");
+        }
+        move_logs(&data.join("logs"), &logs);
         let reports = data.join("reports");
         let previews = data.join("previews");
         let tests = data.join("tests");
@@ -104,35 +210,162 @@ pub fn user_name() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Removes things that identify the person or the PC from text that may
-/// end up in a log line or a bug report:
-/// - the home folder and user name in paths
-/// - IPv4 addresses and MAC addresses
-/// - anything that looks like a stream key, token or password value
+/// The PC's name, used for scrubbing.
+pub fn host_name() -> Option<String> {
+    #[cfg(unix)]
+    let h = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .or_else(|_| std::fs::read_to_string("/etc/hostname"))
+        .ok()
+        .map(|s| s.trim().to_string());
+    #[cfg(not(unix))]
+    let h = std::env::var("COMPUTERNAME").ok();
+    h.filter(|s| !s.is_empty() && s != "localhost")
+}
+
+/// Removes things that identify the person or the PC from text that may end up
+/// in a log line or a bug report. The same placeholders as the other apps:
+/// - home folder → `~`, user name → `<user>`, PC name → `<host>`
+/// - Windows-style paths too (`Z:\home\name`, `C:\Users\name`)
+/// - Steam account IDs → `<steamid>` (game and app IDs stay)
+/// - IP addresses → `<ip>`, MAC addresses → `<mac>` (version numbers stay)
+/// - stream keys, tokens and passwords → `<secret>`
 pub fn scrub(text: &str) -> String {
+    scrub_with(text, home_dir(), user_name(), host_name())
+}
+
+/// `scrub` with the home folder, user name and PC name given (for tests).
+pub fn scrub_with(
+    text: &str,
+    home: Option<PathBuf>,
+    user: Option<String>,
+    host: Option<String>,
+) -> String {
     let mut out = text.to_string();
-    if let Some(home) = home_dir() {
+    if let Some(home) = home {
         let h = home.to_string_lossy().to_string();
         if h.len() > 3 {
-            out = out.replace(&h, "<home>");
-            out = out.replace(&h.replace('\\', "/"), "<home>");
+            out = out.replace(&h, "~");
+            out = out.replace(&h.replace('\\', "/"), "~");
         }
     }
-    if let Some(u) = user_name()
-        && u.len() >= 3
-    {
-        for (a, b) in [
-            (format!("\\Users\\{u}"), "\\Users\\<user>".to_string()),
-            (format!("/Users/{u}"), "/Users/<user>".to_string()),
-            (format!("/home/{u}"), "/home/<user>".to_string()),
-        ] {
-            out = out.replace(&a, &b);
-        }
+    out = scrub_windows_paths(&out);
+    out = scrub_home_folders(&out);
+    if let Some(u) = user.filter(|u| u.len() >= 3) {
+        out = replace_word(&out, &u, "<user>");
+    }
+    if let Some(h) = host.filter(|h| h.len() >= 3) {
+        out = replace_word(&out, &h, "<host>");
     }
     out = scrub_secrets(&out);
     out = scrub_steam_ids(&out);
     out = scrub_ipv4(&out);
+    out = scrub_ipv6(&out);
     out = scrub_mac(&out);
+    out
+}
+
+/// Replaces `word` where it isn't part of a longer word (any case).
+fn replace_word(s: &str, word: &str, with: &str) -> String {
+    let lower = s.to_lowercase();
+    let w = word.to_lowercase();
+    // Lower-casing can change byte lengths for some letters; skip then.
+    if lower.len() != s.len() || w.len() != word.len() {
+        return s.replace(word, with);
+    }
+    let is_word = |c: Option<char>| c.map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false);
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while let Some(k) = lower[i..].find(&w) {
+        let a = i + k;
+        let b = a + w.len();
+        let before = s[..a].chars().next_back();
+        let after = s[b..].chars().next();
+        out.push_str(&s[i..a]);
+        if is_word(before) || is_word(after) {
+            out.push_str(&s[a..b]);
+        } else {
+            out.push_str(with);
+        }
+        i = b;
+    }
+    out.push_str(&s[i..]);
+    out
+}
+
+/// `/home/<name>` and `/Users/<name>` for any name (another account, a mounted drive).
+fn scrub_home_folders(s: &str) -> String {
+    let mut out = s.to_string();
+    for prefix in ["/home/", "/Users/"] {
+        let mut res = String::with_capacity(out.len());
+        let mut rest = out.as_str();
+        while let Some(k) = rest.find(prefix) {
+            let (head, tail) = rest.split_at(k + prefix.len());
+            res.push_str(head);
+            let end = tail
+                .find(|c: char| {
+                    c == '/' || c == '\\' || c.is_whitespace() || "\"'`,;:)]}".contains(c)
+                })
+                .unwrap_or(tail.len());
+            let name = &tail[..end];
+            if name.is_empty() || name.starts_with('<') {
+                res.push_str(name);
+            } else {
+                res.push_str("<user>");
+            }
+            rest = &tail[end..];
+        }
+        res.push_str(rest);
+        out = res;
+    }
+    out
+}
+
+/// Wine/Proton and Windows paths: `Z:\\home\\name\\…` → `~\\…`, `C:\\Users\\name` → `C:\\Users\\<user>`.
+fn scrub_windows_paths(s: &str) -> String {
+    let b = s.as_bytes();
+    let stop = |c: char| c == '\\' || c == '/' || c.is_whitespace() || "\"'`,;".contains(c);
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < b.len() {
+        let drive = b[i].is_ascii_alphabetic()
+            && i + 2 < b.len()
+            && b[i + 1] == b':'
+            && (b[i + 2] == b'\\' || b[i + 2] == b'/')
+            && (i == 0 || !b[i - 1].is_ascii_alphanumeric());
+        if drive {
+            let sep = b[i + 2] as char;
+            let rest = &s[i + 3..];
+            let mut done = false;
+            for (dir, is_home) in [("home", true), ("users", false)] {
+                let matches = rest.len() > dir.len()
+                    && rest[..dir.len()].eq_ignore_ascii_case(dir)
+                    && rest[dir.len()..].starts_with(sep);
+                if !matches {
+                    continue;
+                }
+                let after = &rest[dir.len() + 1..];
+                let end = after.find(stop).unwrap_or(after.len());
+                if end == 0 || after.starts_with('<') {
+                    continue;
+                }
+                if is_home {
+                    out.push('~');
+                } else {
+                    out.push_str(&s[i..i + 3 + dir.len() + 1]);
+                    out.push_str("<user>");
+                }
+                i += 3 + dir.len() + 1 + end;
+                done = true;
+                break;
+            }
+            if done {
+                continue;
+            }
+        }
+        let ch = s[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
     out
 }
 
@@ -153,7 +386,7 @@ pub fn scrub_steam_ids(s: &str) -> String {
                 j += 1;
             }
             out.push_str(&s[i..i + 9]);
-            out.push_str("<id>");
+            out.push_str("<steamid>");
             i = j;
             continue;
         }
@@ -163,7 +396,7 @@ pub fn scrub_steam_ids(s: &str) -> String {
                 j += 1;
             }
             if j - i == 17 && s[i..].starts_with("7656119") {
-                out.push_str("<steam id>");
+                out.push_str("<steamid>");
                 i = j;
                 continue;
             }
@@ -187,8 +420,12 @@ fn scrub_secrets(s: &str) -> String {
         "token",
         "stream_key",
         "streamkey",
+        "stream key",
+        "api_key",
+        "apikey",
         "secret",
         "authentication",
+        "authorization",
     ];
     let mut lines = Vec::new();
     for line in s.lines() {
@@ -200,9 +437,9 @@ fn scrub_secrets(s: &str) -> String {
             })
             .unwrap_or(false);
         if let (true, Some(c)) = (is_secret, cut) {
-            lines.push(format!("{}{} <removed>", &line[..c], &line[c..c + 1]));
+            lines.push(format!("{}{} <secret>", &line[..c], &line[c..c + 1]));
         } else {
-            lines.push(line.to_string());
+            lines.push(scrub_inline_secrets(line));
         }
     }
     let mut r = lines.join("\n");
@@ -212,14 +449,47 @@ fn scrub_secrets(s: &str) -> String {
     r
 }
 
+/// Secrets inside a line: Twitch-style `live_…` keys and `Bearer …` tokens.
+fn scrub_inline_secrets(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    loop {
+        let live = rest.find("live_");
+        let bearer = rest.find("Bearer ");
+        let (k, skip) = match (live, bearer) {
+            (Some(a), Some(b)) if b < a => (b, 7),
+            (Some(a), _) => (a, 0),
+            (None, Some(b)) => (b, 7),
+            (None, None) => break,
+        };
+        let start = k + skip;
+        let tail = &rest[start..];
+        let end = tail
+            .find(|c: char| !(c.is_ascii_alphanumeric() || "_-.=+/".contains(c)))
+            .unwrap_or(tail.len());
+        let word_start = k == 0 || !rest[..k].ends_with(|c: char| c.is_ascii_alphanumeric());
+        // Long enough to be a real key, not the word "live_" in a setting name.
+        if word_start && end >= 16 {
+            out.push_str(&rest[..start]);
+            out.push_str("<secret>");
+        } else {
+            out.push_str(&rest[..start + end.max(1)]);
+        }
+        rest = &rest[start + end.max(1)..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn scrub_ipv4(s: &str) -> String {
     let bytes: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len());
     let mut i = 0;
     while i < bytes.len() {
         // try to match d{1,3}(.d{1,3}){3}
+        // After a letter, '.', '=', '-' or '_' it's a version (v1.2.3.4, ==0.10.0.1, py-0.11.0.1).
         if bytes[i].is_ascii_digit()
-            && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != '.')
+            && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && !".=-_".contains(bytes[i - 1]))
         {
             let mut j = i;
             let mut parts = 0;
@@ -257,16 +527,57 @@ fn scrub_ipv4(s: &str) -> String {
             let next_ok = j >= bytes.len() || !(bytes[j].is_ascii_digit() || bytes[j] == '.');
             if ok && parts == 4 && next_ok {
                 let ip: String = bytes[i..j].iter().collect();
-                if ip == "127.0.0.1" || ip == "0.0.0.0" {
+                // 0.x.x.x isn't a real address, so it's a version number.
+                if ip == "127.0.0.1" || ip.starts_with("0.") {
                     out.push_str(&ip);
                 } else {
-                    out.push_str("<ip-address>");
+                    out.push_str("<ip>");
                 }
                 i = j;
                 continue;
             }
         }
         out.push(bytes[i]);
+        i += 1;
+    }
+    out
+}
+
+/// IPv6 addresses: hex groups with "::" or at least 5 colons, standing on their own.
+/// Times (12:34:56), Rust paths (fleet::add) and MAC addresses don't match.
+fn scrub_ipv6(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let part = |c: char| c.is_ascii_hexdigit() || c == ':';
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if part(chars[i]) && (i == 0 || !(word(chars[i - 1]) || chars[i - 1] == ':')) {
+            let mut j = i;
+            while j < chars.len() && part(chars[j]) {
+                j += 1;
+            }
+            let bounded = j == chars.len() || !word(chars[j]);
+            let t: String = chars[i..j].iter().collect();
+            let colons = t.matches(':').count();
+            let groups: Vec<&str> = t.split(':').collect();
+            let groups_ok = groups.iter().all(|g| g.len() <= 4);
+            let filled = groups.iter().filter(|g| !g.is_empty()).count();
+            let mac = colons == 5 && groups.iter().all(|g| g.len() == 2);
+            let looks = groups_ok
+                && !mac
+                && t != "::1"
+                && ((t.contains("::") && filled >= 2) || colons >= 5);
+            if bounded && looks {
+                out.push_str("<ip>");
+                i = j;
+                continue;
+            }
+            out.extend(&chars[i..j]);
+            i = j;
+            continue;
+        }
+        out.push(chars[i]);
         i += 1;
     }
     out
@@ -287,7 +598,7 @@ fn scrub_mac(s: &str) -> String {
                 }
             }) && cand[2] == cand[5];
             if is_mac {
-                out.push_str("<mac-address>");
+                out.push_str("<mac>");
                 i += 17;
                 continue;
             }
@@ -328,6 +639,7 @@ pub fn fmt_bytes(b: u64) -> String {
 /// The app used to be called "Stream Pre-Flight Check". The first time the new
 /// name runs, its settings, saved password, history and stream summaries are
 /// moved over so nothing is lost. Only ever Preflight's own folders.
+#[cfg(not(target_os = "linux"))]
 fn migrate_old_folders(new: &Option<directories::ProjectDirs>) {
     let Some(new) = new else { return };
     let Some(old) = directories::ProjectDirs::from("", "", "StreamPreFlightCheck") else {
@@ -381,11 +693,74 @@ mod tests {
     fn scrubs_ip_and_mac_and_secrets() {
         let s = "connect 192.168.1.20 ok; mac aa:bb:cc:dd:ee:ff\npassword=hunter2\n\"stream_key\": \"live_abc\"\n\"key\": \"FrameRateLimit\"\nversion 1.2.3";
         let r = scrub(s);
-        assert!(r.contains("<ip-address>"));
-        assert!(r.contains("<mac-address>"));
+        assert!(r.contains("<ip>"));
+        assert!(r.contains("<mac>"));
+        assert!(r.contains("password= <secret>"));
         assert!(!r.contains("hunter2"));
         assert!(r.contains("version 1.2.3"));
         assert!(!r.contains("live_abc"));
         assert!(r.contains("FrameRateLimit"));
+    }
+
+    fn sc(s: &str) -> String {
+        scrub_with(
+            s,
+            Some(PathBuf::from("/home/jordan")),
+            Some("jordan".into()),
+            Some("battlestation".into()),
+        )
+    }
+
+    #[test]
+    fn standard_placeholders() {
+        assert_eq!(sc("/home/jordan/.config/obs"), "~/.config/obs");
+        assert_eq!(
+            sc("signed in as jordan on battlestation"),
+            "signed in as <user> on <host>"
+        );
+        // Part of a longer word stays.
+        assert_eq!(sc("jordansoft battlestations"), "jordansoft battlestations");
+        assert_eq!(sc("/home/guest/Videos"), "/home/<user>/Videos");
+        assert_eq!(sc("/Users/sam/Movies"), "/Users/<user>/Movies");
+        assert_eq!(
+            sc("Z:\\home\\jordan\\Games\\x.ini and Z:\\home\\other\\y"),
+            "~\\Games\\x.ini and ~\\y"
+        );
+        assert_eq!(
+            sc("C:\\Users\\steamuser\\AppData"),
+            "C:\\Users\\<user>\\AppData"
+        );
+        assert_eq!(sc("D:\\Games\\Cyberpunk"), "D:\\Games\\Cyberpunk");
+        assert_eq!(sc("id 76561198012345678 app 730"), "id <steamid> app 730");
+        assert_eq!(sc("userdata/12345678/730"), "userdata/<steamid>/730");
+        assert_eq!(
+            sc("from 10.0.0.5 and fe80::1ff:fe23:4567:890a"),
+            "from <ip> and <ip>"
+        );
+        assert_eq!(sc("mac 3c:7c:3f:aa:01:02"), "mac <mac>");
+        assert_eq!(sc("Authorization: Bearer abc"), "Authorization: <secret>");
+        assert_eq!(
+            sc("rtmp://live.twitch.tv/app/live_123456789_AbCdEfGhIjKlMnOp ok"),
+            "rtmp://live.twitch.tv/app/<secret> ok"
+        );
+    }
+
+    #[test]
+    fn leaves_versions_times_and_code_alone() {
+        for keep in [
+            "shellcheck-py 0.11.0.1",
+            "shellcheck-py==0.11.0.1",
+            "version v1.2.3.4",
+            "build 0.10.0.2",
+            "at 14:22:01.123",
+            "fleet::add and crate::util::scrub",
+            "ratio 16:9",
+            "localhost 127.0.0.1",
+            "live_view = true",
+            "\"key\": \"FrameRateLimit\"",
+            "Steam app 1172470",
+        ] {
+            assert_eq!(sc(keep), keep);
+        }
     }
 }

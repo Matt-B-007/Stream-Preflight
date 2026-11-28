@@ -612,14 +612,56 @@ pub fn file_name(id: &str) -> String {
 }
 
 /// Writes the included sections to a plain text file in the reports folder.
-pub fn save(sections: &[Section], id: &str) -> Result<std::path::PathBuf, String> {
-    let path = crate::util::dirs().reports.join(file_name(id));
-    let mut text = format!(
-        "Stream Preflight bug report\nReport ID: {id}\nCreated: {}\nApp: {} {} ({})\n\n",
-        crate::util::now_local(),
+/// The report header, the same fields in every app.
+pub fn header() -> String {
+    let channel = if crate::update::is_beta_version(crate::util::VERSION) {
+        "Beta"
+    } else {
+        "Stable"
+    };
+    let install = match std::env::current_exe().ok() {
+        Some(p) if p.starts_with("/usr") || p.starts_with("/opt") => "package manager",
+        Some(p) if p.to_string_lossy().contains("/.local/bin/") => {
+            "one-line installer (~/.local/bin)"
+        }
+        Some(p) if p.to_string_lossy().contains("/target/") => "built from source",
+        Some(_) => "run from a folder",
+        None => "unknown",
+    };
+    let distro = std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|t| {
+            t.lines()
+                .find_map(|l| l.strip_prefix("PRETTY_NAME="))
+                .map(|v| v.trim_matches('"').to_string())
+        })
+        .unwrap_or_else(|| std::env::consts::OS.to_string());
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "unknown".into());
+    let session = match std::env::var("XDG_SESSION_TYPE").ok().as_deref() {
+        Some("wayland") => "Wayland".to_string(),
+        Some("x11") => "X11".to_string(),
+        Some(o) if !o.is_empty() => o.to_string(),
+        _ if std::env::var_os("WAYLAND_DISPLAY").is_some() => "Wayland".into(),
+        _ if std::env::var_os("DISPLAY").is_some() => "X11".into(),
+        _ => "unknown".into(),
+    };
+    let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|k| k.trim().to_string())
+        .unwrap_or_else(|_| "unknown".into());
+    crate::util::scrub(&format!(
+        "App: {}\nVersion: {} ({})\nChannel: {channel}\nInstall type: {install}\nDistro: {distro}\nDesktop: {desktop}\nSession: {session}\nKernel: {kernel}\n",
         crate::util::APP_NAME,
         crate::util::VERSION,
-        crate::util::BUILD_LABEL
+        crate::util::BUILD_LABEL,
+    ))
+}
+
+/// The whole report as text (what's saved, copied and shown in the preview).
+pub fn render(sections: &[Section], id: &str) -> String {
+    let mut text = format!(
+        "Stream Preflight bug report\nReport ID: {id}\nCreated: {}\n{}\n",
+        crate::util::now_local(),
+        header()
     );
     for s in sections.iter().filter(|s| s.include) {
         text.push_str(&format!("===== {} =====\n{}\n\n", s.title, s.content));
@@ -635,7 +677,13 @@ pub fn save(sections: &[Section], id: &str) -> Result<std::path::PathBuf, String
             removed.join(", ")
         ));
     }
-    std::fs::write(&path, text.as_bytes()).map_err(|e| e.to_string())?;
+    text
+}
+
+pub fn save(sections: &[Section], id: &str) -> Result<std::path::PathBuf, String> {
+    let path = crate::util::dirs().reports.join(file_name(id));
+    let text = render(sections, id);
+    crate::config::write_atomic(&path, text.as_bytes()).map_err(|e| e.to_string())?;
     // Crash files that are now in a report don't need to be offered again.
     if sections.iter().any(|s| s.id == "crash" && s.include) {
         for p in crate::logger::pending_crashes() {

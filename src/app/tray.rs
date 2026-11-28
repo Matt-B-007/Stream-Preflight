@@ -111,12 +111,12 @@ impl App {
                 "OBS not connected".to_string(),
             )
         };
-        let attention = self.flag_question
-            || (self.st.bandwidth_test_pending
-                && !measuring
-                && self.live.is_none()
-                && self.test_handle.is_none())
-            || self.fail_banner.is_some()
+        // Red dot: something is wrong. Amber dot: something needs you.
+        let problem = self.flag_question || self.fail_banner.is_some();
+        let attention = (self.st.bandwidth_test_pending
+            && !measuring
+            && self.live.is_none()
+            && self.test_handle.is_none())
             || (self.hidden && self.stream_notice.is_some());
         let status = if self.flag_question {
             "Needs you: is this a real stream?".to_string()
@@ -129,6 +129,7 @@ impl App {
             t.set(crate::tray::TrayView {
                 state,
                 attention,
+                problem,
                 status,
             });
         }
